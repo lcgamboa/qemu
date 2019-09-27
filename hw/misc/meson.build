@@ -126,6 +126,7 @@ softmmu_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files(
   'esp32_dport.c',
 <<<<<<< HEAD
   'esp32_rng.c',
+<<<<<<< HEAD
   'esp32_rsa.c',
   'esp32_rtc_cntl.c',
   'esp32_sha.c',
@@ -139,6 +140,9 @@ softmmu_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files(
   'esp32_wifi_ap.c',
   'esp32_wlan_packet.c'
 
+=======
+  'esp32_rtc_cntl.c',
+>>>>>>> 501a1d34f7 (hw/misc: ESP32 RTC controller)
 ))
 
 <<<<<<< HEAD
