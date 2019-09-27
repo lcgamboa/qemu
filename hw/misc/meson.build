@@ -124,6 +124,7 @@ softmmu_ss.add(when: 'CONFIG_NRF51_SOC', if_true: files('nrf51_rng.c'))
 softmmu_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files(
   'esp32_crosscore_int.c',
   'esp32_dport.c',
+<<<<<<< HEAD
   'esp32_rng.c',
   'esp32_rsa.c',
   'esp32_rtc_cntl.c',
@@ -143,6 +144,9 @@ softmmu_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files(
 if 'CONFIG_GCRYPT' in config_host
   softmmu_ss.add(gcrypt)
 endif
+=======
+))
+>>>>>>> 5a17a564c5 (hw/misc: add ESP32 DPORT peripheral, cache, cross-core interrupt)
 
 softmmu_ss.add(when: 'CONFIG_GRLIB', if_true: files('grlib_ahb_apb_pnp.c'))
 
