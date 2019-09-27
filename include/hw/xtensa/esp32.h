@@ -1,7 +1,10 @@
 #pragma once
 
 #include "qemu/osdep.h"
+<<<<<<< HEAD
 #include "qemu-common.h"
+=======
+>>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
 #include "hw/hw.h"
 #include "target/xtensa/cpu.h"
 #include "hw/misc/esp32_reg.h"
@@ -11,17 +14,25 @@
 #include "hw/misc/esp32_rtc_cntl.h"
 #include "hw/misc/esp32_rng.h"
 #include "hw/misc/esp32_sha.h"
+<<<<<<< HEAD
+=======
+#include "hw/misc/esp32_aes.h"
+#include "hw/misc/esp32_ledc.h"
+>>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
 #include "hw/misc/esp32_rsa.h"
 #include "hw/timer/esp32_frc_timer.h"
 #include "hw/timer/esp32_timg.h"
 #include "hw/misc/esp32_crosscore_int.h"
 #include "hw/ssi/esp32_spi.h"
+<<<<<<< HEAD
 #include "hw/misc/esp32_sens.h"
 #include "hw/misc/esp32_ana.h"
 #include "hw/ssi/esp32_rmt.h"
 #include "hw/misc/esp32_wifi.h"
 #include "hw/misc/esp32_fe.h"
 #include "hw/misc/esp32_ramdev.h"
+=======
+>>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
 #include "hw/i2c/esp32_i2c.h"
 #include "hw/nvram/esp32_efuse.h"
 #include "hw/xtensa/esp32_intc.h"
@@ -46,6 +57,7 @@ typedef struct Esp32SocState {
     Esp32SpiState spi[ESP32_SPI_COUNT];
     Esp32I2CState i2c[ESP32_I2C_COUNT];
     Esp32ShaState sha;
+<<<<<<< HEAD
     Esp32RsaState rsa;
     Esp32EfuseState efuse;
     Esp32SensState sens;
@@ -59,6 +71,15 @@ typedef struct Esp32SocState {
     DWCSDMMCState sdmmc;
     DeviceState *eth;
     DeviceState *wifi_dev;
+=======
+    Esp32AesState aes;
+    Esp32RsaState rsa;
+    Esp32LEDCState ledc;
+    Esp32EfuseState efuse;
+    Esp32FlashEncryptionState flash_enc;
+    DWCSDMMCState sdmmc;
+    DeviceState *eth;
+>>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
 
     BusState rtc_bus;
     BusState periph_bus;
