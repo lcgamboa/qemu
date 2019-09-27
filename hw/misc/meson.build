@@ -130,6 +130,7 @@ softmmu_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files(
   'esp32_rsa.c',
   'esp32_rtc_cntl.c',
   'esp32_sha.c',
+<<<<<<< HEAD
   'esp32_flash_enc.c',
   'ssi_psram.c',
   'esp32_sens.c',
@@ -143,6 +144,8 @@ softmmu_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files(
 =======
   'esp32_rtc_cntl.c',
 >>>>>>> 501a1d34f7 (hw/misc: ESP32 RTC controller)
+=======
+>>>>>>> 4592233cac (hw/misc: add ESP32 SHA)
 ))
 
 <<<<<<< HEAD

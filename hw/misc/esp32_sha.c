@@ -21,6 +21,7 @@
 
 #define ESP32_SHA_REGS_SIZE (A_SHA512_BUSY + 4)
 
+<<<<<<< HEAD
 /* QEMU hash API includes only the "qcrypto_hash_bytes" function which takes
  * bytes as input, and calculates the digest. It doesn't allow "updating"
  * the state multiple times with blocks of input. Therefore we collect all
@@ -28,6 +29,8 @@
  * we call "qcrypto_hash_bytes" to get the digest.
  */
 
+=======
+>>>>>>> 4592233cac (hw/misc: add ESP32 SHA)
 static void esp32_sha_text_reg_byteswap_to(Esp32ShaState* s, uint32_t* dst, size_t len_words)
 {
     for (int i = 0; i < len_words; ++i) {
@@ -35,6 +38,7 @@ static void esp32_sha_text_reg_byteswap_to(Esp32ShaState* s, uint32_t* dst, size
     }
 }
 
+<<<<<<< HEAD
 
 static inline QCryptoHashAlgorithm algorithm_for_addr(hwaddr reg_addr)
 {
@@ -101,6 +105,8 @@ static void esp32_sha_finish(Esp32ShaState *s, QCryptoHashAlgorithm hash_alg)
     }
 }
 
+=======
+>>>>>>> 4592233cac (hw/misc: add ESP32 SHA)
 static uint64_t esp32_sha_read(void *opaque, hwaddr addr, unsigned int size)
 {
     Esp32ShaState *s = ESP32_SHA(opaque);
@@ -122,6 +128,7 @@ static void esp32_sha_write(void *opaque, hwaddr addr,
         s->text[addr / sizeof(uint32_t)] = value;
         break;
     case A_SHA1_START:
+<<<<<<< HEAD
     case A_SHA256_START:
     case A_SHA384_START:
     case A_SHA512_START:
@@ -138,6 +145,56 @@ static void esp32_sha_write(void *opaque, hwaddr addr,
     case A_SHA384_LOAD:
     case A_SHA512_LOAD:
         esp32_sha_finish(s, algorithm_for_addr(addr));
+=======
+        sha1_init(&s->sha1);
+        esp32_sha_text_reg_byteswap_to(s, (uint32_t *) s->text, 16);
+        sha1_compress((uint32_t *)&s->sha1.state, (unsigned char *)s->text);
+        break;
+    case A_SHA256_START:
+        sha256_init(&s->sha256);
+        esp32_sha_text_reg_byteswap_to(s, (uint32_t *) s->text, 16);
+        sha256_compress(&s->sha256, (unsigned char *)s->text);
+        break;
+    case A_SHA384_START:
+        sha384_init(&s->sha512);
+        esp32_sha_text_reg_byteswap_to(s, (uint32_t *) s->text, 32);
+        sha512_compress(&s->sha512, (unsigned char *)s->text);
+        break;
+    case A_SHA512_START:
+        sha512_init(&s->sha512);
+        esp32_sha_text_reg_byteswap_to(s, (uint32_t *) s->text, 32);
+        sha512_compress(&s->sha512, (unsigned char *)s->text);
+        break;
+    case A_SHA1_CONTINUE:
+        esp32_sha_text_reg_byteswap_to(s, (uint32_t *) s->text, 16);
+        sha1_compress((uint32_t *)&s->sha1.state, (unsigned char *)s->text);
+        break;
+    case A_SHA256_CONTINUE:
+        esp32_sha_text_reg_byteswap_to(s, (uint32_t *) s->text, 16);
+        sha256_compress(&s->sha256, (unsigned char *)s->text);
+        break;
+    case A_SHA384_CONTINUE:
+    case A_SHA512_CONTINUE:
+        esp32_sha_text_reg_byteswap_to(s, (uint32_t *) s->text, 32);
+        sha512_compress(&s->sha512, (unsigned char *)s->text);
+        break;
+    case A_SHA1_LOAD:
+        for (int i = 0; i < 5; i++) {
+            s->text[i] = s->sha1.state[i];
+        }
+        break;
+    case A_SHA256_LOAD:
+        for (int i = 0; i < 8; i++) {
+            s->text[i] = s->sha256.state[i];
+        }
+        break;
+    case A_SHA384_LOAD:
+    case A_SHA512_LOAD:
+        for (int i = 0; i < 8; i++) {
+            s->text[i * 2] = (uint32_t)(s->sha512.state[i] >> 32);
+            s->text[1 + (i * 2)] = (uint32_t)(s->sha512.state[i] & 0xffffffff);
+        }
+>>>>>>> 4592233cac (hw/misc: add ESP32 SHA)
         break;
     }
 }
@@ -148,12 +205,15 @@ static const MemoryRegionOps esp32_sha_ops = {
     .endianness = DEVICE_LITTLE_ENDIAN,
 };
 
+<<<<<<< HEAD
 static void esp32_sha_reset(DeviceState *dev)
 {
     Esp32ShaState *s = ESP32_SHA(dev);
     esp32_sha_cleanup(s);
 }
 
+=======
+>>>>>>> 4592233cac (hw/misc: add ESP32 SHA)
 static void esp32_sha_init(Object *obj)
 {
     Esp32ShaState *s = ESP32_SHA(obj);
@@ -164,6 +224,7 @@ static void esp32_sha_init(Object *obj)
     sysbus_init_mmio(sbd, &s->iomem);
 }
 
+<<<<<<< HEAD
 static void esp32_sha_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
@@ -171,12 +232,17 @@ static void esp32_sha_class_init(ObjectClass *klass, void *data)
     dc->reset = esp32_sha_reset;
 }
 
+=======
+>>>>>>> 4592233cac (hw/misc: add ESP32 SHA)
 static const TypeInfo esp32_sha_info = {
     .name = TYPE_ESP32_SHA,
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(Esp32ShaState),
     .instance_init = esp32_sha_init,
+<<<<<<< HEAD
     .class_init = esp32_sha_class_init
+=======
+>>>>>>> 4592233cac (hw/misc: add ESP32 SHA)
 };
 
 static void esp32_sha_register_types(void)
