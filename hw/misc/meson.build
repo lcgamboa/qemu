@@ -141,12 +141,20 @@ softmmu_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files(
 
 ))
 
+<<<<<<< HEAD
 if 'CONFIG_GCRYPT' in config_host
   softmmu_ss.add(gcrypt)
 endif
 =======
 ))
 >>>>>>> 5a17a564c5 (hw/misc: add ESP32 DPORT peripheral, cache, cross-core interrupt)
+=======
+if gcrypt.found()
+  softmmu_ss.add(when: [gcrypt, 'CONFIG_XTENSA_ESP32'], if_true: files(
+    'esp32_rsa.c',
+  ))
+endif
+>>>>>>> 0adc8a203a (hw/misc: add ESP32 RSA)
 
 softmmu_ss.add(when: 'CONFIG_GRLIB', if_true: files('grlib_ahb_apb_pnp.c'))
 
