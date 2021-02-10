@@ -114,6 +114,7 @@ static void esp32_flash_encryption_key_tweak(struct Esp32FlashEncryptionState *s
     }
 }
 
+<<<<<<< HEAD
 static void reverse_byte_order(const uint32_t* block_src, uint32_t* block_dst)
 {
     assert( block_src != block_dst );
@@ -121,12 +122,28 @@ static void reverse_byte_order(const uint32_t* block_src, uint32_t* block_dst)
     uint8_t* dst = (uint8_t*) block_dst;
     for (size_t i = 0; i < FLASH_ENCRYPTION_DATA_WORDS * 4; ++i){
         dst[i] = src[FLASH_ENCRYPTION_DATA_WORDS * 4 - i - 1];
+=======
+static void reverse_key_byte_order(const uint32_t* src, uint32_t* dst)
+{
+    assert( src != dst );
+    for (size_t i = 0; i < FLASH_ENCRYPTION_KEY_WORDS; ++i) {
+        dst[i] = bswap32(src[FLASH_ENCRYPTION_KEY_WORDS - i - 1]);
+    }
+}
+
+static void reverse_data_byte_order(const uint32_t* src, uint32_t* dst)
+{
+    assert( src != dst );
+    for (size_t i = 0; i < FLASH_ENCRYPTION_DATA_WORDS; ++i) {
+        dst[i] = bswap32(src[FLASH_ENCRYPTION_DATA_WORDS - i - 1]);
+>>>>>>> 7325225ea9 (hw/misc: add ESP32 flash encryption module)
     }
 }
 
 static void esp32_flash_encryption_op(struct Esp32FlashEncryptionState *s)
 {
     uint32_t tweaked_key[FLASH_ENCRYPTION_KEY_WORDS];
+<<<<<<< HEAD
     uint32_t reversed_input[FLASH_ENCRYPTION_DATA_WORDS];
     uint32_t encrypted_data[FLASH_ENCRYPTION_DATA_WORDS];
     memset(s->encrypted_buffer, 0, sizeof(s->encrypted_buffer));
@@ -136,6 +153,20 @@ static void esp32_flash_encryption_op(struct Esp32FlashEncryptionState *s)
         reverse_byte_order(s->buffer_reg + total_words, reversed_input);
         qcrypto_cipher_decrypt(cipher, reversed_input, encrypted_data, sizeof(s->buffer_reg), &error_abort);
         reverse_byte_order(encrypted_data, s->encrypted_buffer + total_words);
+=======
+    uint32_t reversed_key[FLASH_ENCRYPTION_KEY_WORDS];
+    uint32_t reversed_data[FLASH_ENCRYPTION_DATA_WORDS];
+    uint32_t encrypted_data[FLASH_ENCRYPTION_DATA_WORDS];
+
+    memset(s->encrypted_buffer, 0, sizeof(s->encrypted_buffer));
+    reverse_key_byte_order(s->efuse_key, reversed_key);
+    esp32_flash_encryption_key_tweak(s, s->address_reg, reversed_key, tweaked_key);
+    QCryptoCipher *cipher = qcrypto_cipher_new(QCRYPTO_CIPHER_ALG_AES_256, QCRYPTO_CIPHER_MODE_ECB, (const uint8_t*) tweaked_key, FLASH_ENCRYPTION_KEY_WORDS * 4, &error_abort);
+    for (size_t total_words = 0; total_words < ARRAY_SIZE(s->buffer_reg); total_words += FLASH_ENCRYPTION_DATA_WORDS) {
+        reverse_data_byte_order(s->buffer_reg + total_words, reversed_data);
+        qcrypto_cipher_decrypt(cipher, reversed_data, encrypted_data, sizeof(s->buffer_reg), &error_abort);
+        reverse_data_byte_order(encrypted_data, s->encrypted_buffer + total_words);
+>>>>>>> 7325225ea9 (hw/misc: add ESP32 flash encryption module)
     }
     qcrypto_cipher_free(cipher);
 }
@@ -151,6 +182,7 @@ void esp32_flash_decrypt_inplace(struct Esp32FlashEncryptionState* s, size_t fla
     assert(flash_addr % 32 == 0);
     assert(words % FLASH_ENCRYPTION_DATA_WORDS == 0);
     uint32_t tweaked_key[FLASH_ENCRYPTION_KEY_WORDS];
+<<<<<<< HEAD
     uint32_t reversed_input[FLASH_ENCRYPTION_DATA_WORDS];
     uint32_t decrypted_data[FLASH_ENCRYPTION_DATA_WORDS];
     for (size_t pos = 0; pos < words; pos += FLASH_ENCRYPTION_DATA_WORDS) {
@@ -160,6 +192,20 @@ void esp32_flash_decrypt_inplace(struct Esp32FlashEncryptionState* s, size_t fla
         reverse_byte_order(data + pos, reversed_input);
         qcrypto_cipher_encrypt(cipher, reversed_input, decrypted_data, sizeof(decrypted_data), &error_abort);
         reverse_byte_order(decrypted_data, data + pos);
+=======
+    uint32_t reversed_key[FLASH_ENCRYPTION_KEY_WORDS];
+    uint32_t reversed_data[FLASH_ENCRYPTION_DATA_WORDS];
+    uint32_t decrypted_data[FLASH_ENCRYPTION_DATA_WORDS];
+
+    reverse_key_byte_order(s->efuse_key, reversed_key);
+    for (size_t pos = 0; pos < words; pos += FLASH_ENCRYPTION_DATA_WORDS) {
+        uint32_t offset = flash_addr + pos * 4;
+        esp32_flash_encryption_key_tweak(s, offset, reversed_key, tweaked_key);
+        QCryptoCipher *cipher = qcrypto_cipher_new(QCRYPTO_CIPHER_ALG_AES_256, QCRYPTO_CIPHER_MODE_ECB, (const uint8_t*) tweaked_key, FLASH_ENCRYPTION_KEY_WORDS * 4, &error_abort);
+        reverse_data_byte_order(data + pos, reversed_data);
+        qcrypto_cipher_encrypt(cipher, reversed_data, decrypted_data, sizeof(decrypted_data), &error_abort);
+        reverse_data_byte_order(decrypted_data, data + pos);
+>>>>>>> 7325225ea9 (hw/misc: add ESP32 flash encryption module)
         qcrypto_cipher_free(cipher);
     }
 }

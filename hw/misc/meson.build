@@ -149,7 +149,11 @@ softmmu_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files(
 >>>>>>> 4592233cac (hw/misc: add ESP32 SHA)
 =======
   'esp32_aes.c',
+<<<<<<< HEAD
 >>>>>>> b112f2b256 (hw/misc: add ESP32 AES)
+=======
+  'esp32_flash_enc.c',
+>>>>>>> 7325225ea9 (hw/misc: add ESP32 flash encryption module)
 ))
 
 <<<<<<< HEAD
