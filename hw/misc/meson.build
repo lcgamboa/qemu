@@ -138,6 +138,7 @@ softmmu_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files(
   'esp32_ledc.c',
 >>>>>>> 1e924cc532 (hw/misc: Add ESP32 LEDC)
   'esp32_flash_enc.c',
+<<<<<<< HEAD
   'ssi_psram.c',
   'esp32_sens.c',
   'esp32_ana.c',
@@ -159,6 +160,9 @@ softmmu_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files(
 =======
   'esp32_flash_enc.c',
 >>>>>>> 7325225ea9 (hw/misc: add ESP32 flash encryption module)
+=======
+  'ssi_psram.c'
+>>>>>>> 4d1362ea0f (hw/misc: add simple PSRAM emulation)
 ))
 
 <<<<<<< HEAD
