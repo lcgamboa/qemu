@@ -293,7 +293,11 @@ static size_t dwc_sdmmc_handle_one_desc(DWCSDMMCState *s, hwaddr desc_addr, sdmm
     uint8_t buf[4096];
 
     /* Read descriptor */
+<<<<<<< HEAD
     dma_memory_read(&address_space_memory, desc_addr, desc, sizeof(*desc));
+=======
+    dma_memory_read(&address_space_memory, desc_addr, desc, sizeof(*desc), MEMTXATTRS_UNSPECIFIED);
+>>>>>>> 4d57f2e06a (hw/sd: add emulation of designware sdmmc controller)
     if (desc->buffer1_size < num_bytes) {
         num_bytes = desc->buffer1_size;
     }
@@ -314,7 +318,11 @@ static size_t dwc_sdmmc_handle_one_desc(DWCSDMMCState *s, hwaddr desc_addr, sdmm
         if (is_write) {
             dma_memory_read(&address_space_memory,
                             desc->buffer1_ptr + num_done,
+<<<<<<< HEAD
                             buf, buf_bytes);
+=======
+                            buf, buf_bytes, MEMTXATTRS_UNSPECIFIED);
+>>>>>>> 4d57f2e06a (hw/sd: add emulation of designware sdmmc controller)
             sdbus_write_data(&s->sdbus, buf, buf_bytes);
 
             /* Read from SD bus */
@@ -322,7 +330,11 @@ static size_t dwc_sdmmc_handle_one_desc(DWCSDMMCState *s, hwaddr desc_addr, sdmm
             sdbus_read_data(&s->sdbus, buf, buf_bytes);
             dma_memory_write(&address_space_memory,
                              desc->buffer1_ptr + num_done,
+<<<<<<< HEAD
                              buf, buf_bytes);
+=======
+                             buf, buf_bytes, MEMTXATTRS_UNSPECIFIED);
+>>>>>>> 4d57f2e06a (hw/sd: add emulation of designware sdmmc controller)
         }
         num_done += buf_bytes;
     }
@@ -330,7 +342,11 @@ static size_t dwc_sdmmc_handle_one_desc(DWCSDMMCState *s, hwaddr desc_addr, sdmm
     /* Clear hold flag and flush descriptor */
     sdmmc_desc_t new_desc = *desc;
     new_desc.owned_by_idmac = 0;
+<<<<<<< HEAD
     dma_memory_write(&address_space_memory, desc_addr, &new_desc, sizeof(new_desc));
+=======
+    dma_memory_write(&address_space_memory, desc_addr, &new_desc, sizeof(new_desc), MEMTXATTRS_UNSPECIFIED);
+>>>>>>> 4d57f2e06a (hw/sd: add emulation of designware sdmmc controller)
 
     /* Update DMAC bits */
     s->idsts |= is_write ? SDMMC_IDMAC_INTMASK_TI : SDMMC_IDMAC_INTMASK_RI;
