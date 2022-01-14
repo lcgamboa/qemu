@@ -29,6 +29,7 @@ ENV PACKAGES \
     mingw64-pixman \
     mingw64-SDL2 \
     mingw64-pkg-config \
+    msitools \
     perl \
     perl-Test-Harness \
     python3 \
