@@ -17,6 +17,20 @@ typedef struct Esp32GpioState {
 
     MemoryRegion iomem;
     qemu_irq irq;
+    uint32_t gpio_out;
+    uint32_t gpio_out1;
     uint32_t strap_mode;
+    uint32_t gpio_in;
+    uint32_t gpio_in1;
+    uint32_t gpio_status;
+    uint32_t gpio_status1;
+    uint32_t gpio_pcpu_int;
+    uint32_t gpio_pcpu_int1;
+    uint32_t gpio_acpu_int;
+    uint32_t gpio_acpu_int1;
+    uint32_t gpio_pin[40];
+    qemu_irq gpios[32];
 } Esp32GpioState;
 
+#define ESP32_GPIOS "esp32_gpios"
+#define ESP32_GPIOS_IN "esp32_gpios_in"
