@@ -7,18 +7,18 @@
 #include "hw/sysbus.h"
 #include "hw/misc/esp32_ana.h"
 
-int wifi_channel=0;
+int esp32_wifi_channel=0;
 
 static uint64_t esp32_ana_read(void *opaque, hwaddr addr, unsigned int size)
 {
     Esp32AnaState *s = ESP32_ANA(opaque);
     uint32_t r = s->mem[addr/4];
     switch(addr) {
-        case 4: r=4261412863;
+        case 4: r= 0xFDFFFFFF;
         break;
         case 68:
         case 76:
-        case 196: r=4294967295;
+        case 196: r=0xFFFFFFFF;
         break;
     }
     return r;
@@ -28,12 +28,13 @@ static void esp32_ana_write(void *opaque, hwaddr addr, uint64_t value,
                                  unsigned int size) {
     Esp32AnaState *s = ESP32_ANA(opaque);
     if(addr==196) {
-        
-    //    printf("wifi channel:%d\n",(int)(value&255));
+        //printf("wifi channel:%x %x\n",(int)value, (int)~value);
         int v=value&255;
-        if((v%10)==4) wifi_channel=(v/10)-1;
+        if((v%10)==4) 
+            esp32_wifi_channel=(v/10)-1;
     }
     s->mem[addr/4]=value;
+    //printf("esp32_ana_write %x %x\n",(int)addr,(int)value);
 }
 
 static const MemoryRegionOps esp32_ana_ops = {

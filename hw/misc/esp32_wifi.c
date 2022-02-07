@@ -34,7 +34,7 @@ static uint64_t esp32_wifi_read(void *opaque, hwaddr addr, unsigned int size)
             break;
     }
 
-    if(DEBUG) printf("esp32_wifi_read %ld=%d\n",addr,r);
+    if(DEBUG) printf("esp32_wifi_read %lx=%x\n",addr,r);
 
     return r;
 }
@@ -42,16 +42,15 @@ static void set_interrupt(Esp32WifiState *s,int e) {
     s->raw_interrupt |= e;
     qemu_set_irq(s->irq, 1);
 }
-void Esp32_WLAN_insert_frame(Esp32WifiState *s, struct mac80211_frame *frame);
 
 static void esp32_wifi_write(void *opaque, hwaddr addr, uint64_t value,
                                  unsigned int size) {
     Esp32WifiState *s = ESP32_WIFI(opaque);
-    if(DEBUG) printf("esp32_wifi_write %ld=%ld\n",addr, value);
+    if(DEBUG) printf("esp32_wifi_write %lx=%lx\n",addr, value);
 
     switch (addr) {
         case A_WIFI_DMA_INLINK:
-            s->rxBuffer = value;
+            s->dma_inlink_address = value;
             break;
         case A_WIFI_DMA_INT_CLR:
             s->raw_interrupt &= ~value;
@@ -61,57 +60,65 @@ static void esp32_wifi_write(void *opaque, hwaddr addr, uint64_t value,
         case A_WIFI_DMA_OUTLINK:
             if (value & 0xc0000000) {                        
                 // do a DMA transfer to the hardware from esp32 memory
-                int data = 0;
-                int len;
-                uint8_t *buffer=malloc(sizeof(struct mac80211_frame));
-                int v[3];
-                unsigned addr = (0x3ff00000 | (value & 0xfffff));
-                address_space_read(&address_space_memory, addr,
-                            MEMTXATTRS_UNSPECIFIED, v, 12);
-                len = (v[0]>>12) & 4095;
-                data = v[1];
-                addr = v[2];
-                buffer[0]=0;
-                address_space_read(&address_space_memory, data,
-                            MEMTXATTRS_UNSPECIFIED, buffer, len);
-                struct mac80211_frame *frame=(struct mac80211_frame *)buffer;
+                mac80211_frame frame;
+                dma_list_item item;
+                unsigned memaddr = (0x3ff00000 | (value & 0xfffff));
+                address_space_read(&address_space_memory, memaddr,
+                            MEMTXATTRS_UNSPECIFIED, &item, 12);
+                address_space_read(&address_space_memory, item.address,
+                            MEMTXATTRS_UNSPECIFIED, &frame, item.length);
                 // frame from esp32 to ap
-                frame->frame_length=len-4;
-                frame->next_frame=0;
-                Esp32_WLAN_handle_frame(s, frame);
-                free(buffer);
-                set_interrupt(s,128);
+                frame.frame_length=item.length;
+                frame.next_frame=0;
+                Esp32_WLAN_handle_frame(s, &frame);
+                set_interrupt(s,0x80);
             }
     }
     s->mem[addr/4]=value;
 }
+
+static int match_mac_address(uint8_t *a1,uint8_t *a2) {
+    if(!memcmp(a1,a2,6)) return 1;
+    if(!memcmp(a1,BROADCAST,6)) return 1;
+    return 0;
+}
 // frame from ap to esp32
-void Esp32_sendFrame(Esp32WifiState *s, uint8_t *frame,int length, int signal_strength) {    
-    if(s->rxBuffer==0) {
-        return;
-    }
+void Esp32_sendFrame(Esp32WifiState *s, mac80211_frame *frame,int length, int signal_strength) {    
+    if(s->dma_inlink_address==0) return;
     uint8_t header[28+length];
-    for(int i=0;i<sizeof(header);i++) header[i]=0;
-    header[0]=(signal_strength+(rand()%10)+96) & 255;
-    header[1]=11;
-    header[2]=177;
-    header[3]=16;
-    header[24]=(length + 4)&0xff;
-    header[25]=((length + 4)>>8)&15;
-    for(int i=0;i<length;i++) {
-        header[28+i]=*frame++;
-    }
+    wifi_pkt_rx_ctrl_t *pkt=(wifi_pkt_rx_ctrl_t *)header;
+    *pkt=(wifi_pkt_rx_ctrl_t){
+        .rssi=(signal_strength+(rand()%10)+96),
+        .rate=11,
+        .sig_len=length,
+        .sig_len_copy=length,
+        .legacy_length=length,
+        .noise_floor=-97,
+        .channel=esp32_wifi_channel,
+        .timestamp=qemu_clock_get_ns(QEMU_CLOCK_REALTIME)/1000,
+    };
+    // These 4 bits are set if the mac addresses previously stored at 0x40 and 0x48
+    // match the destination or bssid addresses in the frame
+    if(match_mac_address(frame->destination_address,(uint8_t *)s->mem+0x40)) 
+        pkt->damatch0=1;
+    if(match_mac_address(frame->destination_address,(uint8_t *)s->mem+0x48)) 
+        pkt->damatch1=1;
+    if(match_mac_address(frame->bssid_address,(uint8_t *)s->mem+0x40)) 
+        pkt->bssidmatch0=1;
+    if(match_mac_address(frame->bssid_address,(uint8_t *)s->mem+0x48)) 
+        pkt->bssidmatch1=1;
+    //printf("...%x %x\n",header[3],frame->destination_address[0]);
+
+    memcpy(header+28,frame,length);
     length+=28;
     // do a DMA transfer from the hardware to esp32 memory
-    int v[3];
-    int data;
-    int addr=s->rxBuffer;
-    address_space_read(&address_space_memory, addr, MEMTXATTRS_UNSPECIFIED, v, 12);
-    data = v[1];
-    address_space_write(&address_space_memory, data, MEMTXATTRS_UNSPECIFIED, header, length);
-    v[0]=(v[0]&0xFF000FFF)|(length<<12)|0x40000000;
-    address_space_write(&address_space_memory, addr, MEMTXATTRS_UNSPECIFIED,v,4);
-    s->rxBuffer=v[2];
+    dma_list_item item;
+    address_space_read(&address_space_memory, s->dma_inlink_address, MEMTXATTRS_UNSPECIFIED, &item, 12);
+    address_space_write(&address_space_memory, item.address, MEMTXATTRS_UNSPECIFIED, header, length);
+    item.length=length;
+    item.eof=1;
+    address_space_write(&address_space_memory, s->dma_inlink_address, MEMTXATTRS_UNSPECIFIED,&item,4);
+    s->dma_inlink_address=item.next;
     set_interrupt(s,0x1000024);
 }
 
@@ -125,7 +132,7 @@ static void esp32_wifi_realize(DeviceState *dev, Error **errp)
 {
     Esp32WifiState *s = ESP32_WIFI(dev);
     SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
-    s->rxBuffer=0;
+    s->dma_inlink_address=0;
 
     memory_region_init_io(&s->iomem, OBJECT(dev), &esp32_wifi_ops, s,
                           TYPE_ESP32_WIFI, 0x1000);

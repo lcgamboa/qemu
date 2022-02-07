@@ -40,10 +40,11 @@ static void send_data(Esp32RmtState *s, int channel) {
     }
     for (int i = 0; i < s->txlim[channel] ; i++) {    
         int v=s->data[(i+s->sent)%64+channel*64]; 
-        if(v==0) {
+        if(v==0) { // stop sending when we see a zero
             s->int_raw|=(1<<(channel*3));
             s->int_raw&=~(1<<(channel+24));
             s->sent=0;
+            s->conf1[channel] &= ~1;
             if(s->int_en & (1<<(channel*3)))
                 qemu_irq_raise(s->irq);
             return;
@@ -99,7 +100,7 @@ static uint64_t esp32_rmt_read(void *opaque, hwaddr addr, unsigned int size)
         r = s->apb_conf;
         break;
     }
-  //  printf("rmt read %ld %ld\n",addr,r);
+    //printf("rmt read %ld %ld\n",addr,r);
     return r;
 }
 
@@ -108,7 +109,8 @@ static void esp32_rmt_write(void *opaque, hwaddr addr,
                        uint64_t value, unsigned int size)
 {
     Esp32RmtState *s = ESP32_RMT(opaque);
-   // printf("rmt write %ld %ld\n",addr,value);
+    //if(addr<A_RMT_DATA)
+    //    printf("rmt write %ld %ld\n",addr,value);
     int channel;
     switch (addr) {
     case A_RMT_CH0CONF0 ...  (A_RMT_CH0CONF0+8*8)-4:
@@ -129,14 +131,16 @@ static void esp32_rmt_write(void *opaque, hwaddr addr,
     case A_RMT_TX_LIM ... A_RMT_TX_LIM+7*4:
         channel=(addr-A_RMT_TX_LIM)/4;
         s->txlim[channel]=value;
+        
         break;
     case A_RMT_INT_ENA:
         s->int_en=value;
         break;
     case A_RMT_INT_CLR:
         s->int_raw&=(~value);
-        if(s->int_raw==0)
+        if((s->int_raw & s->int_en)==0) {
             qemu_irq_lower(s->irq);
+        }
         break;
     case A_RMT_DATA ... A_RMT_DATA+(ESP32_RMT_BUF_WORDS-1)* sizeof(uint32_t):
         s->data[(addr-A_RMT_DATA)/sizeof(uint32_t)]=value;

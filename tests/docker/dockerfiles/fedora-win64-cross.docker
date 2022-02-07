@@ -10,6 +10,7 @@ ENV PACKAGES \
     gcc \
     gettext \
     git \
+    libgcrypt-devel \
     hostname \
     make \
     meson \
@@ -18,6 +19,7 @@ ENV PACKAGES \
     mingw64-curl \
     mingw64-glib2 \
     mingw64-gmp \
+    mingw64-libgcrypt \
     mingw64-gtk3 \
     mingw64-libffi \
     mingw64-libjpeg-turbo \
@@ -25,6 +27,7 @@ ENV PACKAGES \
     mingw64-libtasn1 \
     mingw64-libusbx \
     mingw64-pixman \
+    mingw64-SDL2 \
     mingw64-pkg-config \
     perl \
     perl-Test-Harness \
