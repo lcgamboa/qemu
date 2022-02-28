@@ -25,21 +25,27 @@
 static void restart_timer(Esp32RmtState *s, int channel) {
     timer_mod_anticipate_ns(&s->rmt_timer,qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL)+1250*s->txlim[channel]);
 }
+
 // send txlim data values, stop if a value is 0
 // set the correct raw int for tx_end or tx_thr_event
 static void send_data(Esp32RmtState *s, int channel) {
-   // printf("send %d %d %d\n",channel, s->txlim[channel], s->sent);
+    //printf("send %d %d %d\n",channel, s->txlim[channel], s->sent);
     BusState *b = BUS(s->rmt);
     BusChild *ch = QTAILQ_FIRST(&b->children);
     SSIPeripheral *slave = SSI_PERIPHERAL(ch->child);
     SSIPeripheralClass *ssc = SSI_PERIPHERAL_GET_CLASS(slave);
-    // don't send data when interrupt hasn't been handled 
+    // don't send data when interrupt hasn't been handled
+    // a real device can't do this but it's necessary because 
+    // qemu can't always keep up. 
     if(s->int_raw & (1<<(channel+24) | (1<<(channel*3)))) {
-        restart_timer(s,channel);
+        // send data when the interrupt is cleared
+        s->unsent_data=true;
         return;
-    }
+    } else 
+        s->unsent_data=false;
+    int memsize=((s->conf0[channel]>>24)&0xf)*64;
     for (int i = 0; i < s->txlim[channel] ; i++) {    
-        int v=s->data[(i+s->sent)%64+channel*64]; 
+        int v=s->data[((i+s->sent)%memsize+channel*64)%512]; 
         if(v==0) { // stop sending when we see a zero
             s->int_raw|=(1<<(channel*3));
             s->int_raw&=~(1<<(channel+24));
@@ -51,7 +57,7 @@ static void send_data(Esp32RmtState *s, int channel) {
         }
         ssc->transfer(slave,v);
     }
-    s->sent+=(s->txlim[channel])%64;
+    s->sent+=s->txlim[channel];
     s->int_raw|=(1<<(channel+24));
     if(s->int_en & (1<<(channel+24)))
         qemu_irq_raise(s->irq);
@@ -109,8 +115,8 @@ static void esp32_rmt_write(void *opaque, hwaddr addr,
                        uint64_t value, unsigned int size)
 {
     Esp32RmtState *s = ESP32_RMT(opaque);
-    //if(addr<A_RMT_DATA)
-    //    printf("rmt write %ld %ld\n",addr,value);
+//    if(addr<A_RMT_DATA)
+//        printf("rmt write %ld %ld\n",addr,value);
     int channel;
     switch (addr) {
     case A_RMT_CH0CONF0 ...  (A_RMT_CH0CONF0+8*8)-4:
@@ -141,6 +147,8 @@ static void esp32_rmt_write(void *opaque, hwaddr addr,
         if((s->int_raw & s->int_en)==0) {
             qemu_irq_lower(s->irq);
         }
+        if(s->unsent_data) 
+            esp32_rmt_timer_cb(s);
         break;
     case A_RMT_DATA ... A_RMT_DATA+(ESP32_RMT_BUF_WORDS-1)* sizeof(uint32_t):
         s->data[(addr-A_RMT_DATA)/sizeof(uint32_t)]=value;
