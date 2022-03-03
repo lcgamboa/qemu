@@ -10,4 +10,8 @@ softmmu_ss.add(when: 'CONFIG_XILINX_SPIPS', if_true: files('xilinx_spips.c'))
 softmmu_ss.add(when: 'CONFIG_XLNX_VERSAL', if_true: files('xlnx-versal-ospi.c'))
 softmmu_ss.add(when: 'CONFIG_IMX', if_true: files('imx_spi.c'))
 softmmu_ss.add(when: 'CONFIG_OMAP', if_true: files('omap_spi.c'))
+<<<<<<< HEAD
 softmmu_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files('esp32_spi.c','esp32_rmt.c'))
+=======
+softmmu_ss.add(when: 'CONFIG_IBEX', if_true: files('ibex_spi_host.c'))
+>>>>>>> 9c4888c995 (hw/ssi: Add Ibex SPI device model)
