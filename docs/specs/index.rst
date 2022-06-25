@@ -20,6 +20,10 @@ guest hardware that is specific to QEMU.
    acpi_nvdimm
 <<<<<<< HEAD
    sev-guest-firmware
+<<<<<<< HEAD
 =======
    acpi_erst
 >>>>>>> 0ef0506e55 (ACPI ERST: specification for ERST support)
+=======
+   fw_cfg
+>>>>>>> 701caa3d6a (Convert fw_cfg.rst to reStructuredText syntax)
