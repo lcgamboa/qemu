@@ -390,8 +390,13 @@ bool float32_is_signaling_nan(float32 a_, float_status *status)
 static int pickNaN(FloatClass a_cls, FloatClass b_cls,
                    bool aIsLargerSignificand, float_status *status)
 {
+<<<<<<< HEAD
 #if defined(TARGET_ARM) || defined(TARGET_MIPS) || defined(TARGET_HPPA) \
     || defined(TARGET_LOONGARCH64)
+=======
+#if defined(TARGET_ARM) || defined(TARGET_MIPS) || defined(TARGET_HPPA) || \
+    defined(TARGET_S390X)
+>>>>>>> 63dd7bcbea (target/s390x: fix NaN propagation rules)
     /* ARM mandated NaN propagation rules (see FPProcessNaNs()), take
      * the first of:
      *  1. A if it is signaling
