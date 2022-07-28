@@ -2174,7 +2174,6 @@ probe_target_compiler() {
     build_static=
     target_cc=
     target_ccas=
-    target_cflags=
     target_ar=
     target_as=
     target_ld=
