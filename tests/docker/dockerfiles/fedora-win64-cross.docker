@@ -3,14 +3,20 @@ FROM registry.fedoraproject.org/fedora:35
 # Please keep this list sorted alphabetically
 ENV PACKAGES \
     bc \
+    bison \
     bzip2 \
     ccache \
     diffutils \
     findutils \
+    flex \
     gcc \
     gettext \
     git \
+<<<<<<< HEAD
     libgcrypt-devel \
+=======
+    glib2-devel \
+>>>>>>> 3de61b9856 (target/hexagon: manually add flex/bison/glib2 to remaining containers)
     hostname \
     make \
     meson \
