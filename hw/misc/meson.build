@@ -132,6 +132,11 @@ softmmu_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files(
   'esp32_sha.c',
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+  'esp32_aes.c',
+  'esp32_ledc.c',
+>>>>>>> 1e924cc532 (hw/misc: Add ESP32 LEDC)
   'esp32_flash_enc.c',
   'ssi_psram.c',
   'esp32_sens.c',
