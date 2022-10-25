@@ -2918,7 +2918,7 @@ static void bdrv_attach_child_common_abort(void *opaque)
     bdrv_replace_child_noperm(s->child, NULL);
 
     if (bdrv_get_aio_context(bs) != s->old_child_ctx) {
-        bdrv_try_set_aio_context(bs, s->old_child_ctx, &error_abort);
+        bdrv_try_change_aio_context(bs, s->old_child_ctx, NULL, &error_abort);
     }
 
     if (bdrv_child_get_parent_aio_context(s->child) != s->old_parent_ctx) {
@@ -2989,7 +2989,8 @@ static BdrvChild *bdrv_attach_child_common(BlockDriverState *child_bs,
     parent_ctx = bdrv_child_get_parent_aio_context(new_child);
     if (child_ctx != parent_ctx) {
         Error *local_err = NULL;
-        int ret = bdrv_try_set_aio_context(child_bs, parent_ctx, &local_err);
+        int ret = bdrv_try_change_aio_context(child_bs, parent_ctx, NULL,
+                                              &local_err);
 
         if (ret < 0 && child_class->change_aio_ctx) {
             Transaction *tran = tran_new();
@@ -3079,7 +3080,7 @@ static void bdrv_detach_child(BdrvChild *child)
          * When the parent requiring a non-default AioContext is removed, the
          * node moves back to the main AioContext
          */
-        bdrv_try_set_aio_context(old_bs, qemu_get_aio_context(), NULL);
+        bdrv_try_change_aio_context(old_bs, qemu_get_aio_context(), NULL, NULL);
     }
 }
 
@@ -7419,13 +7420,6 @@ int bdrv_try_change_aio_context(BlockDriverState *bs, AioContext *ctx,
     }
 
     return 0;
-}
-
-int bdrv_try_set_aio_context(BlockDriverState *bs, AioContext *ctx,
-                             Error **errp)
-{
-    GLOBAL_STATE_CODE();
-    return bdrv_try_change_aio_context(bs, ctx, NULL, errp);
 }
 
 void bdrv_add_aio_context_notifier(BlockDriverState *bs,
