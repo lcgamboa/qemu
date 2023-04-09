@@ -21,9 +21,6 @@ config XTENSA_ESP32
     select OPENCORES_ETH
     select DWC_SDMMC
     select TMP105
-<<<<<<< HEAD
-=======
     select LED
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
 
 

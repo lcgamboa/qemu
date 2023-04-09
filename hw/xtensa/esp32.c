@@ -13,10 +13,6 @@
 #include "qemu/error-report.h"
 #include "qemu/units.h"
 #include "qapi/error.h"
-<<<<<<< HEAD
-#include "qemu-common.h"
-=======
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
 #include "hw/hw.h"
 #include "hw/boards.h"
 #include "hw/loader.h"
@@ -30,10 +26,7 @@
 #include "hw/xtensa/esp32.h"
 #include "hw/misc/ssi_psram.h"
 #include "hw/sd/dwc_sdmmc.h"
-<<<<<<< HEAD
-=======
 #include "core-esp32/core-isa.h"
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
 #include "qemu/datadir.h"
 #include "sysemu/sysemu.h"
 #include "sysemu/reset.h"
@@ -50,11 +43,7 @@
 
 #define TYPE_ESP32_CPU XTENSA_CPU_TYPE_NAME("esp32")
 
-<<<<<<< HEAD
-typedef struct XtensaCPU XtensaCPU;
-=======
 
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
 
 enum {
     ESP32_MEMREGION_IROM,
@@ -156,11 +145,7 @@ static void esp32_timg_sys_reset(void* opaque, int n, int level)
 }
 
 static void esp32_soc_reset(DeviceState *dev)
-<<<<<<< HEAD
-{ 
-=======
 {
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
     Esp32SocState *s = ESP32_SOC(dev);
 
     uint32_t strap_mode = s->gpio.strap_mode;
@@ -177,11 +162,8 @@ static void esp32_soc_reset(DeviceState *dev)
     if (s->requested_reset & ESP32_SOC_RESET_PERIPH) {
         device_cold_reset(DEVICE(&s->dport));
         device_cold_reset(DEVICE(&s->intmatrix));
-<<<<<<< HEAD
-        device_cold_reset(DEVICE(&s->sha));
-=======
         device_cold_reset(DEVICE(&s->aes));
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
+        device_cold_reset(DEVICE(&s->sha));
         device_cold_reset(DEVICE(&s->rsa));
         device_cold_reset(DEVICE(&s->gpio));
         for (int i = 0; i < ESP32_UART_COUNT; ++i) {
@@ -204,13 +186,10 @@ static void esp32_soc_reset(DeviceState *dev)
         if (s->eth) {
             device_cold_reset(s->eth);
         }
-<<<<<<< HEAD
         if (s->wifi_dev) {
             device_cold_reset(s->wifi_dev);
         }
         device_cold_reset(DEVICE(&s->rmt));
-=======
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
     }
     if (s->requested_reset & ESP32_SOC_RESET_PROCPU) {
         xtensa_select_static_vectors(&s->cpu[0].env, s->rtc_cntl.stat_vector_sel[0]);
@@ -233,11 +212,7 @@ static void esp32_cpu_stall(void* opaque, int n, int level)
     if (n == 0) {
         stall = s->rtc_cntl.cpu_stall_state[0];
     } else {
-<<<<<<< HEAD
-        stall = s->rtc_cntl.cpu_stall_state[1] || s->dport.appcpu_stall_state;
-=======
         stall = s->rtc_cntl.cpu_stall_state[1] || s->dport.appcpu_stall_state || (!s->dport.appcpu_clkgate_state);
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
     }
 
     if (stall != s->cpu[n].env.runstall) {
@@ -265,7 +240,7 @@ static void esp32_clk_update(void* opaque, int n, int level)
     qdev_prop_set_int32(DEVICE(&s->frc_timer), "apb_freq", apb_clk_freq);
     qdev_prop_set_int32(DEVICE(&s->timg[0]), "apb_freq", apb_clk_freq);
     qdev_prop_set_int32(DEVICE(&s->timg[1]), "apb_freq", apb_clk_freq);
-    *(uint32_t*)(&s->cpu[0].env.config->clock_freq_khz) = cpu_clk_freq / 1000;
+    clock_set_hz(s->cpu[0].clock, cpu_clk_freq );
 }
 
 static void esp32_soc_add_periph_device(MemoryRegion *dest, void* dev, hwaddr dport_base_addr)
@@ -279,19 +254,11 @@ static void esp32_soc_add_periph_device(MemoryRegion *dest, void* dev, hwaddr dp
     g_free(name);
 }
 
-<<<<<<< HEAD
 static void esp32_soc_add_unimp_device(MemoryRegion *dest, const char* name, hwaddr dport_base_addr, size_t size, uint32_t default_value)
 {
     create_unimplemented_device(name, dport_base_addr, size, default_value);
     char * name_apb = g_strdup_printf("%s-apb", name);
     create_unimplemented_device(name_apb, dport_base_addr - DR_REG_DPORT_APB_BASE + APB_REG_BASE, size, default_value);
-=======
-static void esp32_soc_add_unimp_device(MemoryRegion *dest, const char* name, hwaddr dport_base_addr, size_t size)
-{
-    create_unimplemented_device(name, dport_base_addr, size);
-    char * name_apb = g_strdup_printf("%s-apb", name);
-    create_unimplemented_device(name_apb, dport_base_addr - DR_REG_DPORT_APB_BASE + APB_REG_BASE, size);
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
     g_free(name_apb);
 }
 
@@ -422,15 +389,12 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     qdev_realize(DEVICE(&s->sha), &s->periph_bus, &error_fatal);
     esp32_soc_add_periph_device(sys_mem, &s->sha, DR_REG_SHA_BASE);
 
-<<<<<<< HEAD
-=======
     qdev_realize(DEVICE(&s->aes), &s->periph_bus, &error_fatal);
     esp32_soc_add_periph_device(sys_mem, &s->aes, DR_REG_AES_BASE);
 
     qdev_realize(DEVICE(&s->ledc), &s->periph_bus, &error_fatal);
     esp32_soc_add_periph_device(sys_mem, &s->ledc, DR_REG_LEDC_BASE);
 
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
     qdev_realize(DEVICE(&s->rtc_cntl), &s->rtc_bus, &error_fatal);
     esp32_soc_add_periph_device(sys_mem, &s->rtc_cntl, DR_REG_RTCCNTL_BASE);
 
@@ -447,10 +411,7 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
 
     qdev_realize(DEVICE(&s->gpio), &s->periph_bus, &error_fatal);
     esp32_soc_add_periph_device(sys_mem, &s->gpio, DR_REG_GPIO_BASE);
-<<<<<<< HEAD
     sysbus_connect_irq(SYS_BUS_DEVICE(&s->gpio),0,qdev_get_gpio_in(intmatrix_dev, ETS_GPIO_INTR_SOURCE));
-=======
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
 
     for (int i = 0; i < ESP32_UART_COUNT; ++i) {
         const hwaddr uart_base[] = {DR_REG_UART_BASE, DR_REG_UART1_BASE, DR_REG_UART2_BASE};
@@ -490,7 +451,6 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
                                     qdev_get_gpio_in_named(dev, ESP32_TIMG_WDT_SYS_RESET_GPIO, i));
     }
     s->timg[0].wdt_en_at_reset = true;
-<<<<<<< HEAD
     const hwaddr spi_base[] = {
             DR_REG_SPI0_BASE, DR_REG_SPI1_BASE, DR_REG_SPI2_BASE, DR_REG_SPI3_BASE
     };
@@ -499,13 +459,6 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     object_property_set_bool(OBJECT(&s->spi[2]),"xfer_32_bits",true, &error_abort);
     object_property_set_bool(OBJECT(&s->spi[3]),"xfer_32_bits",true, &error_abort);
     for (int i = 0; i < ESP32_SPI_COUNT; ++i) {        
-=======
-
-    for (int i = 0; i < ESP32_SPI_COUNT; ++i) {
-        const hwaddr spi_base[] = {
-            DR_REG_SPI0_BASE, DR_REG_SPI1_BASE, DR_REG_SPI2_BASE, DR_REG_SPI3_BASE
-        };
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
         qdev_realize(DEVICE(&s->spi[i]), &s->periph_bus, &error_fatal);
 
         esp32_soc_add_periph_device(sys_mem, &s->spi[i], spi_base[i]);
@@ -514,14 +467,11 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
                            qdev_get_gpio_in(intmatrix_dev, ETS_SPI0_INTR_SOURCE + i));
     }
 
-<<<<<<< HEAD
     qdev_realize(DEVICE(&s->rmt), &s->periph_bus, &error_fatal);
     esp32_soc_add_periph_device(sys_mem, &s->rmt, DR_REG_RMT_BASE);
     sysbus_connect_irq(SYS_BUS_DEVICE(&s->rmt), 0,
                            qdev_get_gpio_in(intmatrix_dev, ETS_RMT_INTR_SOURCE));
 
-=======
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
     for (int i = 0; i < ESP32_I2C_COUNT; i++) {
         const hwaddr i2c_base[] = {
             DR_REG_I2C_EXT_BASE, DR_REG_I2C1_EXT_BASE
@@ -542,7 +492,6 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     sysbus_connect_irq(SYS_BUS_DEVICE(&s->efuse), 0,
                        qdev_get_gpio_in(intmatrix_dev, ETS_EFUSE_INTR_SOURCE));
 
-<<<<<<< HEAD
     qdev_realize(DEVICE(&s->sens), &s->periph_bus, &error_fatal);
     esp32_soc_add_periph_device(sys_mem, &s->sens, DR_REG_SENS_BASE);
 
@@ -555,8 +504,6 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     qdev_realize(DEVICE(&s->phya), &s->periph_bus, &error_fatal);
     esp32_soc_add_periph_device(sys_mem, &s->phya, DR_REG_PHYA_BASE);
 
-=======
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
     qdev_realize(DEVICE(&s->flash_enc), &s->periph_bus, &error_abort);
     esp32_soc_add_periph_device(sys_mem, &s->flash_enc, DR_REG_SPI_ENCRYPT_BASE);
 
@@ -572,7 +519,7 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     sysbus_connect_irq(SYS_BUS_DEVICE(&s->sdmmc), 0,
                        qdev_get_gpio_in(intmatrix_dev, ETS_SDIO_HOST_INTR_SOURCE));
 
-<<<<<<< HEAD
+
     esp32_soc_add_unimp_device(sys_mem, "esp32.rtcio", DR_REG_RTCIO_BASE, 0x400,0);
     esp32_soc_add_unimp_device(sys_mem, "esp32.iomux", DR_REG_IO_MUX_BASE, 0x2000,0);
     esp32_soc_add_unimp_device(sys_mem, "esp32.hinf", DR_REG_HINF_BASE, 0x1000,0);
@@ -589,10 +536,11 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
 
     /* st7789v is attached to SPI2 and SPI2 so the both HSPI and VSPI will work, 
     they share a single console*/
-    DeviceState *disp=ssi_create_peripheral(s->spi[2].spi, "st7789v");
-    DeviceState *disp1=ssi_create_peripheral(s->spi[3].spi, "st7789v");
-    ssi_create_peripheral(s->rmt.rmt, "rgbled");
+    //DeviceState *disp=ssi_create_peripheral(s->spi[2].spi, "st7789v");
+    //DeviceState *disp1=ssi_create_peripheral(s->spi[3].spi, "st7789v");
+    //ssi_create_peripheral(s->rmt.rmt, "rgbled");
     //printf("%p\n",disp3);
+    /* 
     qemu_irq cmd_irq=qemu_irq_split(
                 qdev_get_gpio_in_named(disp, "cmd", 0),
                 qdev_get_gpio_in_named(disp1, "cmd", 0));
@@ -608,20 +556,7 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     qdev_connect_gpio_out_named(disp, "buttons", 1, in35);
     qdev_connect_gpio_out_named(disp1, "buttons", 0, in0);
     qdev_connect_gpio_out_named(disp1, "buttons", 1, in35);
-=======
-    esp32_soc_add_unimp_device(sys_mem, "esp32.analog", DR_REG_ANA_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.rtcio", DR_REG_RTCIO_BASE, 0x400);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.rtcio", DR_REG_SENS_BASE, 0x400);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.iomux", DR_REG_IO_MUX_BASE, 0x2000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.hinf", DR_REG_HINF_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.slc", DR_REG_SLC_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.slchost", DR_REG_SLCHOST_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.apbctrl", DR_REG_APB_CTRL_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.i2s0", DR_REG_I2S_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.i2s1", DR_REG_I2S1_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.rmt", DR_REG_RMT_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.pcnt", DR_REG_PCNT_BASE, 0x1000);
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
+   */
 
     /* Emulation of APB_CTRL_DATE_REG, needed for ECO3 revision detection.
      * This is a small hack to avoid creating a whole new device just to emulate one
@@ -699,10 +634,7 @@ static void esp32_soc_init(Object *obj)
         snprintf(name, sizeof(name), "timg%d", i);
         object_initialize_child(obj, name, &s->timg[i], TYPE_ESP32_TIMG);
     }
-<<<<<<< HEAD
-=======
 
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
     for (int i = 0; i < ESP32_SPI_COUNT; ++i) {
         snprintf(name, sizeof(name), "spi%d", i);
         object_initialize_child(obj, name, &s->spi[i], TYPE_ESP32_SPI);
@@ -717,7 +649,6 @@ static void esp32_soc_init(Object *obj)
 
     object_initialize_child(obj, "sha", &s->sha, TYPE_ESP32_SHA);
 
-<<<<<<< HEAD
     object_initialize_child(obj, "rsa", &s->rsa, TYPE_ESP32_RSA);
 
     object_initialize_child(obj, "sens", &s->sens, TYPE_ESP32_SENS);
@@ -734,14 +665,12 @@ static void esp32_soc_init(Object *obj)
 
     object_initialize_child(obj, "phya", &s->phya, TYPE_ESP32_RAMDEV);
 
-=======
     object_initialize_child(obj, "aes", &s->aes, TYPE_ESP32_AES);
 
     object_initialize_child(obj, "ledc", &s->ledc, TYPE_ESP32_LEDC);
 
     object_initialize_child(obj, "rsa", &s->rsa, TYPE_ESP32_RSA);
 
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
     object_initialize_child(obj, "efuse", &s->efuse, TYPE_ESP32_EFUSE);
 
     object_initialize_child(obj, "flash_enc", &s->flash_enc, TYPE_ESP32_FLASH_ENCRYPTION);
@@ -784,10 +713,6 @@ static void esp32_soc_register_types(void)
 type_init(esp32_soc_register_types)
 
 
-<<<<<<< HEAD
-
-=======
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
 static uint64_t translate_phys_addr(void *opaque, uint64_t addr)
 {
     XtensaCPU *cpu = opaque;
@@ -831,10 +756,6 @@ static void esp32_machine_init_psram(Esp32SocState *ss, uint32_t size_mbytes)
                                 qdev_get_gpio_in_named(psram, SSI_GPIO_CS, 0));
 }
 
-<<<<<<< HEAD
-
-=======
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
 static void esp32_machine_init_i2c(Esp32SocState *s)
 {
     /* It should be possible to create an I2C device from the command line,
@@ -853,16 +774,11 @@ static void esp32_machine_init_i2c(Esp32SocState *s)
 static void esp32_machine_init_openeth(Esp32SocState *ss)
 {
     SysBusDevice *sbd;
-<<<<<<< HEAD
-=======
-    NICInfo *nd = &nd_table[0];
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
     MemoryRegion* sys_mem = get_system_memory();
     hwaddr reg_base = DR_REG_EMAC_BASE;
     hwaddr desc_base = reg_base + 0x400;
     qemu_irq irq = qdev_get_gpio_in(DEVICE(&ss->intmatrix), ETS_ETH_MAC_INTR_SOURCE);
 
-<<<<<<< HEAD
     for(int i=0;i<nb_nics;i++) {
         const char* type_openeth = "open_eth";
         NICInfo *nd = &nd_table[i];
@@ -885,28 +801,12 @@ static void esp32_machine_init_openeth(Esp32SocState *ss)
             sysbus_connect_irq(SYS_BUS_DEVICE(&ss->wifi), 0,
                            qdev_get_gpio_in(DEVICE(&ss->intmatrix), ETS_WIFI_MAC_INTR_SOURCE));
         } 
-=======
-    const char* type_openeth = "open_eth";
-    if (nd->used && nd->model && strcmp(nd->model, type_openeth) == 0) {
-        DeviceState* open_eth_dev = qdev_new(type_openeth);
-        ss->eth = open_eth_dev;
-        qdev_set_nic_properties(open_eth_dev, nd);
-        sbd = SYS_BUS_DEVICE(open_eth_dev);
-        sysbus_realize_and_unref(sbd, &error_fatal);
-        sysbus_connect_irq(sbd, 0, irq);
-        memory_region_add_subregion(sys_mem, reg_base, sysbus_mmio_get_region(sbd, 0));
-        memory_region_add_subregion(sys_mem, desc_base, sysbus_mmio_get_region(sbd, 1));
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
     }
 }
 
 static void esp32_machine_init_sd(Esp32SocState *ss)
 {
-<<<<<<< HEAD
-    DriveInfo *dinfo = drive_get_next(IF_SD);
-=======
     DriveInfo *dinfo = drive_get(IF_SD, 0, 0);
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
     if (dinfo) {
         DeviceState *card;
 
@@ -923,11 +823,7 @@ static void esp32_machine_init_sd(Esp32SocState *ss)
 static void esp32_machine_init(MachineState *machine)
 {
     BlockBackend* blk = NULL;
-<<<<<<< HEAD
-    DriveInfo *dinfo = drive_get_next(IF_MTD);
-=======
     DriveInfo *dinfo = drive_get(IF_MTD, 0, 0);
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
     if (dinfo) {
         qemu_log("Adding SPI flash device\n");
         blk = blk_by_legacy_dinfo(dinfo);
@@ -965,11 +861,6 @@ static void esp32_machine_init(MachineState *machine)
 
     esp32_machine_init_sd(ss);
 
-<<<<<<< HEAD
-
-
-=======
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
     /* Need MMU initialized prior to ELF loading,
      * so that ELF gets loaded into virtual addresses
      */
@@ -987,14 +878,6 @@ static void esp32_machine_init(MachineState *machine)
     if (load_elf_filename) {
         uint64_t elf_entry;
         uint64_t elf_lowaddr;
-<<<<<<< HEAD
-        int success = load_elf(load_elf_filename, NULL,
-                               translate_phys_addr, &ss->cpu[0],
-                               &elf_entry, &elf_lowaddr,
-                               NULL, NULL, 0, EM_XTENSA, 0, 0);
-        if (success > 0) {
-            ss->cpu[0].env.pc = elf_entry;
-=======
         int size = load_elf(load_elf_filename, NULL,
                                translate_phys_addr, &ss->cpu[0],
                                &elf_entry, &elf_lowaddr,
@@ -1021,7 +904,6 @@ static void esp32_machine_init(MachineState *machine)
             // Write boot function to reset-vector address (0x40000400) of the CPU 0
             rom_add_blob_fixed_as("boot", boot, sizeof(boot), XCHAL_RESET_VECTOR_PADDR, CPU(&ss->cpu[0])->as);
             ss->cpu[0].env.pc = XCHAL_RESET_VECTOR_PADDR;
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
         }
     } else {
         char *rom_binary = qemu_find_file(QEMU_FILE_TYPE_BIOS, "esp32-v3-rom.bin");
@@ -1049,10 +931,6 @@ static void esp32_machine_init(MachineState *machine)
             exit(1);
         }
         g_free(rom_binary);
-<<<<<<< HEAD
-        
-=======
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
     }
 }
 
@@ -1079,10 +957,7 @@ static void esp32_machine_class_init(ObjectClass *oc, void *data)
     mc->desc = "Espressif ESP32 machine";
     mc->init = esp32_machine_init;
     mc->max_cpus = 2;
-<<<<<<< HEAD
     mc->is_default = true;
-=======
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)
     mc->default_cpus = 2;
     mc->default_ram_size = 0;
     mc->fixup_ram_size = esp32_fixup_ram_size;
@@ -1101,7 +976,3 @@ static void esp32_machine_type_init(void)
 }
 
 type_init(esp32_machine_type_init);
-<<<<<<< HEAD
-
-=======
->>>>>>> 1f88fe7c85 (hw/xtensa: add ESP32 machine)

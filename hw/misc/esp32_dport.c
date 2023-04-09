@@ -42,10 +42,7 @@
 
 static void esp32_cache_state_update(Esp32CacheState* cs);
 static void esp32_cache_data_sync(Esp32CacheRegionState* crs);
-<<<<<<< HEAD
-=======
 static void esp32_cache_invalidate_all_entries(Esp32CacheRegionState* crs);
->>>>>>> 5a17a564c5 (hw/misc: add ESP32 DPORT peripheral, cache, cross-core interrupt)
 
 static inline uint32_t get_mmu_entry(Esp32CacheRegionState* crs, hwaddr base, hwaddr addr)
 {
@@ -163,13 +160,9 @@ static void esp32_dport_write(void *opaque, hwaddr addr,
         if (FIELD_EX32(value, DPORT_PRO_CACHE_CTRL, CACHE_FLUSH_ENA)) {
             value |= R_DPORT_PRO_CACHE_CTRL_CACHE_FLUSH_DONE_MASK;
             value &= ~R_DPORT_PRO_CACHE_CTRL_CACHE_FLUSH_ENA_MASK;
-<<<<<<< HEAD
-            esp32_cache_data_sync(&s->cache_state[0].drom0);
-=======
             esp32_cache_invalidate_all_entries(&s->cache_state[0].drom0);
             esp32_cache_data_sync(&s->cache_state[0].drom0);
             esp32_cache_invalidate_all_entries(&s->cache_state[0].iram0);
->>>>>>> 5a17a564c5 (hw/misc: add ESP32 DPORT peripheral, cache, cross-core interrupt)
             esp32_cache_data_sync(&s->cache_state[0].iram0);
         }
         old_val = s->cache_state[0].cache_ctrl_reg;
@@ -189,13 +182,9 @@ static void esp32_dport_write(void *opaque, hwaddr addr,
         if (FIELD_EX32(value, DPORT_APP_CACHE_CTRL, CACHE_FLUSH_ENA)) {
             value |= R_DPORT_APP_CACHE_CTRL_CACHE_FLUSH_DONE_MASK;
             value &= ~R_DPORT_APP_CACHE_CTRL_CACHE_FLUSH_ENA_MASK;
-<<<<<<< HEAD
-            esp32_cache_data_sync(&s->cache_state[1].drom0);
-=======
             esp32_cache_invalidate_all_entries(&s->cache_state[1].drom0);
             esp32_cache_data_sync(&s->cache_state[1].drom0);
             esp32_cache_invalidate_all_entries(&s->cache_state[1].iram0);
->>>>>>> 5a17a564c5 (hw/misc: add ESP32 DPORT peripheral, cache, cross-core interrupt)
             esp32_cache_data_sync(&s->cache_state[1].iram0);
         }
         old_val = s->cache_state[1].cache_ctrl_reg;
@@ -271,11 +260,7 @@ static void esp32_cache_data_sync(Esp32CacheRegionState* crs)
             }
         } else {
             uint32_t phys_addr = mmu_entry * ESP32_CACHE_PAGE_SIZE;
-<<<<<<< HEAD
-            blk_pread(crs->cache->dport->flash_blk, phys_addr, cache_page, ESP32_CACHE_PAGE_SIZE);
-=======
             blk_pread(crs->cache->dport->flash_blk, phys_addr, ESP32_CACHE_PAGE_SIZE, cache_page, 0);
->>>>>>> 5a17a564c5 (hw/misc: add ESP32 DPORT peripheral, cache, cross-core interrupt)
             if (decrypt) {
                 esp32_flash_decrypt_inplace(flash_enc, phys_addr, cache_page, ESP32_CACHE_PAGE_SIZE/4);
             }
@@ -286,8 +271,6 @@ static void esp32_cache_data_sync(Esp32CacheRegionState* crs)
     memory_region_flush_rom_device(&crs->mem, 0, ESP32_CACHE_REGION_SIZE);
 }
 
-<<<<<<< HEAD
-=======
 static void esp32_cache_invalidate_all_entries(Esp32CacheRegionState* crs)
 {
     for (int i = 0; i < ESP32_CACHE_PAGES_PER_REGION; ++i) {
@@ -295,7 +278,6 @@ static void esp32_cache_invalidate_all_entries(Esp32CacheRegionState* crs)
     }
 }
 
->>>>>>> 5a17a564c5 (hw/misc: add ESP32 DPORT peripheral, cache, cross-core interrupt)
 static void esp32_cache_state_update(Esp32CacheState* cs)
 {
     bool cache_enabled = FIELD_EX32(cs->cache_ctrl_reg, DPORT_PRO_CACHE_CTRL, CACHE_ENA) != 0;

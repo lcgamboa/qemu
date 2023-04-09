@@ -6,49 +6,6 @@
 
 FROM registry.fedoraproject.org/fedora:35
 
-<<<<<<< HEAD
-# Please keep this list sorted alphabetically
-ENV PACKAGES \
-    bc \
-    bison \
-    bzip2 \
-    ccache \
-    diffutils \
-    findutils \
-    flex \
-    gcc \
-    gettext \
-    git \
-<<<<<<< HEAD
-    libgcrypt-devel \
-=======
-    glib2-devel \
->>>>>>> 3de61b9856 (target/hexagon: manually add flex/bison/glib2 to remaining containers)
-    hostname \
-    make \
-    meson \
-    mingw32-nsis \
-    mingw64-bzip2 \
-    mingw64-curl \
-    mingw64-glib2 \
-    mingw64-gmp \
-    mingw64-libgcrypt \
-    mingw64-gtk3 \
-    mingw64-libffi \
-    mingw64-libjpeg-turbo \
-    mingw64-libpng \
-    mingw64-libtasn1 \
-    mingw64-libusbx \
-    mingw64-pixman \
-    mingw64-SDL2 \
-    mingw64-pkg-config \
-    msitools \
-    perl \
-    python3 \
-    python3-PyYAML \
-    tar \
-    which
-=======
 RUN dnf install -y nosync && \
     echo -e '#!/bin/sh\n\
 if test -d /usr/lib64\n\
@@ -106,7 +63,6 @@ exec "$@"' > /usr/bin/nosync && \
                which && \
     nosync dnf autoremove -y && \
     nosync dnf clean all -y
->>>>>>> 9e243b7669 (tests/docker: update fedora-win[32|64]-cross with lcitool)
 
 ENV CCACHE_WRAPPERSDIR "/usr/libexec/ccache-wrappers"
 ENV LANG "en_US.UTF-8"

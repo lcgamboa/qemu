@@ -18,12 +18,6 @@ guest hardware that is specific to QEMU.
    acpi_mem_hotplug
    acpi_pci_hotplug
    acpi_nvdimm
-<<<<<<< HEAD
-   sev-guest-firmware
-<<<<<<< HEAD
-=======
    acpi_erst
->>>>>>> 0ef0506e55 (ACPI ERST: specification for ERST support)
-=======
+   sev-guest-firmware
    fw_cfg
->>>>>>> 701caa3d6a (Convert fw_cfg.rst to reStructuredText syntax)

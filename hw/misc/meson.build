@@ -124,21 +124,13 @@ softmmu_ss.add(when: 'CONFIG_NRF51_SOC', if_true: files('nrf51_rng.c'))
 softmmu_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files(
   'esp32_crosscore_int.c',
   'esp32_dport.c',
-<<<<<<< HEAD
   'esp32_rng.c',
-<<<<<<< HEAD
   'esp32_rsa.c',
   'esp32_rtc_cntl.c',
   'esp32_sha.c',
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
   'esp32_aes.c',
   'esp32_ledc.c',
->>>>>>> 1e924cc532 (hw/misc: Add ESP32 LEDC)
   'esp32_flash_enc.c',
-<<<<<<< HEAD
   'ssi_psram.c',
   'esp32_sens.c',
   'esp32_ana.c',
@@ -147,38 +139,13 @@ softmmu_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files(
   'esp32_ramdev.c',
   'esp32_wifi_ap.c',
   'esp32_wlan_packet.c'
-
-=======
-  'esp32_rtc_cntl.c',
->>>>>>> 501a1d34f7 (hw/misc: ESP32 RTC controller)
-=======
->>>>>>> 4592233cac (hw/misc: add ESP32 SHA)
-=======
-  'esp32_aes.c',
-<<<<<<< HEAD
->>>>>>> b112f2b256 (hw/misc: add ESP32 AES)
-=======
-  'esp32_flash_enc.c',
->>>>>>> 7325225ea9 (hw/misc: add ESP32 flash encryption module)
-=======
-  'ssi_psram.c'
->>>>>>> 4d1362ea0f (hw/misc: add simple PSRAM emulation)
 ))
 
-<<<<<<< HEAD
-if 'CONFIG_GCRYPT' in config_host
-  softmmu_ss.add(gcrypt)
-endif
-=======
-))
->>>>>>> 5a17a564c5 (hw/misc: add ESP32 DPORT peripheral, cache, cross-core interrupt)
-=======
 if gcrypt.found()
   softmmu_ss.add(when: [gcrypt, 'CONFIG_XTENSA_ESP32'], if_true: files(
     'esp32_rsa.c',
   ))
 endif
->>>>>>> 0adc8a203a (hw/misc: add ESP32 RSA)
 
 softmmu_ss.add(when: 'CONFIG_GRLIB', if_true: files('grlib_ahb_apb_pnp.c'))
 

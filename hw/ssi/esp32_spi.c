@@ -20,11 +20,7 @@
 #include "hw/ssi/ssi.h"
 #include "hw/ssi/esp32_spi.h"
 #include "hw/misc/esp32_flash_enc.h"
-<<<<<<< HEAD
 #include "exec/address-spaces.h"
-=======
-
->>>>>>> 1e75b6f8e2 (hw/ssi: add ESP32 SPI)
 
 
 enum {
@@ -42,10 +38,9 @@ enum {
     CMD_READ = 0x03,
 };
 
-<<<<<<< HEAD
 static void update_irq(Esp32SpiState *s) {
-    if (s->peripheral_reg & R_SPI_PERIPHERAL_TRANS_INTEN_MASK) {
-        if (s->peripheral_reg & R_SPI_PERIPHERAL_TRANS_DONE_MASK)
+    if (s->peripheral_reg & R_SPI_SLAVE_TRANS_INTEN_MASK) {
+        if (s->peripheral_reg & R_SPI_SLAVE_TRANS_DONE_MASK)
             qemu_irq_raise(s->irq);
         else
             qemu_irq_lower(s->irq);
@@ -57,16 +52,11 @@ static void esp32_spi_cs_set(Esp32SpiState *s, int value);
 
 static void esp32_spi_timer_cb(void *opaque) {
     Esp32SpiState *s = ESP32_SPI(opaque);
-    s->peripheral_reg |= R_SPI_PERIPHERAL_TRANS_DONE_MASK;
+    s->peripheral_reg |= R_SPI_SLAVE_TRANS_DONE_MASK;
     esp32_spi_cs_set(s,1);
     update_irq(s);
 }
 
-=======
-
-#define ESP32_SPI_REG_SIZE    0x1000
-
->>>>>>> 1e75b6f8e2 (hw/ssi: add ESP32 SPI)
 static void esp32_spi_do_command(Esp32SpiState* state, uint32_t cmd_reg);
 
 static uint64_t esp32_spi_read(void *opaque, hwaddr addr, unsigned int size)
@@ -113,8 +103,7 @@ static uint64_t esp32_spi_read(void *opaque, hwaddr addr, unsigned int size)
     case A_SPI_EXT2:
         r = 0;
         break;
-<<<<<<< HEAD
-    case A_SPI_PERIPHERAL:
+    case A_SPI_SLAVE:
         r = s->peripheral_reg;  // transaction done
         break;
     case A_SPI_DMA_OUT_LINK:
@@ -124,11 +113,6 @@ static uint64_t esp32_spi_read(void *opaque, hwaddr addr, unsigned int size)
         r = s->dmaconfig_reg;
         break;
 
-=======
-    case A_SPI_SLAVE:
-        r = BIT(R_SPI_SLAVE_TRANS_DONE_SHIFT) | BIT(R_SPI_SLAVE_TRANS_INTEN_SHIFT);
-        break;
->>>>>>> 1e75b6f8e2 (hw/ssi: add ESP32 SPI)
     }
     return r;
 }
@@ -177,12 +161,10 @@ static void esp32_spi_write(void *opaque, hwaddr addr,
     case A_SPI_CMD:
         esp32_spi_do_command(s, value);
         break;
-<<<<<<< HEAD
-    case A_SPI_PERIPHERAL:
+    case A_SPI_SLAVE:
         s->peripheral_reg = value;  // transaction done
         update_irq(s);
         break;
-
     case A_SPI_DMA_OUT_LINK:
         s->outlink_reg = value;
         break;
@@ -190,8 +172,6 @@ static void esp32_spi_write(void *opaque, hwaddr addr,
     case A_SPI_DMA_CONF:
         s->dmaconfig_reg = value;
         break;
-=======
->>>>>>> 1e75b6f8e2 (hw/ssi: add ESP32 SPI)
     }
 }
 
@@ -230,7 +210,6 @@ static void esp32_spi_cs_set(Esp32SpiState *s, int value)
 
 static void esp32_spi_transaction(Esp32SpiState *s, Esp32SpiTransaction *t)
 {
-<<<<<<< HEAD
     if(s->xfer_32_bits) {
         uint32_t *data=(uint32_t *)(t->data);
         for (int i = 0; i < (t->data_tx_bytes+3)/4; i++) {
@@ -238,8 +217,7 @@ static void esp32_spi_transaction(Esp32SpiState *s, Esp32SpiTransaction *t)
         }
         return;
     }
-=======
->>>>>>> 1e75b6f8e2 (hw/ssi: add ESP32 SPI)
+
     esp32_spi_cs_set(s, 0);
     esp32_spi_txrx_buffer(s, &t->cmd, t->cmd_bytes, 0);
     esp32_spi_txrx_buffer(s, &t->addr, t->addr_bytes, 0);
@@ -338,7 +316,6 @@ static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
         break;
 
     case R_SPI_CMD_USR_MASK:
-<<<<<<< HEAD
         if (s->outlink_reg & R_SPI_DMA_OUT_LINK_START_MASK) {
             // a DMA transfer
             int data = 0;
@@ -384,8 +361,6 @@ static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
                                             ns_now + ns_to_timeout);
             return;
         }
-=======
->>>>>>> 1e75b6f8e2 (hw/ssi: add ESP32 SPI)
         maybe_encrypt_data(s);
         if (FIELD_EX32(s->user_reg, SPI_USER, COMMAND) || FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_BITLEN)) {
             t.cmd = FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_VALUE);
@@ -406,11 +381,8 @@ static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
             t.data_rx_bytes = bitlen_to_bytes(s->miso_dlen_reg);
         }
         break;
-<<<<<<< HEAD
 
 
-=======
->>>>>>> 1e75b6f8e2 (hw/ssi: add ESP32 SPI)
     default:
         return;
     }
@@ -430,10 +402,7 @@ static void esp32_spi_reset(DeviceState *dev)
     s->pin_reg = 0x6;
     s->user1_reg = FIELD_DP32(0, SPI_USER1, ADDR_BITLEN, 23);
     s->user1_reg = FIELD_DP32(s->user1_reg, SPI_USER1, DUMMY_CYCLELEN, 7);
-<<<<<<< HEAD
     s->user2_reg = 0x70000000;
-=======
->>>>>>> 1e75b6f8e2 (hw/ssi: add ESP32 SPI)
     s->status_reg = 0;
 }
 
@@ -450,20 +419,14 @@ static void esp32_spi_init(Object *obj)
                           TYPE_ESP32_SPI, ESP32_SPI_REG_SIZE);
     sysbus_init_mmio(sbd, &s->iomem);
     sysbus_init_irq(sbd, &s->irq);
-<<<<<<< HEAD
     timer_init_ns(&s->spi_timer, QEMU_CLOCK_VIRTUAL, esp32_spi_timer_cb, s);
-=======
->>>>>>> 1e75b6f8e2 (hw/ssi: add ESP32 SPI)
 
     s->spi = ssi_create_bus(DEVICE(s), "spi");
     qdev_init_gpio_out_named(DEVICE(s), &s->cs_gpio[0], SSI_GPIO_CS, ESP32_SPI_CS_COUNT);
 }
 
 static Property esp32_spi_properties[] = {
-<<<<<<< HEAD
     DEFINE_PROP_BOOL("xfer_32_bits",Esp32SpiState,xfer_32_bits,false),
-=======
->>>>>>> 1e75b6f8e2 (hw/ssi: add ESP32 SPI)
     DEFINE_PROP_END_OF_LIST(),
 };
 

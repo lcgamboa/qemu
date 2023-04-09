@@ -27,14 +27,6 @@ build_qemu \
         --enable-bzip2 \
         --enable-guest-agent \
         --enable-docs
-<<<<<<< HEAD
-    install_qemu
-    make installer
-    make clean
-done
-
-=======
 install_qemu
 make installer
 make clean
->>>>>>> b131419252 (tests/docker: update test-mingw to run single build)

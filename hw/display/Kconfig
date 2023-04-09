@@ -134,7 +134,3 @@ config MACFB
     bool
     select FRAMEBUFFER
     depends on NUBUS
-
-config ST7789V
-    bool
-

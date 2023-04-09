@@ -91,11 +91,8 @@ static uint64_t esp32_efuse_read(void *opaque, hwaddr addr, unsigned int size)
     case A_EFUSE_DATE:
         r = 0x16042600;
     }
-<<<<<<< HEAD
     if(addr==4) r= 0x00c40a24;//0xC4000110;
     if(addr==8) r= 0xfe1001;//0xfe240A;
-=======
->>>>>>> d9bf0de494 (hw/nvram: add ESP32 eFuse)
     return r;
 }
 
@@ -160,16 +157,10 @@ static void esp32_efuse_read_op(Esp32EfuseState *s)
 {
     s->cmd_reg = EFUSE_READ;
     if (s->blk != NULL) {
-<<<<<<< HEAD
-        int ret = blk_pread(s->blk, 0, &s->efuse_rd, sizeof(s->efuse_rd));
-        if (ret != sizeof(s->efuse_rd)) {
-            error_report("%s: failed to read the block device (%d)", __func__, ret);
-=======
         int ret = blk_pread(s->blk, 0, sizeof(s->efuse_rd), &s->efuse_rd, 0);
         if (ret < 0) {
             error_report("%s: failed to read the block device (%d)", __func__, ret);
             return;
->>>>>>> d9bf0de494 (hw/nvram: add ESP32 eFuse)
         }
     }
 
@@ -210,11 +201,7 @@ static void esp32_efuse_program_op(Esp32EfuseState *s)
     }
 
     if (s->blk != NULL) {
-<<<<<<< HEAD
-        int ret = blk_pwrite(s->blk, 0, &result, sizeof(result), 0);
-=======
         int ret = blk_pwrite(s->blk, 0, sizeof(result), &result, 0);
->>>>>>> d9bf0de494 (hw/nvram: add ESP32 eFuse)
         if (ret != sizeof(result)) {
             error_report("%s: failed to write to block device (%d)", __func__, ret);
         }
