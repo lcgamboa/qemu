@@ -31,13 +31,12 @@
 static void win_chr_read(Chardev *chr, DWORD len)
 {
     WinChardev *s = WIN_CHARDEV(chr);
-    int max_size = qemu_chr_be_can_write(chr);
     int ret, err;
     uint8_t buf[CHR_READ_BUF_LEN];
     DWORD size;
 
-    if (len > max_size) {
-        len = max_size;
+    if (len > s->max_size) {
+        len = s->max_size;
     }
     if (len == 0) {
         return;
@@ -62,13 +61,18 @@ static int win_chr_serial_poll(void *opaque)
 {
     Chardev *chr = CHARDEV(opaque);
     WinChardev *s = WIN_CHARDEV(opaque);
-    COMSTAT status;
-    DWORD comerr;
 
-    ClearCommError(s->file, &comerr, &status);
-    if (status.cbInQue > 0) {
-        win_chr_read(chr, status.cbInQue);
-        return 1;
+    s->max_size = qemu_chr_be_can_write(chr);
+
+    if(s->max_size > 0){
+      COMSTAT status;
+      DWORD comerr;
+
+      ClearCommError(s->file, &comerr, &status);
+      if (status.cbInQue > 0) {
+          win_chr_read(chr, status.cbInQue);
+          return 1;
+      }
     }
     return 0;
 }
@@ -81,6 +85,7 @@ int win_chr_serial_init(Chardev *chr, const char *filename, Error **errp)
     COMSTAT comstat;
     DWORD size;
     DWORD err;
+    char compat_filename[100];
 
     s->hsend = CreateEvent(NULL, TRUE, FALSE, NULL);
     if (!s->hsend) {
@@ -93,7 +98,9 @@ int win_chr_serial_init(Chardev *chr, const char *filename, Error **errp)
         goto fail;
     }
 
-    s->file = CreateFile(filename, GENERIC_READ | GENERIC_WRITE, 0, NULL,
+    snprintf(compat_filename, 99, "\\\\.\\%s", filename);
+
+    s->file = CreateFile(compat_filename, GENERIC_READ | GENERIC_WRITE, 0, NULL,
                       OPEN_EXISTING, FILE_FLAG_OVERLAPPED, 0);
     if (s->file == INVALID_HANDLE_VALUE) {
         error_setg_win32(errp, GetLastError(), "Failed CreateFile");
@@ -110,7 +117,7 @@ int win_chr_serial_init(Chardev *chr, const char *filename, Error **errp)
     size = sizeof(COMMCONFIG);
     GetDefaultCommConfig(filename, &comcfg, &size);
     comcfg.dcb.DCBlength = sizeof(DCB);
-    CommConfigDialog(filename, NULL, &comcfg);
+    //CommConfigDialog(filename, NULL, &comcfg);
 
     if (!SetCommState(s->file, &comcfg.dcb)) {
         error_setg(errp, "Failed SetCommState");

@@ -37,6 +37,7 @@ struct WinChardev {
 
     /* Protected by the Chardev chr_write_lock.  */
     OVERLAPPED osend;
+    int max_size;
 };
 typedef struct WinChardev WinChardev;
 

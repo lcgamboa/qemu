@@ -996,6 +996,13 @@ void stm32_ADC_update_ns_per_sample(Stm32Adc *s)
 {
   uint32_t clk_freq = stm32_rcc_get_periph_freq(s->stm32_rcc, s->periph);
   int i;
+
+  //fix start timers with period value 0 that freeze qemu
+  if(!clk_freq){
+    clk_freq=8000000L; 
+    fprintf(stderr, "stm32_adc update ns_per_sample with clk_freq = 0 !\n");
+  }
+
   //convert cycles to ns
   if(clk_freq){  
       s->ns_per_sample[0]=(1000000000LL*1.5)/clk_freq;s->ns_per_sample[1]=(1000000000LL*7.5)/clk_freq;

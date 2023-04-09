@@ -587,7 +587,7 @@ static void stm32_dac_realize(DeviceState *dev, Error **errp)
 void stm32_dac_set_gpio(Stm32Dac *dac, Stm32Gpio** gpio)
 {
     dac->stm32_gpio = gpio;
-    qemu_irq *clk_irq;
+    //qemu_irq *clk_irq;
 }
 
 void stm32_dac_set_rcc(Stm32Dac *dac, Stm32Rcc* rcc)

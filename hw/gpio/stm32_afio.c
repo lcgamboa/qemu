@@ -33,6 +33,8 @@
 #define AFIO_MAPR_USART3_REMAP_MASK 0x00000030
 #define AFIO_MAPR_USART2_REMAP_BIT 3
 #define AFIO_MAPR_USART1_REMAP_BIT 2
+#define AFIO_MAPR_I2C1_REMAP_BIT 1
+#define AFIO_MAPR_SPI1_REMAP_BIT 0
 
 #define AFIO_EXTICR_START 0x08
 #define AFIO_EXTICR_COUNT 4
@@ -65,6 +67,8 @@ struct Stm32Afio {
         USART2_REMAP,
         USART3_REMAP,
         AFIO_MAPR,
+        I2C1_REMAP,
+        SPI1_REMAP,
         AFIO_EXTICR[AFIO_EXTICR_COUNT];
 };
 
@@ -77,7 +81,9 @@ struct Stm32Afio {
 
 static uint32_t stm32_afio_AFIO_MAPR_read(Stm32Afio *s)
 {
-    return (s->USART1_REMAP << AFIO_MAPR_USART1_REMAP_BIT) |
+    return (s->SPI1_REMAP << AFIO_MAPR_SPI1_REMAP_BIT) |
+           (s->I2C1_REMAP << AFIO_MAPR_I2C1_REMAP_BIT) |
+           (s->USART1_REMAP << AFIO_MAPR_USART1_REMAP_BIT) |
            (s->USART2_REMAP << AFIO_MAPR_USART2_REMAP_BIT) |
            (s->USART3_REMAP << AFIO_MAPR_USART3_REMAP_START);
 }
@@ -85,6 +91,8 @@ static uint32_t stm32_afio_AFIO_MAPR_read(Stm32Afio *s)
 static void stm32_afio_AFIO_MAPR_write(Stm32Afio *s, uint32_t new_value,
                                         bool init)
 {
+	s->SPI1_REMAP = extract32(s->AFIO_MAPR, AFIO_MAPR_SPI1_REMAP_BIT, 1);
+	s->I2C1_REMAP = extract32(s->AFIO_MAPR, AFIO_MAPR_I2C1_REMAP_BIT, 1);
     s->USART1_REMAP = extract32(s->AFIO_MAPR, AFIO_MAPR_USART1_REMAP_BIT, 1);
     s->USART2_REMAP = extract32(s->AFIO_MAPR, AFIO_MAPR_USART2_REMAP_BIT, 1);
     s->USART3_REMAP = (new_value & AFIO_MAPR_USART3_REMAP_MASK) >> AFIO_MAPR_USART3_REMAP_START;
@@ -224,6 +232,10 @@ uint32_t stm32_afio_get_periph_map(Stm32Afio *s, stm32_periph_t periph)
             return s->USART2_REMAP;
         case STM32_UART3:
             return s->USART3_REMAP;
+        case STM32_SPI1:
+            return s->SPI1_REMAP;
+        case STM32_I2C1:
+            return s->I2C1_REMAP;                
         default:
             hw_error("Invalid peripheral");
             break;

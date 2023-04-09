@@ -341,7 +341,7 @@ static void iwdg_init(Object *obj)
 
 static void stm32_iwdg_realize(DeviceState *dev, Error **errp)
 {
-    Stm32Iwdg *s = STM32_IWDG(dev);
+    //Stm32Iwdg *s = STM32_IWDG(dev);
     //qemu_irq *clk_irq;
     
     //clk_irq = qemu_allocate_irqs(iwdg_clk_irq_handler, (void *)s, 1);

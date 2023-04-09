@@ -353,6 +353,7 @@ config STM32F100_SOC
 config STM32F103_SOC
     bool
     select ARM_V7M
+    select PICSIMLAB_I2C
 
 config STM32F205_SOC
     bool

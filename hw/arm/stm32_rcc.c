@@ -749,13 +749,13 @@ static void stm32_rcc_hclk_upd_irq_handler(void *opaque, int n, int level)
 {
     Stm32Rcc *s = (Stm32Rcc *)opaque;
     int system_clock_scale;
-    uint32_t hclk_freq, ext_ref_freq;
+    uint32_t hclk_freq;//, ext_ref_freq;
 
     hclk_freq = clktree_get_output_freq(s->HCLK);
 
     /* Only update the scales if the frequency is not zero. */
     if(hclk_freq > 0) {
-        ext_ref_freq = hclk_freq / 8;
+        //ext_ref_freq = hclk_freq / 8;
 
         /* Update the scales - these are the ratio of QEMU clock ticks
          * (which is an unchanging number independent of the CPU frequency) to
@@ -763,16 +763,16 @@ static void stm32_rcc_hclk_upd_irq_handler(void *opaque, int n, int level)
          */
         system_clock_scale = NANOSECONDS_PER_SECOND / hclk_freq;
         //external_ref_clock_scale = NANOSECONDS_PER_SECOND / ext_ref_freq;
-        clock_set_ns(s->sysclk, system_clock_scale);
-        //clock_propagate(s->sysclk);
+        clock_set_ns(s->sysclk->source, system_clock_scale);
+        clock_propagate(s->sysclk->source);  
     }
 
 #ifdef DEBUG_STM32_RCC
     DPRINTF("Cortex SYSTICK frequency set to %lu Hz (scale set to %d).\n",
                 (unsigned long)hclk_freq, system_clock_scale);
-    DPRINTF("Cortex SYSTICK ext ref frequency set to %lu Hz "
-              "(scale set to %d).\n",
-              (unsigned long)ext_ref_freq, external_ref_clock_scale);
+    //DPRINTF("Cortex SYSTICK ext ref frequency set to %lu Hz "
+    //          "(scale set to %d).\n",
+    //          (unsigned long)ext_ref_freq, external_ref_clock_scale);
 #endif
 }
 

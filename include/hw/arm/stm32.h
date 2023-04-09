@@ -213,6 +213,14 @@ const char *stm32_periph_name(stm32_periph_t periph);
 #define TIM3_IRQn         29     /*!< TIM3 global Interrupt                                */
 #define TIM4_IRQn         30     /*!< TIM4 global Interrupt                                */
 
+#define STM32_I2C1_EV_IRQ 31
+#define STM32_I2C1_ER_IRQ 32
+#define STM32_I2C2_EV_IRQ 33
+#define STM32_I2C2_ER_IRQ 34
+
+#define STM32_SPI1_IRQ 35
+#define STM32_SPI2_IRQ 36
+
 #define STM32_EXTI15_10_IRQ 40
 #define STM32_PVD_IRQ 1
 #define STM32_RTCAlarm_IRQ 41
@@ -230,8 +238,8 @@ const char *stm32_periph_name(stm32_periph_t periph);
 #define TIM7_IRQn               55     /*!< TIM7 Interrupt                                       */       
 #define STM32_ETH_WKUP_IRQ 62
 
-
-
+//#define STM32_I2C3_EV_IRQ 72
+//#define STM32_I2C3_ER_IRQ 73
 
 
 /* AFIO */
@@ -423,6 +431,19 @@ typedef struct stm32_dma stm32_dma;
 #define STM32_DMA(obj) OBJECT_CHECK(stm32_dma, (obj), TYPE_STM32_DMA)
 extern qemu_irq *stm32_DMA1_irq;
 
+/* I2C */
+typedef struct stm32_i2c_state stm32_i2c_state;
+
+#define TYPE_STM32_I2C "stm32.i2c"
+#define STM32_I2C(obj) OBJECT_CHECK(stm32_i2c_state, (obj), TYPE_STM32_I2C)
+
+
+/* SPI */
+typedef struct stm32_spi_state stm32_spi_state;
+
+#define TYPE_STM32_SPI "stm32.spi"
+#define STM32_SPI(obj) OBJECT_CHECK(stm32_spi_state, (obj), TYPE_STM32_SPI)
+
 
 /* STM32 MICROCONTROLLER - GENERAL */
 typedef struct Stm32 Stm32;
@@ -445,6 +466,7 @@ void stm32_iwdg_set_rcc(Stm32Iwdg *iwdg, Stm32Rcc* rcc);
 void stm32_uart_set_gpio(Stm32Uart *uart, Stm32Gpio** gpio);
 void stm32_uart_set_rcc(Stm32Uart *uart, Stm32Rcc* rcc);
 void stm32_uart_set_afio(Stm32Uart *uart, Stm32Afio* afio);
+void stm32_uart_set_id(Stm32Uart *uart, int uart_num);
 
 void stm32_timer_set_gpio(Stm32Timer *tim, Stm32Gpio** gpio);
 void stm32_timer_set_rcc(Stm32Timer *tim, Stm32Rcc* rcc);
