@@ -27,7 +27,8 @@
 
 
 static gboolean uart_transmit(void *do_not_use, GIOCondition cond, void *opaque);
-static void uart_receive(void *opaque, const uint8_t *buf, int size);
+void uart_receive(void *opaque, const uint8_t *buf, int size);
+int uart_can_receive(void *opaque);
 static void uart_set_rx_timeout(ESP32UARTState *s);
 
 static uint8_t fifo8_peek(Fifo8 *fifo)
@@ -47,7 +48,7 @@ static void uart_update_irq(ESP32UARTState *s)
 
     uint32_t tx_empty_raw = (fifo8_num_used(&s->tx_fifo) <= tx_empty_threshold);
     uint32_t rx_full_raw = (fifo8_num_used(&s->rx_fifo) >= rx_full_threshold);
-    uint32_t tx_done_raw = (fifo8_num_used(&s->tx_fifo) == 0);
+    uint32_t tx_done_raw = (fifo8_num_used(&s->tx_fifo) != 0);
     uint32_t rxfifo_tout_raw = (s->rxfifo_tout) ? 1 : 0;
 
     uint32_t int_raw = s->reg[R_UART_INT_RAW];
@@ -193,6 +194,7 @@ static void uart_write(void *opaque, hwaddr addr,
     uart_update_irq(s);
 }
 
+extern void (*picsimlab_uart_tx_event)(const uint8_t id, const uint8_t val);
 
 static gboolean uart_transmit(void *do_not_use, GIOCondition cond, void *opaque)
 {
@@ -208,7 +210,10 @@ static gboolean uart_transmit(void *do_not_use, GIOCondition cond, void *opaque)
 
     while (fifo8_num_used(&s->tx_fifo) > 0) {
         uint8_t b = fifo8_peek(&s->tx_fifo);
-        int r = qemu_chr_fe_write(&s->chr, &b, 1);
+        /*int r = */qemu_chr_fe_write(&s->chr, &b, 1);
+        picsimlab_uart_tx_event(s->id, b);
+        fifo8_pop(&s->tx_fifo); //don´t wait for uart read when port closed, serial data will be lost 
+/*
         if (r == 1) {
             fifo8_pop(&s->tx_fifo);
         } else {
@@ -216,6 +221,7 @@ static gboolean uart_transmit(void *do_not_use, GIOCondition cond, void *opaque)
                                                        uart_transmit, s);
             break;
         }
+*/
     }
 
     uart_update_irq(s);
@@ -223,7 +229,7 @@ static gboolean uart_transmit(void *do_not_use, GIOCondition cond, void *opaque)
     return FALSE;
 }
 
-static void uart_receive(void *opaque, const uint8_t *buf, int size)
+void uart_receive(void *opaque, const uint8_t *buf, int size)
 {
     ESP32UARTState *s = ESP32_UART(opaque);
 
@@ -286,7 +292,7 @@ static void uart_set_rx_timeout(ESP32UARTState *s)
     }
 }
 
-static int uart_can_receive(void *opaque)
+int uart_can_receive(void *opaque)
 {
     ESP32UARTState *s = ESP32_UART(opaque);
     if (s->throttle_rx) {
@@ -339,13 +345,15 @@ static void esp32_uart_reset(DeviceState *dev)
     qemu_irq_lower(s->irq);
 }
 
+extern GMainContext *g_main_context_default_l;
 
+static int uart_num = 0;
 static void esp32_uart_realize(DeviceState *dev, Error **errp)
 {
     ESP32UARTState *s = ESP32_UART(dev);
-
+    s->id = uart_num++;
     qemu_chr_fe_set_handlers(&s->chr, uart_can_receive, uart_receive,
-                             uart_event, NULL, s, NULL, true);
+                             uart_event, NULL, s, g_main_context_default_l, true);
 }
 
 

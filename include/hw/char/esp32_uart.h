@@ -92,5 +92,6 @@ typedef struct ESPUARTState {
     guint tx_watch_handle;
 
     uint32_t reg[UART_REG_CNT];
+    uint32_t id;
 } ESP32UARTState;
 

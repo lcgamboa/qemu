@@ -38,7 +38,14 @@
 #include "net/net.h"
 #include "elf.h"
 
-#define TYPE_ESP32_SOC "xtensa.esp32"
+#ifdef _WIN32
+#include "chardev/char-win.h"
+#else
+#include "chardev/char-fd.h"
+#endif
+#include "chardev/char-serial.h"
+
+#define TYPE_ESP32_SOC "xtensa.esp32-picsimlab"
 #define ESP32_SOC(obj) OBJECT_CHECK(Esp32SocState, (obj), TYPE_ESP32_SOC)
 
 #define TYPE_ESP32_CPU XTENSA_CPU_TYPE_NAME("esp32")
@@ -81,7 +88,158 @@ static const struct MemmapEntry {
 #define ESP32_SOC_RESET_ALL       (ESP32_SOC_RESET_RTC | ESP32_SOC_RESET_DIG)
 
 
+static Esp32SocState *global_s = NULL;
 
+static qemu_irq *pout_irq; //TODO alloc this in object state
+static qemu_irq *pdir_irq; //TODO alloc this in object state
+static qemu_irq *psync_irq;
+static qemu_irq *spi_cs_irq;
+
+static qemu_irq pin_irq[100];
+
+typedef struct {
+    void (*picsimlab_write_pin)(int pin, int value);
+    void (*picsimlab_dir_pin)(int pin, int value);
+    int (*picsimlab_i2c_event)(const uint8_t id, const uint8_t addr, const uint16_t event);
+    uint8_t (*picsimlab_spi_event)(const uint8_t id, const uint16_t event);
+    void (*picsimlab_uart_tx_event)(const uint8_t id, const uint8_t value);
+} callbacks_t;
+
+//prototypes
+void qemu_picsimlab_register_callbacks(void * arg);
+void qemu_picsimlab_set_apin(int chn,int value);
+void qemu_picsimlab_set_pin(int pin,int value);
+uint32_t * qemu_picsimlab_get_internals(int cfg);
+uint32_t  qemu_picsimlab_get_TIOCM(void);
+int qemu_picsimlab_flash_dump( int64_t offset, void *buf, int bytes);
+void qemu_picsimlab_uart_receive(const int id, const uint8_t *buf, int size);
+
+
+uint32_t *qemu_picsimlab_get_internals(int cfg) {
+  switch (cfg) {
+  case 0:
+    return &global_s->gpio.strap_mode;
+    break;
+  case 1:
+    return global_s->gpio.gpio_in_sel;
+    break;
+  case 2:
+    return global_s->gpio.gpio_out_sel;
+    break;
+  case 3:
+    return global_s->iomux.muxgpios;
+    break;
+  default:
+    printf("Invalid internal request\n"); 
+    break;
+  }
+  return NULL;
+}
+
+void uart_receive(void *opaque, const uint8_t *buf, int size);
+int uart_can_receive(void *opaque);
+
+void qemu_picsimlab_uart_receive(const int id, const uint8_t *buf, int size){
+   uart_receive((void *) &global_s->uart[id], buf, size);
+}
+
+uint32_t qemu_picsimlab_get_TIOCM(void)
+{
+   ESP32UARTState *s = ESP32_UART(&(global_s->uart[0]));
+
+   uint32_t state = 0;
+#ifdef _WIN32
+   WinChardev *ws = WIN_CHARDEV(s->chr.chr);
+
+   if (ws->file != INVALID_HANDLE_VALUE) {
+     long unsigned int wstate;
+     if(GetCommModemStatus(ws->file, &wstate)){
+       if(wstate & MS_DSR_ON) state |= CHR_TIOCM_DSR;
+       if(wstate & MS_CTS_ON) state |= CHR_TIOCM_CTS;
+     }
+     else{
+       printf("GetCommModemStatus Erro %li\n", GetLastError());
+     }
+    }
+#else
+   qemu_chr_fe_ioctl(&s->chr, CHR_IOCTL_SERIAL_GET_TIOCM, &state); 
+#endif
+   return state;
+}
+
+
+static void place_holder(int pin,int value){};
+static int place_holder2(const uint8_t id, const uint8_t addr, const uint16_t event){return 0;};
+static uint8_t place_holder3(const uint8_t id, const uint16_t event){return 0;};
+static void place_holder4(const uint8_t id, const uint8_t value){};
+
+void (*picsimlab_write_pin)(int pin,int value) = place_holder;
+void (*picsimlab_dir_pin)(int pin,int value) = place_holder;
+int (*picsimlab_i2c_event)(const uint8_t id, const uint8_t addr, const uint16_t event) = place_holder2;
+uint8_t (*picsimlab_spi_event)(const uint8_t id, const uint16_t event) = place_holder3;
+void (*picsimlab_uart_tx_event)(const uint8_t id, const uint8_t value) = place_holder4;
+
+void qemu_picsimlab_register_callbacks(void * arg)
+{
+  const callbacks_t * callbacks = (const callbacks_t *) arg;
+
+  picsimlab_write_pin = callbacks->picsimlab_write_pin;
+  picsimlab_dir_pin = callbacks->picsimlab_dir_pin; 
+  picsimlab_i2c_event = callbacks->picsimlab_i2c_event;
+  picsimlab_spi_event = callbacks->picsimlab_spi_event;
+  picsimlab_uart_tx_event = callbacks->picsimlab_uart_tx_event;
+}
+
+void qemu_picsimlab_set_pin(int pin,int value)
+{
+   //qemu_mutex_lock_iothread ();
+   if (value){
+      qemu_irq_raise (pin_irq[pin]);
+   }
+   else{
+      qemu_irq_lower (pin_irq[pin]);
+   }
+   //qemu_mutex_unlock_iothread ();
+}
+
+extern unsigned short ADC_values[31];
+
+void qemu_picsimlab_set_apin(int chn,int value)
+{
+   ADC_values[chn] = value;
+}
+
+int qemu_picsimlab_flash_dump( int64_t offset, void *buf, int bytes)
+{
+    if (global_s->dport.flash_blk){
+       return blk_pread(global_s->dport.flash_blk,offset,bytes,buf,0);
+    }
+   return 0;
+}
+
+static void
+pout_irq_handler(void *opaque, int n, int level)
+{
+   picsimlab_write_pin(n,level);
+}
+
+static void
+pdir_irq_handler(void *opaque, int n, int dir)
+{
+   picsimlab_dir_pin(n, dir);
+}
+
+static void
+psync_irq_handler(void *opaque, int n, int dir)
+{
+   picsimlab_dir_pin(-1, dir);
+}
+
+static void
+spi_cs_irq_handler(void *opaque, int n, int level)
+{
+    picsimlab_spi_event(n >> 2, ((((n & 3)<<1)|level)<<8)|0x01);
+}
 
 static void remove_cpu_watchpoints(XtensaCPU* xcs)
 {
@@ -537,6 +695,9 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     esp32_soc_add_unimp_device(sys_mem, "esp32.unknown_wifi", DR_REG_NRX_BASE  , 0x1000,-1);
     esp32_soc_add_unimp_device(sys_mem, "esp32.unknown_wifi1", DR_REG_BB_BASE , 0x1000,-1);
 
+    ssi_create_peripheral(s->spi[2].spi, "picsimlab_spi");
+    ssi_create_peripheral(s->spi[3].spi, "picsimlab_spi");
+
     /* st7789v is attached to SPI2 and SPI2 so the both HSPI and VSPI will work, 
     they share a single console*/
     //DeviceState *disp=ssi_create_peripheral(s->spi[2].spi, "st7789v");
@@ -573,11 +734,155 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     cpu_physical_memory_write(apb_ctrl_date_reg, &apb_ctrl_date_reg_val, 4);
 
     qemu_register_reset((QEMUResetHandler*) esp32_soc_reset, dev);
+
+//PICSimLab gpio map
+
+//ESP32-DevKitC V4
+    psync_irq = qemu_allocate_irqs (psync_irq_handler, NULL, 1);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_SYNC, 0 , psync_irq[0]);
+    qdev_connect_gpio_out_named(DEVICE(&s->iomux), ESP32_IOMUX_SYNC, 0 , psync_irq[0]);
+    pdir_irq = qemu_allocate_irqs (pdir_irq_handler, NULL, 38);
+    pout_irq = qemu_allocate_irqs (pout_irq_handler, NULL, 38);
+    spi_cs_irq = qemu_allocate_irqs (spi_cs_irq_handler, NULL, 8);
+
+    qdev_connect_gpio_out_named(DEVICE(&s->spi[2]), SSI_GPIO_CS, 0 , spi_cs_irq[0]);
+    qdev_connect_gpio_out_named(DEVICE(&s->spi[2]), SSI_GPIO_CS, 1 , spi_cs_irq[1]);
+    qdev_connect_gpio_out_named(DEVICE(&s->spi[2]), SSI_GPIO_CS, 2 , spi_cs_irq[2]);
+
+    qdev_connect_gpio_out_named(DEVICE(&s->spi[3]), SSI_GPIO_CS, 0 , spi_cs_irq[4]);
+    qdev_connect_gpio_out_named(DEVICE(&s->spi[3]), SSI_GPIO_CS, 1 , spi_cs_irq[5]);
+    qdev_connect_gpio_out_named(DEVICE(&s->spi[3]), SSI_GPIO_CS, 2 , spi_cs_irq[6]);
+
+//1-3V3 
+//2-EN
+//3-GPIO36
+    pin_irq[3]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 36);
+//4-GPIO39
+    pin_irq[4]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 39);
+//5-GPIO34
+    pin_irq[5]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 34);
+//6-GPIO35
+    pin_irq[6]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 35);
+//7-GPIO32
+    pin_irq[7]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 32);
+//8-GPIO33
+    pin_irq[8]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 33);
+//9-GPIO25
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 25, pout_irq[9]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 25 , pdir_irq[9]);
+    pin_irq[9]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 25);
+//10-GPIO26
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 26, pout_irq[10]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 26 , pdir_irq[10]);
+    pin_irq[10]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 26);
+//11-GPIO27
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 27, pout_irq[11]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 27 , pdir_irq[11]);
+    pin_irq[11]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 27);
+//12-GPIO14
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 14, pout_irq[12]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 14 , pdir_irq[12]);
+    pin_irq[12]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 14);
+//13-GPIO12
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 12, pout_irq[13]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 12 , pdir_irq[13]);
+    pin_irq[13]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 12);
+//14-GND
+//15-GPIO13
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 13, pout_irq[15]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 13 , pdir_irq[15]);
+    pin_irq[15]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 13);
+//16-GPIO9
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 9, pout_irq[16]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 9 , pdir_irq[16]);
+    pin_irq[16]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 9);
+//17-GPIO10
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 10, pout_irq[17]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 10 , pdir_irq[17]);
+    pin_irq[17]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 10);
+//18-GPIO11
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 11, pout_irq[18]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 11 , pdir_irq[18]);
+    pin_irq[18]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 11);
+//19-VIN
+
+//20-GPIO6
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 6, pout_irq[20]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 6 , pdir_irq[20]);
+    pin_irq[20]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 6);
+//21-GPIO7
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 7, pout_irq[21]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 7 , pdir_irq[21]);
+    pin_irq[21]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 7);
+//22-GPIO8
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 8, pout_irq[22]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 8 , pdir_irq[22]);
+    pin_irq[22]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 8);
+//23-GPIO15
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 15, pout_irq[23]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 15 , pdir_irq[23]);
+    pin_irq[23]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 15);
+//24-GPIO2
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 2, pout_irq[24]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 2 , pdir_irq[24]);
+    pin_irq[24]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 2);
+//25-GPIO0
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 0, pout_irq[25]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 0 , pdir_irq[25]);
+    pin_irq[25]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 0);
+//26-GPIO4
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 4, pout_irq[26]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 4 , pdir_irq[26]);
+    pin_irq[26]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 4);
+//27-GPIO16
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 16, pout_irq[27]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 16 , pdir_irq[27]);
+    pin_irq[27]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 16);
+//28-GPIO17
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 17, pout_irq[28]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 17 , pdir_irq[28]);
+    pin_irq[28]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 17);
+//29-GPIO5
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 5, pout_irq[29]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 5 , pdir_irq[29]);
+    pin_irq[29]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 5);
+//30-GPIO18
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 18, pout_irq[30]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 18 , pdir_irq[30]);
+    pin_irq[30]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 18);
+//31-GPIO19
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 19, pout_irq[31]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 19 , pdir_irq[31]);
+    pin_irq[31]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 19);
+//32-GND
+//33-GPIO21
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 21, pout_irq[33]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 21 , pdir_irq[33]);
+    pin_irq[33]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 21);
+//34-GPIO3
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 3, pout_irq[34]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 3 , pdir_irq[34]);
+    pin_irq[34]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 3);
+//35-GPIO1
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 1, pout_irq[35]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 1 , pdir_irq[35]);
+    pin_irq[35]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 1);
+//36-GPIO22
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 22, pout_irq[36]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 22 , pdir_irq[36]);
+    pin_irq[36]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 22);
+//37-GPIO23
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, 23, pout_irq[37]);
+    qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_DIR, 23 , pdir_irq[37]);
+    pin_irq[37]=qdev_get_gpio_in_named(DEVICE(&s->gpio), ESP32_GPIOS_IN, 23);
+//38-GND
 }
 
 static void esp32_soc_init(Object *obj)
 {
     Esp32SocState *s = ESP32_SOC(obj);
+    global_s = s;
+    
     MachineState *ms = MACHINE(qdev_get_machine());
     char name[16];
 
@@ -731,7 +1036,7 @@ struct Esp32MachineState {
     Esp32SocState esp32;
     DeviceState *flash_dev;
 };
-#define TYPE_ESP32_MACHINE MACHINE_TYPE_NAME("esp32")
+#define TYPE_ESP32_MACHINE MACHINE_TYPE_NAME("esp32-picsimlab")
 
 OBJECT_DECLARE_SIMPLE_TYPE(Esp32MachineState, ESP32_MACHINE)
 
@@ -774,6 +1079,11 @@ static void esp32_machine_init_i2c(Esp32SocState *s)
     I2CBus* i2c_bus = I2C_BUS(qdev_get_child_bus(i2c_master, "i2c"));
     I2CSlave* tmp105 = i2c_slave_create_simple(i2c_bus, "tmp105", 0x48);
     object_property_set_int(OBJECT(tmp105), "temperature", 25 * 1000, &error_fatal);
+    i2c_slave_create_simple(i2c_bus, "picsimlab_i2c", 0x00);
+
+    DeviceState *i2c_master1 = DEVICE(&s->i2c[1]);
+    I2CBus* i2c_bus1 = I2C_BUS(qdev_get_child_bus(i2c_master1, "i2c"));
+    i2c_slave_create_simple(i2c_bus1, "picsimlab_i2c", 0x01);
 }
 
 static void esp32_machine_init_openeth(Esp32SocState *ss)
@@ -962,10 +1272,10 @@ static ram_addr_t esp32_fixup_ram_size(ram_addr_t requested_size)
 static void esp32_machine_class_init(ObjectClass *oc, void *data)
 {
     MachineClass *mc = MACHINE_CLASS(oc);
-    mc->desc = "Espressif ESP32 machine";
+    mc->desc = "Espressif ESP32 machine (picsimlab)";
     mc->init = esp32_machine_init;
     mc->max_cpus = 2;
-    mc->is_default = true;
+    mc->is_default = false;
     mc->default_cpus = 2;
     mc->default_ram_size = 0;
     mc->fixup_ram_size = esp32_fixup_ram_size;

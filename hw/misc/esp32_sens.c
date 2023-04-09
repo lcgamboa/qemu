@@ -19,16 +19,25 @@
 
 int touch_sensor[10];
 
+unsigned short ADC_values[31]={31,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,
+                               24,25,26,27,28,29,30};
+
+static int channel1=0;
+static int channel2=0;
+ 
+
 static uint64_t esp32_sens_read(void *opaque, hwaddr addr, unsigned int size)
 {
-//Esp32SensState *s = ESP32_SENS(opaque);
+    //Esp32SensState *s = ESP32_SENS(opaque);
     uint32_t r = 0;
-//    printf("esp32_sens_read %ld\n",addr);
+    //printf("esp32_sens_read 0x%lx\n",addr);
     switch(addr) {
-    case 0x54:
-        return 0x10000+2800+rand()%4;
-    case 0x84:
+    case 0x54://SENS_MEAS1_START_SAR
+        return 0x10000+ADC_values[channel1];
+    case 0x84://SENS_SAR_TOUCH_CTRL2_REG
 	return (1<<10);
+    case 0x94://SENS_MEAS2_START_SAR
+	return 0x10000+ADC_values[channel2+8];
     }
 // 2=gpio2, 3=gpio15, 4=gpio14(13?), 5=gpio12, 7=gpio27, 8=gpio33, 9=gpio32
 // land +/- 300: 2=12166,31743 15=13618,31585 13=15277,31743 12=16798,31743 27=18388,3071 33=13791,2993 32=12166,2914
@@ -42,10 +51,50 @@ static uint64_t esp32_sens_read(void *opaque, hwaddr addr, unsigned int size)
     return r;
 }
 
+static int bitpos( int value )
+{
+    switch( value )
+    {
+        case 1: return 0; 
+        case 2: return 1;
+        case 4: return 2;
+        case 8: return 3;
+        case 16: return 4;
+        case 32: return 5;
+        case 64: return 6;
+        case 128: return 7;
+        case 256: return 8;
+        case 512: return 9;
+        case 1024: return 10;
+        case 2048: return 11;
+        case 4096: return 12;
+        case 8192: return 13;
+        case 16384: return 14;
+        case 32768: return 15;
+        case 65536: return 16;
+       default      : return 0;
+    }
+}
+
 static void esp32_sens_write(void *opaque, hwaddr addr, uint64_t value,
                                  unsigned int size) {
-  //  Esp32SensState *s = ESP32_SENS(opaque);
-  //  printf("esp32_sens_write %ld %ld\n",addr, value);
+    int cval;
+   // Esp32SensState *s = ESP32_SENS(opaque);
+   // printf("esp32_sens_write 0x%lx 0x%lx\n",addr, value);
+    switch(addr) {
+    case 0x54://SENS_MEAS1_START_SAR
+     cval = (value & 0x7FF80000) >> 19;
+     if(cval){
+       channel1 = bitpos(cval);
+     } 
+    break; 
+    case 0x94://SENS_MEAS2_START_SAR
+     cval = (value & 0x7FF80000) >> 19;
+     if(cval){
+       channel2 = bitpos(cval);
+     }
+    break;
+    }
 }
 
 static const MemoryRegionOps esp32_sens_ops = {

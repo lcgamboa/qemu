@@ -22,5 +22,6 @@ config XTENSA_ESP32
     select DWC_SDMMC
     select TMP105
     select LED
+    select PICSIMLAB_I2C
 
 

@@ -109,6 +109,9 @@ static uint64_t esp32_spi_read(void *opaque, hwaddr addr, unsigned int size)
     case A_SPI_DMA_OUT_LINK:
         r = s->outlink_reg;
         break;
+    case A_SPI_DMA_IN_LINK:
+        r = s->inlink_reg;
+        break;
     case A_SPI_DMA_CONF:
         r = s->dmaconfig_reg;
         break;
@@ -168,7 +171,9 @@ static void esp32_spi_write(void *opaque, hwaddr addr,
     case A_SPI_DMA_OUT_LINK:
         s->outlink_reg = value;
         break;
-
+    case A_SPI_DMA_IN_LINK:
+        s->inlink_reg = value;
+        break;
     case A_SPI_DMA_CONF:
         s->dmaconfig_reg = value;
         break;
@@ -191,11 +196,11 @@ static void esp32_spi_txrx_buffer(Esp32SpiState *s, void *buf, int tx_bytes, int
     uint8_t *c_buf = (uint8_t*) buf;
     for (int i = 0; i < bytes; ++i) {
         uint8_t byte = 0;
-        if (byte < tx_bytes) {
+        if (i < tx_bytes) {
             memcpy(&byte, c_buf + i, 1);
         }
         uint32_t res = ssi_transfer(s->spi, byte);
-        if (byte < rx_bytes) {
+        if (i < rx_bytes) {
             memcpy(c_buf + i, &res, 1);
         }
     }
@@ -204,12 +209,21 @@ static void esp32_spi_txrx_buffer(Esp32SpiState *s, void *buf, int tx_bytes, int
 static void esp32_spi_cs_set(Esp32SpiState *s, int value)
 {
     for (int i = 0; i < ESP32_SPI_CS_COUNT; ++i) {
-        qemu_set_irq(s->cs_gpio[i], ((s->pin_reg & (1 << i)) == 0) ? value : 1);
+        if((s->pin_reg & (1 << i)) == 0){
+            qemu_set_irq(s->cs_gpio[i], value);
+        }
     }
 }
 
 static void esp32_spi_transaction(Esp32SpiState *s, Esp32SpiTransaction *t)
 {
+    if(s->use_cs) {
+        esp32_spi_cs_set(s, 0);
+        esp32_spi_txrx_buffer(s, t->data, t->data_tx_bytes, t->data_rx_bytes);
+        esp32_spi_cs_set(s, 1);
+        return;
+    }
+
     if(s->xfer_32_bits) {
         uint32_t *data=(uint32_t *)(t->data);
         for (int i = 0; i < (t->data_tx_bytes+3)/4; i++) {
@@ -326,7 +340,14 @@ static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
             unsigned addr = (0x3ff00000 | (s->outlink_reg & R_SPI_DMA_OUT_LINK_ADDR_MASK));
             int v[3];
             int total_len=0;
-            uint64_t ns_now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+            //uint64_t ns_now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+
+            int data_in = 0;
+            int len_in;
+            unsigned addr_in = 0; 
+            if (s->inlink_reg & R_SPI_DMA_IN_LINK_START_MASK) {
+               addr_in = (0x3ff00000 | (s->inlink_reg & R_SPI_DMA_IN_LINK_ADDR_MASK));
+            }
             
             BusState *b = BUS(s->spi);
             BusChild *ch = QTAILQ_FIRST(&b->children);
@@ -346,19 +367,41 @@ static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
                                    MEMTXATTRS_UNSPECIFIED, buffer, len);
                 if(s->xfer_32_bits) {
                     for (int i = 0; i < (len+3)/4; i++) {    
-                        ssc->transfer(peripheral,buffer[i]);
+                        buffer[i] = ssc->transfer(peripheral,buffer[i]);
                     }
+                }else if(s->use_cs){
+                    uint8_t *chb=(uint8_t *)buffer;
+                    esp32_spi_cs_set(s, 0);
+                    for (int i = 0; i < len; i++) {    
+                        chb[i] = ssc->transfer(peripheral,chb[i]);
+                    }
+                    esp32_spi_cs_set(s, 1);
                 } else {
                     uint8_t *chb=(uint8_t *)buffer;
                     for (int i = 0; i < len; i++) {    
-                        ssc->transfer(peripheral,chb[i]);
+                        chb[i]=ssc->transfer(peripheral,chb[i]);
                     }
                 }
+
+                if(addr_in){
+                  // read the next dma command from the list
+                  address_space_read(&address_space_memory, addr_in,
+                                   MEMTXATTRS_UNSPECIFIED, v, 12);
+                  len_in = v[0] & 4095;
+                  data_in = v[1];
+                  addr_in = v[2];
+                  // copy the buffer into memory (max 4092 bytes)
+                  if(len_in){
+                    address_space_write(&address_space_memory, data_in,
+                                   MEMTXATTRS_UNSPECIFIED, buffer, len_in);
+                  }
+                }
+                
                 total_len+=len;
             } while (addr != 0);            
-            uint64_t ns_to_timeout = s->mosi_dlen_reg * 25;  // about 75fps, same a real hw
-            timer_mod_ns(&s->spi_timer,
-                                            ns_now + ns_to_timeout);
+            //uint64_t ns_to_timeout = s->mosi_dlen_reg * 25;  // about 75fps, same a real hw
+            //timer_mod_ns(&s->spi_timer, ns_now + 1/*ns_to_timeout*/);
+            esp32_spi_timer_cb(s);
             return;
         }
         maybe_encrypt_data(s);
@@ -427,6 +470,7 @@ static void esp32_spi_init(Object *obj)
 
 static Property esp32_spi_properties[] = {
     DEFINE_PROP_BOOL("xfer_32_bits",Esp32SpiState,xfer_32_bits,false),
+    DEFINE_PROP_BOOL("use_cs",Esp32SpiState,use_cs,false),
     DEFINE_PROP_END_OF_LIST(),
 };
 

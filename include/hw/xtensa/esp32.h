@@ -28,6 +28,7 @@
 #include "hw/xtensa/esp32_intc.h"
 #include "hw/misc/esp32_flash_enc.h"
 #include "hw/sd/dwc_sdmmc.h"
+#include "hw/misc/esp32_iomux.h"
 
 typedef struct Esp32SocState {
     /*< private >*/
@@ -57,6 +58,7 @@ typedef struct Esp32SocState {
     Esp32WifiState wifi;
     Esp32FeState fe;
     Esp32RamdevState phya;
+    Esp32IomuxState iomux;
 
     Esp32FlashEncryptionState flash_enc;
     DWCSDMMCState sdmmc;

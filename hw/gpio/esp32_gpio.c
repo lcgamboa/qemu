@@ -22,65 +22,82 @@
 #include "hw/gpio/esp32_gpio.h"
 #include "sysemu/runstate.h"
 
-static uint64_t esp32_gpio_read(void *opaque, hwaddr addr, unsigned int size) {
+
+static uint64_t esp32_gpio_read(void *opaque, hwaddr addr, unsigned int size)
+{
     Esp32GpioState *s = ESP32_GPIO(opaque);
     uint64_t r = 0;
     switch (addr) {
-        case 4:
+        case 0x04: //GPIO_OUT_REG
             r = s->gpio_out;
             break;
-        case A_GPIO_STRAP:
+        case 0x20: //GPIO_ENABLE_REG
+            r = s->gpio_enable;
+            break;
+        case 0x38: //A_GPIO_STRAP:
             r = s->strap_mode;
             break;
-        case 0x3C:  // in_low
+        case 0x3C: //GPIO_IN_REG
+            qemu_set_irq(s->gpios_sync[0], -1); //request sync
             r = s->gpio_in;
             break;
-        case 0x40:  // in_high
+        case 0x40: //GPIO_IN1_REG 
+            qemu_set_irq(s->gpios_sync[0], -1); //request sync
             r = s->gpio_in1;
             break;
-        case 0x44:
+        case 0x44: //GPIO_STATUS_REG
             r = s->gpio_status;
             break;
-        case 0x50:
+        case 0x50: //GPIO_STATUS1_REG
             r = s->gpio_status1;
             break;
-        case 0x60:
+        case 0x60: //GPIO_ACPU_INT_REG
             r = s->gpio_acpu_int;
             break;
-        case 0x68:
+        case 0x68: //GPIO_PCPU_INT_REG
             r = s->gpio_pcpu_int;
             break;
-        case 0x74:
+        case 0x74: //GPIO_ACPU_INT1_REG
             r = s->gpio_acpu_int1;
             break;
-        case 0x7c:
+        case 0x7c: //GPIO_PCPU_INT1_REG
             r = s->gpio_pcpu_int1;
             break;
         default:
             break;
     }
-    if (addr >= 0x88 && addr < 0x130) {
+    if (addr >= 0x88 && addr < 0x130) { //GPIO_PINXX_REG
         int n = (addr - 0x88) / 4;
         r = s->gpio_pin[n];
+    }
+    else if (addr >= 0x130 && addr < 0x530) { //GPIO_FUNCY_IN_SEL_CFG_REG 
+        int n = (addr - 0x130) / 4;
+        r = s->gpio_in_sel[n];
+    }
+    else if (addr >= 0x530 && addr < 0x5d0) { //GPIO_FUNCX_OUT_SEL_CFG_REG 
+        int n = (addr - 0x530) / 4;
+        r = s->gpio_out_sel[n];
     }
     return r;
 }
 
+//Interrupt type selection
 static int get_triggering(int int_type, int oldval, int val) {
     switch (int_type) {
-        case 1:
+        case 1: //rising edge trigger
             return (val > oldval);
-        case 2:
+        case 2: //falling edge trigger
             return (val < oldval);
-        case 3:
+        case 3: //any edge trigger
             return (val != oldval);
-        case 4:
+        case 4: //low level trigger
             return (val == 0);
-        case 5:
+        case 5: //high level trigger
             return (val == 1);
     }
-    return 0;
+    return 0; //GPIO interrupt disable
 }
+
 static void set_gpio(void *opaque, int n, int val) {
     Esp32GpioState *s = ESP32_GPIO(opaque);
     if (n < 32) {
@@ -126,27 +143,38 @@ static void esp32_gpio_write(void *opaque, hwaddr addr, uint64_t value,
     Esp32GpioState *s = ESP32_GPIO(opaque);
     int clearirq;
     uint32_t oldvalue;
+    uint32_t oldenable;
     oldvalue = s->gpio_out;
+    oldenable = s->gpio_enable;
     switch (addr) {
-        case 4:
+        case 0x04: //GPIO_OUT_REG
             s->gpio_out = value;
             break;
-        case 8:
+        case 0x08: //GPIO_OUT_W1TS_REG
             s->gpio_out |= value;
             break;
-        case 12:
+        case 0x0C: //GPIO_OUT_W1TC_REG 
             s->gpio_out &= ~value;
             break;
-        case A_GPIO_STRAP:
+        case 0x20: //GPIO_ENABLE_REG
+            s->gpio_enable = value;
+            break;
+        case 0x24: //GPIO_ENABLE_W1TS_REG
+            s->gpio_enable |= value;
+            break;
+        case 0x28: //GPIO_ENABLE_W1TC_REG
+            s->gpio_enable &= ~value;
+            break;
+        case 0x38: //A_GPIO_STRAP
             s->strap_mode = value;
             break;
-        case 0x44:
+        case 0x44: //GPIO_STATUS_REG
             s->gpio_status = value;
             break;
-        case 0x48:
+        case 0x48: //GPIO_STATUS_W1TS_REG 
             s->gpio_status |= value;
             break;
-        case 0x4c:
+        case 0x4c: //GPIO_STATUS_W1TC_REG 
             clearirq = 1;
             for (int i = 0; i < 32; i++) {
                 if ((1 << i) & value) {
@@ -163,13 +191,13 @@ static void esp32_gpio_write(void *opaque, hwaddr addr, uint64_t value,
                 qemu_set_irq(s->irq, 0);
             }
             break;
-        case 0x50:
+        case 0x50: //GPIO_STATUS1_REG 
             s->gpio_status1 = value;
             break;
-        case 0x54:
+        case 0x54: //GPIO_STATUS1_W1TS_REG 
             s->gpio_status1 |= value;
             break;
-        case 0x58:
+        case 0x58: //GPIO_STATUS1_W1TC_REG 
             clearirq = 1;
             for (int i = 0; i < 32; i++) {
                 if ((1 << i) & value) {
@@ -187,22 +215,41 @@ static void esp32_gpio_write(void *opaque, hwaddr addr, uint64_t value,
             }
             break;
     }
-    if (addr >= 0x88 && addr < 0x130) {
+    if (addr >= 0x88 && addr < 0x130) { //GPIO_PINXX_REG
         int n = (addr - 0x88) / 4;
         s->gpio_pin[n] = value;
     }
-
-    if (addr > 0x530 && addr < 0x5d0) {
-        //    printf("IOMUX %lx %lx\n",(addr-0x530)/4,value);
-        //    if(value==10)
-        //        printf("Connect GPIO %ld to HSPI_DATA\n",(addr-0x530)/4);
+    else if (addr >= 0x130 && addr < 0x530) { //GPIO_FUNCY_IN_SEL_CFG_REG
+        int n = (addr - 0x130) / 4;
+        s->gpio_in_sel[n] = value;
+        qemu_set_irq(s->gpios_sync[0], -(0x1000 | n)); //report in sel cfg change
+    }
+    else if (addr >= 0x530 && addr < 0x5d0) { //GPIO_FUNCX_OUT_SEL_CFG_REG 
+        int n = (addr - 0x530) / 4;
+        s->gpio_out_sel[n] = value;
+        qemu_set_irq(s->gpios_sync[0], -(0x2000 | n)); ////report out sel cfg change
     }
 
-    if (s->gpio_out != oldvalue) {
-        uint32_t diff = (s->gpio_out ^ oldvalue);
+    //printf("out 0x%04X in 0x%04X enable 0x%04X \n"  ,s->gpio_out, s->gpio_in, s->gpio_enable);
+
+    if ((s->gpio_out != oldvalue)||(s->gpio_enable != oldenable)) {
+        uint32_t diff = (s->gpio_out ^ oldvalue) | (s->gpio_enable ^ oldenable);
         for (int i = 0; i < 32; i++) {
-            if ((1 << i) & diff) {
+            if (((1 << i) & diff)&&((1 << i) & s->gpio_enable)){
                 qemu_set_irq(s->gpios[i], (s->gpio_out & (1 << i)) ? 1 : 0);
+                if(s->gpio_out & (1 << i)){
+                   s->gpio_in |= (1 << i);
+                }else{
+                   s->gpio_in &= ~(1 << i); 
+                } 
+            }
+        }
+    }
+    if (s->gpio_enable != oldenable) {
+        uint32_t diff =(s->gpio_enable ^ oldenable);
+        for (int i = 0; i < 32; i++) {
+            if ((1 << i) & diff){
+                qemu_set_irq(s->gpios_dir[i], (s->gpio_enable & (1 << i)) ? 1 : 0); 
             }
         }
     }
@@ -228,6 +275,8 @@ static void esp32_gpio_init(Object *obj) {
     sysbus_init_irq(sbd, &s->irq);
     qdev_init_gpio_out_named(DEVICE(s), &s->irq, SYSBUS_DEVICE_GPIO_IRQ, 1);
     qdev_init_gpio_out_named(DEVICE(s), s->gpios, ESP32_GPIOS, 32);
+    qdev_init_gpio_out_named(DEVICE(s), s->gpios_dir, ESP32_GPIOS_DIR, 32);
+    qdev_init_gpio_out_named(DEVICE(s), s->gpios_sync, ESP32_GPIOS_SYNC, 1);
     qdev_init_gpio_in_named(DEVICE(s), set_gpio, ESP32_GPIOS_IN, 40);
     s->gpio_in = 0x1;
     s->gpio_in1 = 0x8;

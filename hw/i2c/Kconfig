@@ -41,3 +41,7 @@ config PCA954X
 config PMBUS
     bool
     select SMBUS
+
+config PICSIMLAB_I2C
+    bool
+    depends on I2C
