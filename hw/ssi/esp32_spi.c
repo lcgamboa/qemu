@@ -372,12 +372,50 @@ static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
                 }else if(s->use_cs){
                     uint8_t *chb=(uint8_t *)buffer;
                     esp32_spi_cs_set(s, 0);
+
+                    if (FIELD_EX32(s->user_reg, SPI_USER, COMMAND) && FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_BITLEN)) {
+                      t.cmd = FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_VALUE);
+                      t.cmd_bytes = bitlen_to_bytes(FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_BITLEN));
+                      char * dp = (char*) &t.cmd ;
+                      for (int i = 0; i < t.cmd_bytes; i++) {    
+                         ssc->transfer(peripheral,dp[i]);
+                      }
+                    } 
+
+                    if (FIELD_EX32(s->user_reg, SPI_USER, ADDR)) {
+                        t.addr_bytes = bitlen_to_bytes(FIELD_EX32(s->user1_reg, SPI_USER1, ADDR_BITLEN));
+                        t.addr = bswap32(s->addr_reg);
+                        char * dp = (char*) &t.addr ;
+                        for (int i = 0; i < t.addr_bytes; i++) {    
+                          ssc->transfer(peripheral,dp[i]);
+                        }
+                    }
+
                     for (int i = 0; i < len; i++) {    
                         chb[i] = ssc->transfer(peripheral,chb[i]);
                     }
                     esp32_spi_cs_set(s, 1);
                 } else {
                     uint8_t *chb=(uint8_t *)buffer;
+
+                    if (FIELD_EX32(s->user_reg, SPI_USER, COMMAND) && FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_BITLEN)) {
+                      t.cmd = FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_VALUE);
+                      t.cmd_bytes = bitlen_to_bytes(FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_BITLEN));
+                      char * dp = (char*) &t.cmd ;
+                      for (int i = 0; i < t.cmd_bytes; i++) {    
+                         ssc->transfer(peripheral,dp[i]);
+                      }
+                    } 
+
+                    if (FIELD_EX32(s->user_reg, SPI_USER, ADDR)) {
+                        t.addr_bytes = bitlen_to_bytes(FIELD_EX32(s->user1_reg, SPI_USER1, ADDR_BITLEN));
+                        t.addr = bswap32(s->addr_reg);
+                        char * dp = (char*) &t.addr ;
+                        for (int i = 0; i < t.addr_bytes; i++) {    
+                          ssc->transfer(peripheral,dp[i]);
+                        }
+                    }
+
                     for (int i = 0; i < len; i++) {    
                         chb[i]=ssc->transfer(peripheral,chb[i]);
                     }
@@ -405,7 +443,7 @@ static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
             return;
         }
         maybe_encrypt_data(s);
-        if (FIELD_EX32(s->user_reg, SPI_USER, COMMAND) || FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_BITLEN)) {
+        if (FIELD_EX32(s->user_reg, SPI_USER, COMMAND) && FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_BITLEN)) {
             t.cmd = FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_VALUE);
             t.cmd_bytes = bitlen_to_bytes(FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_BITLEN));
         } else {
