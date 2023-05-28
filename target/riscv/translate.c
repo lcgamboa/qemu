@@ -76,6 +76,7 @@ typedef struct DisasContext {
        to reset this known value.  */
     int frm;
     RISCVMXL ol;
+    bool virt_inst_excp;
     bool virt_enabled;
     const RISCVCPUConfig *cfg_ptr;
     bool hlsx;
@@ -100,17 +101,15 @@ typedef struct DisasContext {
     bool cfg_vta_all_1s;
     target_ulong vstart;
     bool vl_eq_vlmax;
-    uint8_t ntemp;
     CPUState *cs;
     TCGv zero;
-    /* Space for 3 operands plus 1 extra for address computation. */
-    TCGv temp[4];
-    /* Space for 4 operands(1 dest and <=3 src) for float point computation */
-    TCGv_i64 ftemp[4];
-    uint8_t nftemp;
     /* PointerMasking extension */
     bool pm_mask_enabled;
     bool pm_base_enabled;
+    /* Use icount trigger for native debug */
+    bool itrigger;
+    /* FRM is known to contain a valid value. */
+    bool frm_valid;
     /* TCG of the current insn_start */
     TCGOp *insn_start;
 } DisasContext;
@@ -123,6 +122,16 @@ static inline bool has_ext(DisasContext *ctx, uint32_t ext)
 static bool always_true_p(DisasContext *ctx  __attribute__((__unused__)))
 {
     return true;
+}
+
+static bool has_xthead_p(DisasContext *ctx  __attribute__((__unused__)))
+{
+    return ctx->cfg_ptr->ext_xtheadba || ctx->cfg_ptr->ext_xtheadbb ||
+           ctx->cfg_ptr->ext_xtheadbs || ctx->cfg_ptr->ext_xtheadcmo ||
+           ctx->cfg_ptr->ext_xtheadcondmov ||
+           ctx->cfg_ptr->ext_xtheadfmemidx || ctx->cfg_ptr->ext_xtheadfmv ||
+           ctx->cfg_ptr->ext_xtheadmac || ctx->cfg_ptr->ext_xtheadmemidx ||
+           ctx->cfg_ptr->ext_xtheadmempair || ctx->cfg_ptr->ext_xtheadsync;
 }
 
 #define MATERIALISE_EXT_PREDICATE(ext)  \
@@ -192,12 +201,10 @@ static void gen_nanbox_h(TCGv_i64 out, TCGv_i64 in)
  */
 static void gen_check_nanbox_h(TCGv_i64 out, TCGv_i64 in)
 {
-    TCGv_i64 t_max = tcg_const_i64(0xffffffffffff0000ull);
-    TCGv_i64 t_nan = tcg_const_i64(0xffffffffffff7e00ull);
+    TCGv_i64 t_max = tcg_constant_i64(0xffffffffffff0000ull);
+    TCGv_i64 t_nan = tcg_constant_i64(0xffffffffffff7e00ull);
 
     tcg_gen_movcond_i64(TCG_COND_GEU, out, in, t_max, in, t_nan);
-    tcg_temp_free_i64(t_max);
-    tcg_temp_free_i64(t_nan);
 }
 
 static void gen_check_nanbox_s(TCGv_i64 out, TCGv_i64 in)
@@ -243,7 +250,11 @@ static void gen_exception_illegal(DisasContext *ctx)
 {
     tcg_gen_st_i32(tcg_constant_i32(ctx->opcode), cpu_env,
                    offsetof(CPURISCVState, bins));
-    generate_exception(ctx, RISCV_EXCP_ILLEGAL_INST);
+    if (ctx->virt_inst_excp) {
+        generate_exception(ctx, RISCV_EXCP_VIRT_INSTRUCTION_FAULT);
+    } else {
+        generate_exception(ctx, RISCV_EXCP_ILLEGAL_INST);
+    }
 }
 
 static void gen_exception_inst_addr_mis(DisasContext *ctx)
@@ -252,15 +263,39 @@ static void gen_exception_inst_addr_mis(DisasContext *ctx)
     generate_exception(ctx, RISCV_EXCP_INST_ADDR_MIS);
 }
 
+static void lookup_and_goto_ptr(DisasContext *ctx)
+{
+#ifndef CONFIG_USER_ONLY
+    if (ctx->itrigger) {
+        gen_helper_itrigger_match(cpu_env);
+    }
+#endif
+    tcg_gen_lookup_and_goto_ptr();
+}
+
+static void exit_tb(DisasContext *ctx)
+{
+#ifndef CONFIG_USER_ONLY
+    if (ctx->itrigger) {
+        gen_helper_itrigger_match(cpu_env);
+    }
+#endif
+    tcg_gen_exit_tb(NULL, 0);
+}
+
 static void gen_goto_tb(DisasContext *ctx, int n, target_ulong dest)
 {
-    if (translator_use_goto_tb(&ctx->base, dest)) {
+     /*
+      * Under itrigger, instruction executes one by one like singlestep,
+      * direct block chain benefits will be small.
+      */
+    if (translator_use_goto_tb(&ctx->base, dest) && !ctx->itrigger) {
         tcg_gen_goto_tb(n);
         gen_set_pc_imm(ctx, dest);
         tcg_gen_exit_tb(ctx->base.tb, n);
     } else {
         gen_set_pc_imm(ctx, dest);
-        tcg_gen_lookup_and_goto_ptr();
+        lookup_and_goto_ptr(ctx);
     }
 }
 
@@ -272,12 +307,6 @@ static void gen_goto_tb(DisasContext *ctx, int n, target_ulong dest)
  *
  * Further, we may provide an extension for word operations.
  */
-static TCGv temp_new(DisasContext *ctx)
-{
-    assert(ctx->ntemp < ARRAY_SIZE(ctx->temp));
-    return ctx->temp[ctx->ntemp++] = tcg_temp_new();
-}
-
 static TCGv get_gpr(DisasContext *ctx, int reg_num, DisasExtend ext)
 {
     TCGv t;
@@ -292,11 +321,11 @@ static TCGv get_gpr(DisasContext *ctx, int reg_num, DisasExtend ext)
         case EXT_NONE:
             break;
         case EXT_SIGN:
-            t = temp_new(ctx);
+            t = tcg_temp_new();
             tcg_gen_ext32s_tl(t, cpu_gpr[reg_num]);
             return t;
         case EXT_ZERO:
-            t = temp_new(ctx);
+            t = tcg_temp_new();
             tcg_gen_ext32u_tl(t, cpu_gpr[reg_num]);
             return t;
         default:
@@ -324,7 +353,7 @@ static TCGv get_gprh(DisasContext *ctx, int reg_num)
 static TCGv dest_gpr(DisasContext *ctx, int reg_num)
 {
     if (reg_num == 0 || get_olen(ctx) < TARGET_LONG_BITS) {
-        return temp_new(ctx);
+        return tcg_temp_new();
     }
     return cpu_gpr[reg_num];
 }
@@ -332,7 +361,7 @@ static TCGv dest_gpr(DisasContext *ctx, int reg_num)
 static TCGv dest_gprh(DisasContext *ctx, int reg_num)
 {
     if (reg_num == 0) {
-        return temp_new(ctx);
+        return tcg_temp_new();
     }
     return cpu_gprh[reg_num];
 }
@@ -388,12 +417,6 @@ static void gen_set_gpr128(DisasContext *ctx, int reg_num, TCGv rl, TCGv rh)
     }
 }
 
-static TCGv_i64 ftemp_new(DisasContext *ctx)
-{
-    assert(ctx->nftemp < ARRAY_SIZE(ctx->ftemp));
-    return ctx->ftemp[ctx->nftemp++] = tcg_temp_new_i64();
-}
-
 static TCGv_i64 get_fpr_hs(DisasContext *ctx, int reg_num)
 {
     if (!ctx->cfg_ptr->ext_zfinx) {
@@ -407,7 +430,7 @@ static TCGv_i64 get_fpr_hs(DisasContext *ctx, int reg_num)
     case MXL_RV32:
 #ifdef TARGET_RISCV32
     {
-        TCGv_i64 t = ftemp_new(ctx);
+        TCGv_i64 t = tcg_temp_new_i64();
         tcg_gen_ext_i32_i64(t, cpu_gpr[reg_num]);
         return t;
     }
@@ -433,7 +456,7 @@ static TCGv_i64 get_fpr_d(DisasContext *ctx, int reg_num)
     switch (get_xl(ctx)) {
     case MXL_RV32:
     {
-        TCGv_i64 t = ftemp_new(ctx);
+        TCGv_i64 t = tcg_temp_new_i64();
         tcg_gen_concat_tl_i64(t, cpu_gpr[reg_num], cpu_gpr[reg_num + 1]);
         return t;
     }
@@ -453,12 +476,12 @@ static TCGv_i64 dest_fpr(DisasContext *ctx, int reg_num)
     }
 
     if (reg_num == 0) {
-        return ftemp_new(ctx);
+        return tcg_temp_new_i64();
     }
 
     switch (get_xl(ctx)) {
     case MXL_RV32:
-        return ftemp_new(ctx);
+        return tcg_temp_new_i64();
 #ifdef TARGET_RISCV64
     case MXL_RV64:
         return cpu_gpr[reg_num];
@@ -541,10 +564,28 @@ static void gen_jal(DisasContext *ctx, int rd, target_ulong imm)
 /* Compute a canonical address from a register plus offset. */
 static TCGv get_address(DisasContext *ctx, int rs1, int imm)
 {
-    TCGv addr = temp_new(ctx);
+    TCGv addr = tcg_temp_new();
     TCGv src1 = get_gpr(ctx, rs1, EXT_NONE);
 
     tcg_gen_addi_tl(addr, src1, imm);
+    if (ctx->pm_mask_enabled) {
+        tcg_gen_andc_tl(addr, addr, pm_mask);
+    } else if (get_xl(ctx) == MXL_RV32) {
+        tcg_gen_ext32u_tl(addr, addr);
+    }
+    if (ctx->pm_base_enabled) {
+        tcg_gen_or_tl(addr, addr, pm_base);
+    }
+    return addr;
+}
+
+/* Compute a canonical address from a register plus reg offset. */
+static TCGv get_address_indexed(DisasContext *ctx, int rs1, TCGv offs)
+{
+    TCGv addr = tcg_temp_new();
+    TCGv src1 = get_gpr(ctx, rs1, EXT_NONE);
+
+    tcg_gen_add_tl(addr, src1, offs);
     if (ctx->pm_mask_enabled) {
         tcg_gen_andc_tl(addr, addr, pm_mask);
     } else if (get_xl(ctx) == MXL_RV32) {
@@ -578,7 +619,6 @@ static void mark_fs_dirty(DisasContext *ctx)
         tcg_gen_ld_tl(tmp, cpu_env, offsetof(CPURISCVState, mstatus));
         tcg_gen_ori_tl(tmp, tmp, MSTATUS_FS);
         tcg_gen_st_tl(tmp, cpu_env, offsetof(CPURISCVState, mstatus));
-        tcg_temp_free(tmp);
     }
 
     if (ctx->virt_enabled && ctx->mstatus_hs_fs != MSTATUS_FS) {
@@ -589,7 +629,6 @@ static void mark_fs_dirty(DisasContext *ctx)
         tcg_gen_ld_tl(tmp, cpu_env, offsetof(CPURISCVState, mstatus_hs));
         tcg_gen_ori_tl(tmp, tmp, MSTATUS_FS);
         tcg_gen_st_tl(tmp, cpu_env, offsetof(CPURISCVState, mstatus_hs));
-        tcg_temp_free(tmp);
     }
 }
 #else
@@ -614,7 +653,6 @@ static void mark_vs_dirty(DisasContext *ctx)
         tcg_gen_ld_tl(tmp, cpu_env, offsetof(CPURISCVState, mstatus));
         tcg_gen_ori_tl(tmp, tmp, MSTATUS_VS);
         tcg_gen_st_tl(tmp, cpu_env, offsetof(CPURISCVState, mstatus));
-        tcg_temp_free(tmp);
     }
 
     if (ctx->virt_enabled && ctx->mstatus_hs_vs != MSTATUS_VS) {
@@ -625,7 +663,6 @@ static void mark_vs_dirty(DisasContext *ctx)
         tcg_gen_ld_tl(tmp, cpu_env, offsetof(CPURISCVState, mstatus_hs));
         tcg_gen_ori_tl(tmp, tmp, MSTATUS_VS);
         tcg_gen_st_tl(tmp, cpu_env, offsetof(CPURISCVState, mstatus_hs));
-        tcg_temp_free(tmp);
     }
 }
 #else
@@ -639,14 +676,27 @@ static void gen_set_rm(DisasContext *ctx, int rm)
     }
     ctx->frm = rm;
 
-    if (rm == RISCV_FRM_ROD) {
-        gen_helper_set_rod_rounding_mode(cpu_env);
-        return;
+    if (rm == RISCV_FRM_DYN) {
+        /* The helper will return only if frm valid. */
+        ctx->frm_valid = true;
     }
 
     /* The helper may raise ILLEGAL_INSN -- record binv for unwind. */
     decode_save_opc(ctx);
     gen_helper_set_rounding_mode(cpu_env, tcg_constant_i32(rm));
+}
+
+static void gen_set_rm_chkfrm(DisasContext *ctx, int rm)
+{
+    if (ctx->frm == rm && ctx->frm_valid) {
+        return;
+    }
+    ctx->frm = rm;
+    ctx->frm_valid = true;
+
+    /* The helper may raise ILLEGAL_INSN -- record binv for unwind. */
+    decode_save_opc(ctx);
+    gen_helper_set_rounding_mode_chkfrm(cpu_env, tcg_constant_i32(rm));
 }
 
 static int ex_plus_1(DisasContext *ctx, int nf)
@@ -963,7 +1013,6 @@ static bool gen_shift(DisasContext *ctx, arg_r *a, DisasExtend ext,
         f128(dest, desth, src1, src1h, ext2);
         gen_set_gpr128(ctx, a->rd, dest, desth);
     }
-    tcg_temp_free(ext2);
     return true;
 }
 
@@ -1029,10 +1078,15 @@ static uint32_t opcode_at(DisasContextBase *dcbase, target_ulong pc)
 #include "insn_trans/trans_rvh.c.inc"
 #include "insn_trans/trans_rvv.c.inc"
 #include "insn_trans/trans_rvb.c.inc"
+#include "insn_trans/trans_rvzicond.c.inc"
+#include "insn_trans/trans_rvzawrs.c.inc"
+#include "insn_trans/trans_rvzicbo.c.inc"
 #include "insn_trans/trans_rvzfh.c.inc"
 #include "insn_trans/trans_rvk.c.inc"
 #include "insn_trans/trans_privileged.c.inc"
 #include "insn_trans/trans_svinval.c.inc"
+#include "decode-xthead.c.inc"
+#include "insn_trans/trans_xthead.c.inc"
 #include "insn_trans/trans_xventanacondops.c.inc"
 
 /* Include the auto-generated decoder for 16 bit insn */
@@ -1059,19 +1113,17 @@ static void decode_opc(CPURISCVState *env, DisasContext *ctx, uint16_t opcode)
         bool (*decode_func)(DisasContext *, uint32_t);
     } decoders[] = {
         { always_true_p,  decode_insn32 },
+        { has_xthead_p, decode_xthead },
         { has_XVentanaCondOps_p,  decode_XVentanaCodeOps },
     };
 
+    ctx->virt_inst_excp = false;
     /* Check for compressed insn */
     if (insn_len(opcode) == 2) {
-        if (!has_ext(ctx, RVC)) {
-            gen_exception_illegal(ctx);
-        } else {
-            ctx->opcode = opcode;
-            ctx->pc_succ_insn = ctx->base.pc_next + 2;
-            if (decode_insn16(ctx, opcode)) {
-                return;
-            }
+        ctx->opcode = opcode;
+        ctx->pc_succ_insn = ctx->base.pc_next + 2;
+        if (has_ext(ctx, RVC) && decode_insn16(ctx, opcode)) {
+            return;
         }
     } else {
         uint32_t opcode32 = opcode;
@@ -1130,13 +1182,11 @@ static void riscv_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
     ctx->misa_mxl_max = env->misa_mxl_max;
     ctx->xl = FIELD_EX32(tb_flags, TB_FLAGS, XL);
     ctx->cs = cs;
-    ctx->ntemp = 0;
-    memset(ctx->temp, 0, sizeof(ctx->temp));
-    ctx->nftemp = 0;
-    memset(ctx->ftemp, 0, sizeof(ctx->ftemp));
     ctx->pm_mask_enabled = FIELD_EX32(tb_flags, TB_FLAGS, PM_MASK_ENABLED);
     ctx->pm_base_enabled = FIELD_EX32(tb_flags, TB_FLAGS, PM_BASE_ENABLED);
+    ctx->itrigger = FIELD_EX32(tb_flags, TB_FLAGS, ITRIGGER);
     ctx->zero = tcg_constant_tl(0);
+    ctx->virt_inst_excp = false;
 }
 
 static void riscv_tr_tb_start(DisasContextBase *db, CPUState *cpu)
@@ -1156,26 +1206,14 @@ static void riscv_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
     DisasContext *ctx = container_of(dcbase, DisasContext, base);
     CPURISCVState *env = cpu->env_ptr;
     uint16_t opcode16 = translator_lduw(env, &ctx->base, ctx->base.pc_next);
-    int i;
 
     ctx->ol = ctx->xl;
     decode_opc(env, ctx, opcode16);
     ctx->base.pc_next = ctx->pc_succ_insn;
 
-    for (i = ctx->ntemp - 1; i >= 0; --i) {
-        tcg_temp_free(ctx->temp[i]);
-        ctx->temp[i] = NULL;
-    }
-    ctx->ntemp = 0;
-    for (i = ctx->nftemp - 1; i >= 0; --i) {
-        tcg_temp_free_i64(ctx->ftemp[i]);
-        ctx->ftemp[i] = NULL;
-    }
-    ctx->nftemp = 0;
-
     /* Only the first insn within a TB is allowed to cross a page boundary. */
     if (ctx->base.is_jmp == DISAS_NEXT) {
-        if (!is_same_page(&ctx->base, ctx->base.pc_next)) {
+        if (ctx->itrigger || !is_same_page(&ctx->base, ctx->base.pc_next)) {
             ctx->base.is_jmp = DISAS_TOO_MANY;
         } else {
             unsigned page_ofs = ctx->base.pc_next & ~TARGET_PAGE_MASK;
@@ -1184,7 +1222,7 @@ static void riscv_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
                 uint16_t next_insn = cpu_lduw_code(env, ctx->base.pc_next);
                 int len = insn_len(next_insn);
 
-                if (!is_same_page(&ctx->base, ctx->base.pc_next + len)) {
+                if (!is_same_page(&ctx->base, ctx->base.pc_next + len - 1)) {
                     ctx->base.is_jmp = DISAS_TOO_MANY;
                 }
             }
@@ -1232,7 +1270,7 @@ static const TranslatorOps riscv_tr_ops = {
     .disas_log          = riscv_tr_disas_log,
 };
 
-void gen_intermediate_code(CPUState *cs, TranslationBlock *tb, int max_insns,
+void gen_intermediate_code(CPUState *cs, TranslationBlock *tb, int *max_insns,
                            target_ulong pc, void *host_pc)
 {
     DisasContext ctx;

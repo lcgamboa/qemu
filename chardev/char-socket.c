@@ -283,11 +283,11 @@ static ssize_t tcp_chr_recv(Chardev *chr, char *buf, size_t len)
     if (qio_channel_has_feature(s->ioc, QIO_CHANNEL_FEATURE_FD_PASS)) {
         ret = qio_channel_readv_full(s->ioc, &iov, 1,
                                      &msgfds, &msgfds_num,
-                                     NULL);
+                                     0, NULL);
     } else {
         ret = qio_channel_readv_full(s->ioc, &iov, 1,
                                      NULL, NULL,
-                                     NULL);
+                                     0, NULL);
     }
 
     if (msgfds_num) {
@@ -1065,6 +1065,7 @@ static void char_socket_finalize(Object *obj)
         qio_net_listener_set_client_func_full(s->listener, NULL, NULL,
                                               NULL, chr->gcontext);
         object_unref(OBJECT(s->listener));
+        s->listener = NULL;
     }
     if (s->tls_creds) {
         object_unref(OBJECT(s->tls_creds));
@@ -1251,7 +1252,7 @@ static bool qmp_chardev_validate_socket(ChardevSocket *sock,
                        "'fd' address type");
             return false;
         }
-        if (sock->has_tls_creds &&
+        if (sock->tls_creds &&
             !(sock->has_server && sock->server)) {
             error_setg(errp,
                        "'tls_creds' option is incompatible with "
@@ -1261,7 +1262,7 @@ static bool qmp_chardev_validate_socket(ChardevSocket *sock,
         break;
 
     case SOCKET_ADDRESS_TYPE_UNIX:
-        if (sock->has_tls_creds) {
+        if (sock->tls_creds) {
             error_setg(errp,
                        "'tls_creds' option is incompatible with "
                        "'unix' address type");
@@ -1273,7 +1274,7 @@ static bool qmp_chardev_validate_socket(ChardevSocket *sock,
         break;
 
     case SOCKET_ADDRESS_TYPE_VSOCK:
-        if (sock->has_tls_creds) {
+        if (sock->tls_creds) {
             error_setg(errp,
                        "'tls_creds' option is incompatible with "
                        "'vsock' address type");
@@ -1284,7 +1285,7 @@ static bool qmp_chardev_validate_socket(ChardevSocket *sock,
         break;
     }
 
-    if (sock->has_tls_authz && !sock->has_tls_creds) {
+    if (sock->tls_authz && !sock->tls_creds) {
         error_setg(errp, "'tls_authz' option requires 'tls_creds' option");
         return false;
     }
@@ -1465,9 +1466,7 @@ static void qemu_chr_parse_socket(QemuOpts *opts, ChardevBackend *backend,
     sock->wait = qemu_opt_get_bool(opts, "wait", true);
     sock->has_reconnect = qemu_opt_find(opts, "reconnect");
     sock->reconnect = qemu_opt_get_number(opts, "reconnect", 0);
-    sock->has_tls_creds = qemu_opt_get(opts, "tls-creds");
     sock->tls_creds = g_strdup(qemu_opt_get(opts, "tls-creds"));
-    sock->has_tls_authz = qemu_opt_get(opts, "tls-authz");
     sock->tls_authz = g_strdup(qemu_opt_get(opts, "tls-authz"));
 
     addr = g_new0(SocketAddressLegacy, 1);

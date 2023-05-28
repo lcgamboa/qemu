@@ -26,7 +26,6 @@
  */
 
 #include "qemu/osdep.h"
-#include "qemu/units.h"
 #include "qemu/cutils.h"
 #include "qemu/units.h"
 
@@ -2309,6 +2308,14 @@ static void test_qemu_strtosz_invalid(void)
 
     /* No hex fractions */
     str = "0x1.8k";
+    endptr = NULL;
+    err = qemu_strtosz(str, &endptr, &res);
+    g_assert_cmpint(err, ==, -EINVAL);
+    g_assert_cmpint(res, ==, 0xbaadf00d);
+    g_assert(endptr == str);
+
+    /* No suffixes */
+    str = "0x18M";
     endptr = NULL;
     err = qemu_strtosz(str, &endptr, &res);
     g_assert_cmpint(err, ==, -EINVAL);

@@ -55,7 +55,8 @@ static void tricore_cpu_synchronize_from_tb(CPUState *cs,
     TriCoreCPU *cpu = TRICORE_CPU(cs);
     CPUTriCoreState *env = &cpu->env;
 
-    env->PC = tb_pc(tb);
+    tcg_debug_assert(!(cs->tcg_cflags & CF_PCREL));
+    env->PC = tb->pc;
 }
 
 static void tricore_restore_state_to_opc(CPUState *cs,
@@ -68,14 +69,16 @@ static void tricore_restore_state_to_opc(CPUState *cs,
     env->PC = data[0];
 }
 
-static void tricore_cpu_reset(DeviceState *dev)
+static void tricore_cpu_reset_hold(Object *obj)
 {
-    CPUState *s = CPU(dev);
+    CPUState *s = CPU(obj);
     TriCoreCPU *cpu = TRICORE_CPU(s);
     TriCoreCPUClass *tcc = TRICORE_CPU_GET_CLASS(cpu);
     CPUTriCoreState *env = &cpu->env;
 
-    tcc->parent_reset(dev);
+    if (tcc->parent_phases.hold) {
+        tcc->parent_phases.hold(obj);
+    }
 
     cpu_state_reset(env);
 }
@@ -180,11 +183,13 @@ static void tricore_cpu_class_init(ObjectClass *c, void *data)
     TriCoreCPUClass *mcc = TRICORE_CPU_CLASS(c);
     CPUClass *cc = CPU_CLASS(c);
     DeviceClass *dc = DEVICE_CLASS(c);
+    ResettableClass *rc = RESETTABLE_CLASS(c);
 
     device_class_set_parent_realize(dc, tricore_cpu_realizefn,
                                     &mcc->parent_realize);
 
-    device_class_set_parent_reset(dc, tricore_cpu_reset, &mcc->parent_reset);
+    resettable_class_set_parent_phases(rc, NULL, tricore_cpu_reset_hold, NULL,
+                                       &mcc->parent_phases);
     cc->class_by_name = tricore_cpu_class_by_name;
     cc->has_work = tricore_cpu_has_work;
 

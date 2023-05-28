@@ -322,7 +322,7 @@ static void esp32_iomux_write(void *opaque, hwaddr addr, uint64_t value,
     } 
 }
 
-static const MemoryRegionOps uart_ops = {
+static const MemoryRegionOps iomux_ops = {
     .read = esp32_iomux_read,
     .write = esp32_iomux_write,
     .endianness = DEVICE_LITTLE_ENDIAN,
@@ -341,8 +341,8 @@ static void esp32_iomux_init(Object *obj) {
     Esp32IomuxState *s = ESP32_IOMUX(obj);
     SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
 
-    memory_region_init_io(&s->iomem, obj, &uart_ops, s, TYPE_ESP32_IOMUX,
-                          0x2000);
+    memory_region_init_io(&s->iomem, obj, &iomux_ops, s, TYPE_ESP32_IOMUX,
+                          0x1000);
     sysbus_init_mmio(sbd, &s->iomem);
     qdev_init_gpio_out_named(DEVICE(s), s->iomux_sync, ESP32_IOMUX_SYNC, 1);
 

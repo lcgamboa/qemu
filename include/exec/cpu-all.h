@@ -25,7 +25,7 @@
 #include "hw/core/cpu.h"
 #include "qemu/rcu.h"
 
-#define EXCP_INTERRUPT 	0x10000 /* async interruption */
+#define EXCP_INTERRUPT  0x10000 /* async interruption */
 #define EXCP_HLT        0x10001 /* hlt instruction reached */
 #define EXCP_DEBUG      0x10002 /* cpu stopped after a breakpoint or singlestep */
 #define EXCP_HALTED     0x10003 /* cpu is halted (waiting for external event) */
@@ -152,6 +152,15 @@ static inline void tswap64s(uint64_t *s)
  */
 extern uintptr_t guest_base;
 extern bool have_guest_base;
+
+/*
+ * If non-zero, the guest virtual address space is a contiguous subset
+ * of the host virtual address space, i.e. '-R reserved_va' is in effect
+ * either from the command-line or by default.  The value is the last
+ * byte of the guest address space e.g. UINT32_MAX.
+ *
+ * If zero, the host and guest virtual address spaces are intermingled.
+ */
 extern unsigned long reserved_va;
 
 /*
@@ -171,7 +180,7 @@ extern unsigned long reserved_va;
 #define GUEST_ADDR_MAX_                                                 \
     ((MIN_CONST(TARGET_VIRT_ADDR_SPACE_BITS, TARGET_ABI_BITS) <= 32) ?  \
      UINT32_MAX : ~0ul)
-#define GUEST_ADDR_MAX    (reserved_va ? reserved_va - 1 : GUEST_ADDR_MAX_)
+#define GUEST_ADDR_MAX    (reserved_va ? : GUEST_ADDR_MAX_)
 
 #else
 
@@ -276,8 +285,8 @@ typedef int (*walk_memory_regions_fn)(void *, target_ulong,
 int walk_memory_regions(void *, walk_memory_regions_fn);
 
 int page_get_flags(target_ulong address);
-void page_set_flags(target_ulong start, target_ulong end, int flags);
-void page_reset_target_data(target_ulong start, target_ulong end);
+void page_set_flags(target_ulong start, target_ulong last, int flags);
+void page_reset_target_data(target_ulong start, target_ulong last);
 int page_check_range(target_ulong start, target_ulong len, int flags);
 
 /**

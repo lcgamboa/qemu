@@ -150,7 +150,7 @@ NINJAFLAGS = $(if $V,-v) $(if $(MAKE.n), -n) $(if $(MAKE.k), -k0) \
 ninja-cmd-goals = $(or $(MAKECMDGOALS), all)
 ninja-cmd-goals += $(foreach g, $(MAKECMDGOALS), $(.ninja-goals.$g))
 
-makefile-targets := build.ninja ctags TAGS cscope dist clean uninstall
+makefile-targets := build.ninja ctags TAGS cscope dist clean
 # "ninja -t targets" also lists all prerequisites.  If build system
 # files are marked as PHONY, however, Make will always try to execute
 # "ninja build.ninja".
@@ -220,7 +220,7 @@ qemu-%.tar.bz2:
 
 distclean: clean recurse-distclean
 	-$(quiet-@)test -f build.ninja && $(NINJA) $(NINJAFLAGS) -t clean -g || :
-	rm -f config-host.mak Makefile.prereqs qemu-bundle
+	rm -f config-host.mak Makefile.prereqs
 	rm -f tests/tcg/*/config-target.mak tests/tcg/config-host.mak
 	rm -f config.status
 	rm -f roms/seabios/config.mak
@@ -230,7 +230,7 @@ distclean: clean recurse-distclean
 	rm -f Makefile.ninja Makefile.mtest build.ninja.stamp meson.stamp
 	rm -f config.log
 	rm -f linux-headers/asm
-	rm -Rf .sdk
+	rm -Rf .sdk qemu-bundle
 
 find-src-path = find "$(SRC_PATH)" -path "$(SRC_PATH)/meson" -prune -o \
 	-type l -prune -o \( -name "*.[chsS]" -o -name "*.[ch].inc" \)

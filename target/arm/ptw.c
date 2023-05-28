@@ -238,8 +238,8 @@ static bool S1_ptw_translate(CPUARMState *env, S1Translate *ptw,
             };
             GetPhysAddrResult s2 = { };
 
-            if (!get_phys_addr_lpae(env, &s2ptw, addr, MMU_DATA_LOAD,
-                                    false, &s2, fi)) {
+            if (get_phys_addr_lpae(env, &s2ptw, addr, MMU_DATA_LOAD,
+                                   false, &s2, fi)) {
                 goto fail;
             }
             ptw->out_phys = s2.f.phys_addr;
@@ -254,11 +254,12 @@ static bool S1_ptw_translate(CPUARMState *env, S1Translate *ptw,
         ptw->out_host = NULL;
         ptw->out_rw = false;
     } else {
+#ifdef CONFIG_TCG
         CPUTLBEntryFull *full;
         int flags;
 
         env->tlb_fi = fi;
-        flags = probe_access_full(env, addr, MMU_DATA_LOAD,
+        flags = probe_access_full(env, addr, 0, MMU_DATA_LOAD,
                                   arm_to_core_mmu_idx(s2_mmu_idx),
                                   true, &ptw->out_host, &full, 0);
         env->tlb_fi = NULL;
@@ -266,10 +267,13 @@ static bool S1_ptw_translate(CPUARMState *env, S1Translate *ptw,
         if (unlikely(flags & TLB_INVALID_MASK)) {
             goto fail;
         }
-        ptw->out_phys = full->phys_addr;
+        ptw->out_phys = full->phys_addr | (addr & ~TARGET_PAGE_MASK);
         ptw->out_rw = full->prot & PAGE_WRITE;
         pte_attrs = full->pte_attrs;
         pte_secure = full->attrs.secure;
+#else
+        g_assert_not_reached();
+#endif
     }
 
     if (regime_is_stage2(s2_mmu_idx)) {
@@ -407,7 +411,7 @@ static uint64_t arm_casq_ptw(CPUARMState *env, uint64_t old_val,
         void *discard;
 
         env->tlb_fi = fi;
-        flags = probe_access_flags(env, ptw->out_virt, MMU_DATA_STORE,
+        flags = probe_access_flags(env, ptw->out_virt, 0, MMU_DATA_STORE,
                                    arm_to_core_mmu_idx(ptw->in_ptw_idx),
                                    true, &discard, 0);
         env->tlb_fi = NULL;
@@ -1077,70 +1081,119 @@ static ARMVAParameters aa32_va_parameters(CPUARMState *env, uint32_t va,
  * check_s2_mmu_setup
  * @cpu:        ARMCPU
  * @is_aa64:    True if the translation regime is in AArch64 state
- * @startlevel: Suggested starting level
- * @inputsize:  Bitsize of IPAs
+ * @tcr:        VTCR_EL2 or VSTCR_EL2
+ * @ds:         Effective value of TCR.DS.
+ * @iasize:     Bitsize of IPAs
  * @stride:     Page-table stride (See the ARM ARM)
  *
- * Returns true if the suggested S2 translation parameters are OK and
- * false otherwise.
+ * Decode the starting level of the S2 lookup, returning INT_MIN if
+ * the configuration is invalid.
  */
-static bool check_s2_mmu_setup(ARMCPU *cpu, bool is_aa64, int level,
-                               int inputsize, int stride, int outputsize)
+static int check_s2_mmu_setup(ARMCPU *cpu, bool is_aa64, uint64_t tcr,
+                              bool ds, int iasize, int stride)
 {
-    const int grainsize = stride + 3;
-    int startsizecheck;
+    int sl0, sl2, startlevel, granulebits, levels;
+    int s1_min_iasize, s1_max_iasize;
 
-    /*
-     * Negative levels are usually not allowed...
-     * Except for FEAT_LPA2, 4k page table, 52-bit address space, which
-     * begins with level -1.  Note that previous feature tests will have
-     * eliminated this combination if it is not enabled.
-     */
-    if (level < (inputsize == 52 && stride == 9 ? -1 : 0)) {
-        return false;
-    }
-
-    startsizecheck = inputsize - ((3 - level) * stride + grainsize);
-    if (startsizecheck < 1 || startsizecheck > stride + 4) {
-        return false;
-    }
-
+    sl0 = extract32(tcr, 6, 2);
     if (is_aa64) {
+        /*
+         * AArch64.S2InvalidTxSZ: While we checked tsz_oob near the top of
+         * get_phys_addr_lpae, that used aa64_va_parameters which apply
+         * to aarch64.  If Stage1 is aarch32, the min_txsz is larger.
+         * See AArch64.S2MinTxSZ, where min_tsz is 24, translated to
+         * inputsize is 64 - 24 = 40.
+         */
+        if (iasize < 40 && !arm_el_is_aa64(&cpu->env, 1)) {
+            goto fail;
+        }
+
+        /*
+         * AArch64.S2InvalidSL: Interpretation of SL depends on the page size,
+         * so interleave AArch64.S2StartLevel.
+         */
         switch (stride) {
-        case 13: /* 64KB Pages.  */
-            if (level == 0 || (level == 1 && outputsize <= 42)) {
-                return false;
+        case 9: /* 4KB */
+            /* SL2 is RES0 unless DS=1 & 4KB granule. */
+            sl2 = extract64(tcr, 33, 1);
+            if (ds && sl2) {
+                if (sl0 != 0) {
+                    goto fail;
+                }
+                startlevel = -1;
+            } else {
+                startlevel = 2 - sl0;
+                switch (sl0) {
+                case 2:
+                    if (arm_pamax(cpu) < 44) {
+                        goto fail;
+                    }
+                    break;
+                case 3:
+                    if (!cpu_isar_feature(aa64_st, cpu)) {
+                        goto fail;
+                    }
+                    startlevel = 3;
+                    break;
+                }
             }
             break;
-        case 11: /* 16KB Pages.  */
-            if (level == 0 || (level == 1 && outputsize <= 40)) {
-                return false;
+        case 11: /* 16KB */
+            switch (sl0) {
+            case 2:
+                if (arm_pamax(cpu) < 42) {
+                    goto fail;
+                }
+                break;
+            case 3:
+                if (!ds) {
+                    goto fail;
+                }
+                break;
             }
+            startlevel = 3 - sl0;
             break;
-        case 9: /* 4KB Pages.  */
-            if (level == 0 && outputsize <= 42) {
-                return false;
+        case 13: /* 64KB */
+            switch (sl0) {
+            case 2:
+                if (arm_pamax(cpu) < 44) {
+                    goto fail;
+                }
+                break;
+            case 3:
+                goto fail;
             }
+            startlevel = 3 - sl0;
             break;
         default:
             g_assert_not_reached();
         }
-
-        /* Inputsize checks.  */
-        if (inputsize > outputsize &&
-            (arm_el_is_aa64(&cpu->env, 1) || inputsize > 40)) {
-            /* This is CONSTRAINED UNPREDICTABLE and we choose to fault.  */
-            return false;
-        }
     } else {
-        /* AArch32 only supports 4KB pages. Assert on that.  */
+        /*
+         * Things are simpler for AArch32 EL2, with only 4k pages.
+         * There is no separate S2InvalidSL function, but AArch32.S2Walk
+         * begins with walkparms.sl0 in {'1x'}.
+         */
         assert(stride == 9);
-
-        if (level == 0) {
-            return false;
+        if (sl0 >= 2) {
+            goto fail;
         }
+        startlevel = 2 - sl0;
     }
-    return true;
+
+    /* AArch{64,32}.S2InconsistentSL are functionally equivalent.  */
+    levels = 3 - startlevel;
+    granulebits = stride + 3;
+
+    s1_min_iasize = levels * stride + granulebits + 1;
+    s1_max_iasize = s1_min_iasize + (stride - 1) + 4;
+
+    if (iasize >= s1_min_iasize && iasize <= s1_max_iasize) {
+        return startlevel;
+    }
+
+ fail:
+    return INT_MIN;
 }
 
 /**
@@ -1296,38 +1349,10 @@ static bool get_phys_addr_lpae(CPUARMState *env, S1Translate *ptw,
          */
         level = 4 - (inputsize - 4) / stride;
     } else {
-        /*
-         * For stage 2 translations the starting level is specified by the
-         * VTCR_EL2.SL0 field (whose interpretation depends on the page size)
-         */
-        uint32_t sl0 = extract32(tcr, 6, 2);
-        uint32_t sl2 = extract64(tcr, 33, 1);
-        int32_t startlevel;
-        bool ok;
-
-        /* SL2 is RES0 unless DS=1 & 4kb granule. */
-        if (param.ds && stride == 9 && sl2) {
-            if (sl0 != 0) {
-                level = 0;
-                goto do_translation_fault;
-            }
-            startlevel = -1;
-        } else if (!aarch64 || stride == 9) {
-            /* AArch32 or 4KB pages */
-            startlevel = 2 - sl0;
-
-            if (cpu_isar_feature(aa64_st, cpu)) {
-                startlevel &= 3;
-            }
-        } else {
-            /* 16KB or 64KB pages */
-            startlevel = 3 - sl0;
-        }
-
-        /* Check that the starting level is valid. */
-        ok = check_s2_mmu_setup(cpu, aarch64, startlevel,
-                                inputsize, stride, outputsize);
-        if (!ok) {
+        int startlevel = check_s2_mmu_setup(cpu, aarch64, tcr, param.ds,
+                                            inputsize, stride);
+        if (startlevel == INT_MIN) {
+            level = 0;
             goto do_translation_fault;
         }
         level = startlevel;
@@ -1560,11 +1585,6 @@ static bool get_phys_addr_lpae(CPUARMState *env, S1Translate *ptw,
         result->f.attrs.secure = false;
     }
 
-    /* When in aarch64 mode, and BTI is enabled, remember GP in the TLB.  */
-    if (aarch64 && cpu_isar_feature(aa64_bti, cpu)) {
-        result->f.guarded = extract64(attrs, 50, 1); /* GP */
-    }
-
     if (regime_is_stage2(mmu_idx)) {
         result->cacheattrs.is_s2_format = true;
         result->cacheattrs.attrs = extract32(attrs, 2, 4);
@@ -1575,6 +1595,11 @@ static bool get_phys_addr_lpae(CPUARMState *env, S1Translate *ptw,
         assert(attrindx <= 7);
         result->cacheattrs.is_s2_format = false;
         result->cacheattrs.attrs = extract64(mair, attrindx * 8, 8);
+
+        /* When in aarch64 mode, and BTI is enabled, remember GP in the TLB. */
+        if (aarch64 && cpu_isar_feature(aa64_bti, cpu)) {
+            result->f.guarded = extract64(attrs, 50, 1); /* GP */
+        }
     }
 
     /*
@@ -1758,9 +1783,13 @@ static bool pmsav7_use_background_region(ARMCPU *cpu, ARMMMUIdx mmu_idx,
 
     if (arm_feature(env, ARM_FEATURE_M)) {
         return env->v7m.mpu_ctrl[is_secure] & R_V7M_MPU_CTRL_PRIVDEFENA_MASK;
-    } else {
-        return regime_sctlr(env, mmu_idx) & SCTLR_BR;
     }
+
+    if (mmu_idx == ARMMMUIdx_Stage2) {
+        return false;
+    }
+
+    return regime_sctlr(env, mmu_idx) & SCTLR_BR;
 }
 
 static bool get_phys_addr_pmsav7(CPUARMState *env, uint32_t address,
@@ -1952,6 +1981,26 @@ static bool get_phys_addr_pmsav7(CPUARMState *env, uint32_t address,
     return !(result->f.prot & (1 << access_type));
 }
 
+static uint32_t *regime_rbar(CPUARMState *env, ARMMMUIdx mmu_idx,
+                             uint32_t secure)
+{
+    if (regime_el(env, mmu_idx) == 2) {
+        return env->pmsav8.hprbar;
+    } else {
+        return env->pmsav8.rbar[secure];
+    }
+}
+
+static uint32_t *regime_rlar(CPUARMState *env, ARMMMUIdx mmu_idx,
+                             uint32_t secure)
+{
+    if (regime_el(env, mmu_idx) == 2) {
+        return env->pmsav8.hprlar;
+    } else {
+        return env->pmsav8.rlar[secure];
+    }
+}
+
 bool pmsav8_mpu_lookup(CPUARMState *env, uint32_t address,
                        MMUAccessType access_type, ARMMMUIdx mmu_idx,
                        bool secure, GetPhysAddrResult *result,
@@ -1974,12 +2023,23 @@ bool pmsav8_mpu_lookup(CPUARMState *env, uint32_t address,
     bool hit = false;
     uint32_t addr_page_base = address & TARGET_PAGE_MASK;
     uint32_t addr_page_limit = addr_page_base + (TARGET_PAGE_SIZE - 1);
+    int region_counter;
+
+    if (regime_el(env, mmu_idx) == 2) {
+        region_counter = cpu->pmsav8r_hdregion;
+    } else {
+        region_counter = cpu->pmsav7_dregion;
+    }
 
     result->f.lg_page_size = TARGET_PAGE_BITS;
     result->f.phys_addr = address;
     result->f.prot = 0;
     if (mregion) {
         *mregion = -1;
+    }
+
+    if (mmu_idx == ARMMMUIdx_Stage2) {
+        fi->stage2 = true;
     }
 
     /*
@@ -1998,17 +2058,26 @@ bool pmsav8_mpu_lookup(CPUARMState *env, uint32_t address,
             hit = true;
         }
 
-        for (n = (int)cpu->pmsav7_dregion - 1; n >= 0; n--) {
+        uint32_t bitmask;
+        if (arm_feature(env, ARM_FEATURE_M)) {
+            bitmask = 0x1f;
+        } else {
+            bitmask = 0x3f;
+            fi->level = 0;
+        }
+
+        for (n = region_counter - 1; n >= 0; n--) {
             /* region search */
             /*
-             * Note that the base address is bits [31:5] from the register
-             * with bits [4:0] all zeroes, but the limit address is bits
-             * [31:5] from the register with bits [4:0] all ones.
+             * Note that the base address is bits [31:x] from the register
+             * with bits [x-1:0] all zeroes, but the limit address is bits
+             * [31:x] from the register with bits [x:0] all ones. Where x is
+             * 5 for Cortex-M and 6 for Cortex-R
              */
-            uint32_t base = env->pmsav8.rbar[secure][n] & ~0x1f;
-            uint32_t limit = env->pmsav8.rlar[secure][n] | 0x1f;
+            uint32_t base = regime_rbar(env, mmu_idx, secure)[n] & ~bitmask;
+            uint32_t limit = regime_rlar(env, mmu_idx, secure)[n] | bitmask;
 
-            if (!(env->pmsav8.rlar[secure][n] & 0x1)) {
+            if (!(regime_rlar(env, mmu_idx, secure)[n] & 0x1)) {
                 /* Region disabled */
                 continue;
             }
@@ -2042,7 +2111,9 @@ bool pmsav8_mpu_lookup(CPUARMState *env, uint32_t address,
                  * PMSAv7 where highest-numbered-region wins)
                  */
                 fi->type = ARMFault_Permission;
-                fi->level = 1;
+                if (arm_feature(env, ARM_FEATURE_M)) {
+                    fi->level = 1;
+                }
                 return true;
             }
 
@@ -2052,8 +2123,11 @@ bool pmsav8_mpu_lookup(CPUARMState *env, uint32_t address,
     }
 
     if (!hit) {
-        /* background fault */
-        fi->type = ARMFault_Background;
+        if (arm_feature(env, ARM_FEATURE_M)) {
+            fi->type = ARMFault_Background;
+        } else {
+            fi->type = ARMFault_Permission;
+        }
         return true;
     }
 
@@ -2061,12 +2135,14 @@ bool pmsav8_mpu_lookup(CPUARMState *env, uint32_t address,
         /* hit using the background region */
         get_phys_addr_pmsav7_default(env, mmu_idx, address, &result->f.prot);
     } else {
-        uint32_t ap = extract32(env->pmsav8.rbar[secure][matchregion], 1, 2);
-        uint32_t xn = extract32(env->pmsav8.rbar[secure][matchregion], 0, 1);
+        uint32_t matched_rbar = regime_rbar(env, mmu_idx, secure)[matchregion];
+        uint32_t matched_rlar = regime_rlar(env, mmu_idx, secure)[matchregion];
+        uint32_t ap = extract32(matched_rbar, 1, 2);
+        uint32_t xn = extract32(matched_rbar, 0, 1);
         bool pxn = false;
 
         if (arm_feature(env, ARM_FEATURE_V8_1M)) {
-            pxn = extract32(env->pmsav8.rlar[secure][matchregion], 4, 1);
+            pxn = extract32(matched_rlar, 4, 1);
         }
 
         if (m_is_system_region(env, address)) {
@@ -2074,21 +2150,46 @@ bool pmsav8_mpu_lookup(CPUARMState *env, uint32_t address,
             xn = 1;
         }
 
-        result->f.prot = simple_ap_to_rw_prot(env, mmu_idx, ap);
+        if (regime_el(env, mmu_idx) == 2) {
+            result->f.prot = simple_ap_to_rw_prot_is_user(ap,
+                                            mmu_idx != ARMMMUIdx_E2);
+        } else {
+            result->f.prot = simple_ap_to_rw_prot(env, mmu_idx, ap);
+        }
+
+        if (!arm_feature(env, ARM_FEATURE_M)) {
+            uint8_t attrindx = extract32(matched_rlar, 1, 3);
+            uint64_t mair = env->cp15.mair_el[regime_el(env, mmu_idx)];
+            uint8_t sh = extract32(matched_rlar, 3, 2);
+
+            if (regime_sctlr(env, mmu_idx) & SCTLR_WXN &&
+                result->f.prot & PAGE_WRITE && mmu_idx != ARMMMUIdx_Stage2) {
+                xn = 0x1;
+            }
+
+            if ((regime_el(env, mmu_idx) == 1) &&
+                regime_sctlr(env, mmu_idx) & SCTLR_UWXN && ap == 0x1) {
+                pxn = 0x1;
+            }
+
+            result->cacheattrs.is_s2_format = false;
+            result->cacheattrs.attrs = extract64(mair, attrindx * 8, 8);
+            result->cacheattrs.shareability = sh;
+        }
+
         if (result->f.prot && !xn && !(pxn && !is_user)) {
             result->f.prot |= PAGE_EXEC;
         }
-        /*
-         * We don't need to look the attribute up in the MAIR0/MAIR1
-         * registers because that only tells us about cacheability.
-         */
+
         if (mregion) {
             *mregion = matchregion;
         }
     }
 
     fi->type = ARMFault_Permission;
-    fi->level = 1;
+    if (arm_feature(env, ARM_FEATURE_M)) {
+        fi->level = 1;
+    }
     return !(result->f.prot & (1 << access_type));
 }
 
@@ -2361,7 +2462,11 @@ static uint8_t combined_attrs_nofwb(uint64_t hcr,
 {
     uint8_t s1lo, s2lo, s1hi, s2hi, s2_mair_attrs, ret_attrs;
 
-    s2_mair_attrs = convert_stage2_attrs(hcr, s2.attrs);
+    if (s2.is_s2_format) {
+        s2_mair_attrs = convert_stage2_attrs(hcr, s2.attrs);
+    } else {
+        s2_mair_attrs = s2.attrs;
+    }
 
     s1lo = extract32(s1.attrs, 0, 4);
     s2lo = extract32(s2_mair_attrs, 0, 4);
@@ -2418,6 +2523,8 @@ static uint8_t force_cacheattr_nibble_wb(uint8_t attr)
  */
 static uint8_t combined_attrs_fwb(ARMCacheAttrs s1, ARMCacheAttrs s2)
 {
+    assert(s2.is_s2_format && !s1.is_s2_format);
+
     switch (s2.attrs) {
     case 7:
         /* Use stage 1 attributes */
@@ -2467,8 +2574,9 @@ static ARMCacheAttrs combine_cacheattrs(uint64_t hcr,
     ARMCacheAttrs ret;
     bool tagged = false;
 
-    assert(s2.is_s2_format && !s1.is_s2_format);
+    assert(!s1.is_s2_format);
     ret.is_s2_format = false;
+    ret.guarded = s1.guarded;
 
     if (s1.attrs == 0xf0) {
         tagged = true;
@@ -2643,7 +2751,13 @@ static bool get_phys_addr_twostage(CPUARMState *env, S1Translate *ptw,
     cacheattrs1 = result->cacheattrs;
     memset(result, 0, sizeof(*result));
 
-    ret = get_phys_addr_lpae(env, ptw, ipa, access_type, is_el0, result, fi);
+    if (arm_feature(env, ARM_FEATURE_PMSA)) {
+        ret = get_phys_addr_pmsav8(env, ipa, access_type,
+                                   ptw->in_mmu_idx, is_secure, result, fi);
+    } else {
+        ret = get_phys_addr_lpae(env, ptw, ipa, access_type,
+                                 is_el0, result, fi);
+    }
     fi->s2addr = ipa;
 
     /* Combine the S1 and S2 perms.  */
@@ -2655,10 +2769,20 @@ static bool get_phys_addr_twostage(CPUARMState *env, S1Translate *ptw,
     }
 
     /*
-     * Use the maximum of the S1 & S2 page size, so that invalidation
-     * of pages > TARGET_PAGE_SIZE works correctly.
+     * If either S1 or S2 returned a result smaller than TARGET_PAGE_SIZE,
+     * this means "don't put this in the TLB"; in this case, return a
+     * result with lg_page_size == 0 to achieve that. Otherwise,
+     * use the maximum of the S1 & S2 page size, so that invalidation
+     * of pages > TARGET_PAGE_SIZE works correctly. (This works even though
+     * we know the combined result permissions etc only cover the minimum
+     * of the S1 and S2 page size, because we know that the common TLB code
+     * never actually creates TLB entries bigger than TARGET_PAGE_SIZE,
+     * and passing a larger page size value only affects invalidations.)
      */
-    if (result->f.lg_page_size < s1_lgpgsz) {
+    if (result->f.lg_page_size < TARGET_PAGE_BITS ||
+        s1_lgpgsz < TARGET_PAGE_BITS) {
+        result->f.lg_page_size = 0;
+    } else if (result->f.lg_page_size < s1_lgpgsz) {
         result->f.lg_page_size = s1_lgpgsz;
     }
 

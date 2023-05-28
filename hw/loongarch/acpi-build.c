@@ -7,6 +7,7 @@
 
 #include "qemu/osdep.h"
 #include "qapi/error.h"
+#include "qemu/error-report.h"
 #include "qemu/bitmap.h"
 #include "hw/pci/pci.h"
 #include "hw/core/cpu.h"
@@ -22,7 +23,6 @@
 /* Supported chipsets: */
 #include "hw/pci-host/ls7a.h"
 #include "hw/loongarch/virt.h"
-#include "hw/acpi/aml-build.h"
 
 #include "hw/acpi/utils.h"
 #include "hw/acpi/pci.h"
@@ -261,6 +261,7 @@ build_la_ged_aml(Aml *dsdt, MachineState *machine)
                                  AML_SYSTEM_MEMORY,
                                  VIRT_GED_MEM_ADDR);
     }
+    acpi_dsdt_add_power_button(dsdt);
 }
 
 static void build_pci_device_aml(Aml *scope, LoongArchMachineState *lams)
@@ -272,11 +273,28 @@ static void build_pci_device_aml(Aml *scope, LoongArchMachineState *lams)
         .pio.size    = VIRT_PCI_IO_SIZE,
         .ecam.base   = VIRT_PCI_CFG_BASE,
         .ecam.size   = VIRT_PCI_CFG_SIZE,
-        .irq         = PCH_PIC_IRQ_OFFSET + VIRT_DEVICE_IRQS,
+        .irq         = VIRT_GSI_BASE + VIRT_DEVICE_IRQS,
         .bus         = lams->pci_bus,
     };
 
     acpi_dsdt_add_gpex(scope, &cfg);
+}
+
+static void build_flash_aml(Aml *scope, LoongArchMachineState *lams)
+{
+    Aml *dev, *crs;
+
+    hwaddr flash_base = VIRT_FLASH_BASE;
+    hwaddr flash_size = VIRT_FLASH_SIZE;
+
+    dev = aml_device("FLS0");
+    aml_append(dev, aml_name_decl("_HID", aml_string("LNRO0015")));
+    aml_append(dev, aml_name_decl("_UID", aml_int(0)));
+
+    crs = aml_resource_template();
+    aml_append(crs, aml_memory32_fixed(flash_base, flash_size, AML_READ_WRITE));
+    aml_append(dev, aml_name_decl("_CRS", crs));
+    aml_append(scope, dev);
 }
 
 #ifdef CONFIG_TPM
@@ -328,6 +346,7 @@ build_dsdt(GArray *table_data, BIOSLinker *linker, MachineState *machine)
     build_uart_device_aml(dsdt);
     build_pci_device_aml(dsdt, lams);
     build_la_ged_aml(dsdt, machine);
+    build_flash_aml(dsdt, lams);
 #ifdef CONFIG_TPM
     acpi_dsdt_add_tpm(dsdt, lams);
 #endif

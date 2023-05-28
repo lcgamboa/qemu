@@ -24,6 +24,7 @@
  */
 #include "qemu/osdep.h"
 #include "qapi/error.h"
+#include "block/block-io.h"
 #include "block/block_int.h"
 #include "qemu/module.h"
 #include "qemu/bswap.h"
@@ -236,7 +237,7 @@ static int64_t seek_to_sector(BlockDriverState *bs, int64_t sector_num)
     return bitmap_offset + (512 * (s->bitmap_blocks + extent_offset));
 }
 
-static int coroutine_fn
+static int coroutine_fn GRAPH_RDLOCK
 bochs_co_preadv(BlockDriverState *bs, int64_t offset, int64_t bytes,
                 QEMUIOVector *qiov, BdrvRequestFlags flags)
 {

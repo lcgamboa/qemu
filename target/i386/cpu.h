@@ -26,6 +26,9 @@
 #include "exec/cpu-defs.h"
 #include "qapi/qapi-types-common.h"
 #include "qemu/cpu-float.h"
+#include "qemu/timer.h"
+
+#define XEN_NR_VIRQS 24
 
 /* The x86 has a strong memory model with some store-after-load re-ordering */
 #define TCG_GUEST_DEFAULT_MO      (TCG_MO_ALL & ~TCG_MO_ST_LD)
@@ -881,10 +884,14 @@ uint64_t x86_cpu_get_supported_feature_word(FeatureWord w,
 #define CPUID_7_0_EDX_TSX_LDTRK         (1U << 16)
 /* Architectural LBRs */
 #define CPUID_7_0_EDX_ARCH_LBR          (1U << 19)
+/* AMX_BF16 instruction */
+#define CPUID_7_0_EDX_AMX_BF16          (1U << 22)
 /* AVX512_FP16 instruction */
 #define CPUID_7_0_EDX_AVX512_FP16       (1U << 23)
 /* AMX tile (two-dimensional register) */
 #define CPUID_7_0_EDX_AMX_TILE          (1U << 24)
+/* AMX_INT8 instruction */
+#define CPUID_7_0_EDX_AMX_INT8          (1U << 25)
 /* Speculation Control */
 #define CPUID_7_0_EDX_SPEC_CTRL         (1U << 26)
 /* Single Thread Indirect Branch Predictors */
@@ -900,6 +907,13 @@ uint64_t x86_cpu_get_supported_feature_word(FeatureWord w,
 #define CPUID_7_1_EAX_AVX_VNNI          (1U << 4)
 /* AVX512 BFloat16 Instruction */
 #define CPUID_7_1_EAX_AVX512_BF16       (1U << 5)
+/* Fast Zero REP MOVS */
+#define CPUID_7_1_EAX_FZRM              (1U << 10)
+/* Fast Short REP STOS */
+#define CPUID_7_1_EAX_FSRS              (1U << 11)
+/* Fast Short REP CMPS/SCAS */
+#define CPUID_7_1_EAX_FSRC              (1U << 12)
+
 /* XFD Extend Feature Disabled */
 #define CPUID_D_1_EAX_XFD               (1U << 4)
 
@@ -1788,6 +1802,20 @@ typedef struct CPUArchState {
 #endif
 #if defined(CONFIG_KVM)
     struct kvm_nested_state *nested_state;
+    MemoryRegion *xen_vcpu_info_mr;
+    void *xen_vcpu_info_hva;
+    uint64_t xen_vcpu_info_gpa;
+    uint64_t xen_vcpu_info_default_gpa;
+    uint64_t xen_vcpu_time_info_gpa;
+    uint64_t xen_vcpu_runstate_gpa;
+    uint8_t xen_vcpu_callback_vector;
+    bool xen_callback_asserted;
+    uint16_t xen_virq[XEN_NR_VIRQS];
+    uint64_t xen_singleshot_timer_ns;
+    QEMUTimer *xen_singleshot_timer;
+    uint64_t xen_periodic_timer_period;
+    QEMUTimer *xen_periodic_timer;
+    QemuMutex xen_timers_lock;
 #endif
 #if defined(CONFIG_HVF)
     HVFX86LazyFlags hvf_lflags;
@@ -1964,6 +1992,8 @@ struct ArchCPU {
     int32_t thread_id;
 
     int32_t hv_max_vps;
+
+    bool xen_vapic;
 };
 
 
@@ -1987,9 +2017,6 @@ void x86_cpu_get_memory_mapping(CPUState *cpu, MemoryMappingList *list,
 
 void x86_cpu_dump_state(CPUState *cs, FILE *f, int flags);
 
-hwaddr x86_cpu_get_phys_page_attrs_debug(CPUState *cpu, vaddr addr,
-                                         MemTxAttrs *attrs);
-
 int x86_cpu_gdb_read_register(CPUState *cpu, GByteArray *buf, int reg);
 int x86_cpu_gdb_write_register(CPUState *cpu, uint8_t *buf, int reg);
 
@@ -1997,6 +2024,8 @@ void x86_cpu_list(void);
 int cpu_x86_support_mca_broadcast(CPUX86State *env);
 
 #ifndef CONFIG_USER_ONLY
+hwaddr x86_cpu_get_phys_page_attrs_debug(CPUState *cpu, vaddr addr,
+                                         MemTxAttrs *attrs);
 int cpu_get_pic_interrupt(CPUX86State *s);
 
 /* MSDOS compatibility mode FPU exception support */
@@ -2314,9 +2343,6 @@ static inline void cpu_set_fpuc(CPUX86State *env, uint16_t fpuc)
      }
 }
 
-/* mem_helper.c */
-void helper_lock_init(void);
-
 /* svm_helper.c */
 #ifdef CONFIG_USER_ONLY
 static inline void
@@ -2359,11 +2385,15 @@ typedef int X86CPUVersion;
  */
 void x86_cpu_set_default_version(X86CPUVersion version);
 
+#ifndef CONFIG_USER_ONLY
+
 #define APIC_DEFAULT_ADDRESS 0xfee00000
 #define APIC_SPACE_SIZE      0x100000
 
 /* cpu-dump.c */
 void x86_cpu_dump_local_apic_state(CPUState *cs, int flags);
+
+#endif
 
 /* cpu.c */
 bool cpu_is_bsp(X86CPU *cpu);

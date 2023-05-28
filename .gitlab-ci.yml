@@ -16,7 +16,7 @@ build-linux:
   parallel:
     matrix:
       - PLATFORM: [x86_64-linux-gnu]
-        TARGET: [riscv32-linux-user, xtensa-softmmu]
+        TARGET: [riscv32-linux-user, xtensa-softmmu, riscv32-softmmu]
   script:
     - ./configure --prefix=/opt/qemu --target-list=${TARGET} --extra-cflags=-Werror --disable-capstone --disable-vnc --disable-sdl --disable-gtk --enable-gcrypt --enable-slirp
     - ninja -C build install

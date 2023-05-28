@@ -17,6 +17,7 @@
 #include "exec/cpu-common.h"
 #include "hw/qdev-core.h"
 #include "qapi/qapi-types-migration.h"
+#include "qapi/qmp/json-writer.h"
 #include "qemu/thread.h"
 #include "qemu/coroutine_int.h"
 #include "io/channel.h"
@@ -63,6 +64,12 @@ typedef struct {
     /* Whether this page contains all zeros */
     bool all_zero;
 } PostcopyTmpPage;
+
+typedef enum {
+    PREEMPT_THREAD_NONE = 0,
+    PREEMPT_THREAD_CREATED,
+    PREEMPT_THREAD_QUIT,
+} PreemptThreadStatus;
 
 /* State for the incoming migration */
 struct MigrationIncomingState {
@@ -115,9 +122,20 @@ struct MigrationIncomingState {
     unsigned int postcopy_channels;
     /* QEMUFile for postcopy only; it'll be handled by a separate thread */
     QEMUFile *postcopy_qemufile_dst;
+    /*
+     * When postcopy_qemufile_dst is properly setup, this sem is posted.
+     * One can wait on this semaphore to wait until the preempt channel is
+     * properly setup.
+     */
+    QemuSemaphore postcopy_qemufile_dst_done;
     /* Postcopy priority thread is used to receive postcopy requested pages */
     QemuThread postcopy_prio_thread;
-    bool postcopy_prio_thread_created;
+    /*
+     * Always set by the main vm load thread only, but can be read by the
+     * postcopy preempt thread.  "volatile" makes sure all reads will be
+     * uptodate across cores.
+     */
+    volatile PreemptThreadStatus preempt_thread_status;
     /*
      * Used to sync between the ram load main thread and the fast ram load
      * thread.  It protects postcopy_qemufile_dst, which is the postcopy
@@ -275,6 +293,12 @@ struct MigrationState {
          */
         bool          rp_thread_created;
         QemuSemaphore rp_sem;
+        /*
+         * We post to this when we got one PONG from dest. So far it's an
+         * easy way to know the main channel has successfully established
+         * on dest QEMU.
+         */
+        QemuSemaphore rp_pong_acks;
     } rp_state;
 
     double mbps;
@@ -340,13 +364,6 @@ struct MigrationState {
     bool send_configuration;
     /* Whether we send section footer during migration */
     bool send_section_footer;
-    /*
-     * Whether we allow break sending huge pages when postcopy preempt is
-     * enabled.  When disabled, we won't interrupt precopy within sending a
-     * host huge page, which is the old behavior of vanilla postcopy.
-     * NOTE: this parameter is ignored if postcopy preempt is not enabled.
-     */
-    bool postcopy_preempt_break_huge;
 
     /* Needed by postcopy-pause state */
     QemuSemaphore postcopy_pause_sem;
@@ -358,6 +375,34 @@ struct MigrationState {
      * do not trigger spurious decompression errors.
      */
     bool decompress_error_check;
+    /*
+     * This variable only affects behavior when postcopy preempt mode is
+     * enabled.
+     *
+     * When set:
+     *
+     * - postcopy preempt src QEMU instance will generate an EOS message at
+     *   the end of migration to shut the preempt channel on dest side.
+     *
+     * - postcopy preempt channel will be created at the setup phase on src
+         QEMU.
+     *
+     * When clear:
+     *
+     * - postcopy preempt src QEMU instance will _not_ generate an EOS
+     *   message at the end of migration, the dest qemu will shutdown the
+     *   channel itself.
+     *
+     * - postcopy preempt channel will be created at the switching phase
+     *   from precopy -> postcopy (to avoid race condtion of misordered
+     *   creation of channels).
+     *
+     * NOTE: See message-id <ZBoShWArKDPpX/D7@work-vm> on qemu-devel
+     * mailing list for more information on the possible race.  Everyone
+     * should probably just keep this value untouched after set by the
+     * machine type (or the default).
+     */
+    bool preempt_pre_7_2;
 
     /*
      * This decides the size of guest memory chunk that will be used
@@ -373,6 +418,9 @@ struct MigrationState {
      * This save hostname when out-going migration starts
      */
     char *hostname;
+
+    /* QEMU_VM_VMDESCRIPTION content filled for all non-iterable devices. */
+    JSONWriter *vmdesc;
 };
 
 void migrate_set_state(int *state, int old_state, int new_state);
@@ -476,8 +524,5 @@ void migration_cancel(const Error *error);
 
 void populate_vfio_info(MigrationInfo *info);
 void postcopy_temp_page_reset(PostcopyTmpPage *tmp_page);
-
-bool migrate_multi_channels_is_allowed(void);
-void migrate_protocol_allow_multi_channels(bool allow);
 
 #endif

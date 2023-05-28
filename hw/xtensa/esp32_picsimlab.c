@@ -415,9 +415,9 @@ static void esp32_soc_add_periph_device(MemoryRegion *dest, void* dev, hwaddr dp
 
 static void esp32_soc_add_unimp_device(MemoryRegion *dest, const char* name, hwaddr dport_base_addr, size_t size, uint32_t default_value)
 {
-    create_unimplemented_device(name, dport_base_addr, size, default_value);
+    create_unimplemented_device_default_value(name, dport_base_addr, size, default_value);
     char * name_apb = g_strdup_printf("%s-apb", name);
-    create_unimplemented_device(name_apb, dport_base_addr - DR_REG_DPORT_APB_BASE + APB_REG_BASE, size, default_value);
+    create_unimplemented_device_default_value(name_apb, dport_base_addr - DR_REG_DPORT_APB_BASE + APB_REG_BASE, size, default_value);
     g_free(name_apb);
 }
 

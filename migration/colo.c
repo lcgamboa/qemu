@@ -33,7 +33,6 @@
 #include "net/colo.h"
 #include "block/block.h"
 #include "qapi/qapi-events-migration.h"
-#include "qapi/qmp/qerror.h"
 #include "sysemu/cpus.h"
 #include "sysemu/runstate.h"
 #include "net/filter.h"
@@ -250,7 +249,6 @@ ReplicationStatus *qmp_query_xen_replication_status(Error **errp)
     replication_get_error_all(&err);
     if (err) {
         s->error = true;
-        s->has_desc = true;
         s->desc = g_strdup(error_get_pretty(err));
     } else {
         s->error = false;

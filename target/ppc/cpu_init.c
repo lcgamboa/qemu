@@ -20,7 +20,7 @@
 
 #include "qemu/osdep.h"
 #include "disas/dis-asm.h"
-#include "exec/gdbstub.h"
+#include "gdbstub/helpers.h"
 #include "kvm_ppc.h"
 #include "sysemu/cpus.h"
 #include "sysemu/hw_accel.h"
@@ -40,7 +40,6 @@
 #include "qemu/cutils.h"
 #include "disas/capstone.h"
 #include "fpu/softfloat.h"
-#include "qapi/qapi-commands-machine-target.h"
 
 #include "helper_regs.h"
 #include "internal.h"
@@ -5727,6 +5726,30 @@ static void register_power10_hash_sprs(CPUPPCState *env)
             hashpkeyr_initial_value);
 }
 
+static void register_power10_dexcr_sprs(CPUPPCState *env)
+{
+    spr_register(env, SPR_DEXCR, "DEXCR",
+            SPR_NOACCESS, SPR_NOACCESS,
+            &spr_read_generic, &spr_write_generic,
+            0);
+
+    spr_register(env, SPR_UDEXCR, "DEXCR",
+            &spr_read_dexcr_ureg, SPR_NOACCESS,
+            &spr_read_dexcr_ureg, SPR_NOACCESS,
+            0);
+
+    spr_register_hv(env, SPR_HDEXCR, "HDEXCR",
+            SPR_NOACCESS, SPR_NOACCESS,
+            SPR_NOACCESS, SPR_NOACCESS,
+            &spr_read_generic, &spr_write_generic,
+            0);
+
+    spr_register(env, SPR_UHDEXCR, "HDEXCR",
+            &spr_read_dexcr_ureg, SPR_NOACCESS,
+            &spr_read_dexcr_ureg, SPR_NOACCESS,
+            0);
+}
+
 /*
  * Initialize PMU counter overflow timers for Power8 and
  * newer Power chips when using TCG.
@@ -6402,6 +6425,7 @@ static void init_proc_POWER10(CPUPPCState *env)
     register_power8_rpr_sprs(env);
     register_power9_mmu_sprs(env);
     register_power10_hash_sprs(env);
+    register_power10_dexcr_sprs(env);
 
     /* FIXME: Filter fields properly based on privilege level */
     spr_register_kvm_hv(env, SPR_PSSCR, "PSSCR", NULL, NULL, NULL, NULL,
@@ -6816,7 +6840,7 @@ static const char *ppc_cpu_lookup_alias(const char *alias)
     return NULL;
 }
 
-static ObjectClass *ppc_cpu_class_by_name(const char *name)
+ObjectClass *ppc_cpu_class_by_name(const char *name)
 {
     char *cpu_model, *typename;
     ObjectClass *oc;
@@ -6956,51 +6980,6 @@ void ppc_cpu_list(void)
 #endif
 }
 
-static void ppc_cpu_defs_entry(gpointer data, gpointer user_data)
-{
-    ObjectClass *oc = data;
-    CpuDefinitionInfoList **first = user_data;
-    const char *typename;
-    CpuDefinitionInfo *info;
-
-    typename = object_class_get_name(oc);
-    info = g_malloc0(sizeof(*info));
-    info->name = g_strndup(typename,
-                           strlen(typename) - strlen(POWERPC_CPU_TYPE_SUFFIX));
-
-    QAPI_LIST_PREPEND(*first, info);
-}
-
-CpuDefinitionInfoList *qmp_query_cpu_definitions(Error **errp)
-{
-    CpuDefinitionInfoList *cpu_list = NULL;
-    GSList *list;
-    int i;
-
-    list = object_class_get_list(TYPE_POWERPC_CPU, false);
-    g_slist_foreach(list, ppc_cpu_defs_entry, &cpu_list);
-    g_slist_free(list);
-
-    for (i = 0; ppc_cpu_aliases[i].alias != NULL; i++) {
-        PowerPCCPUAlias *alias = &ppc_cpu_aliases[i];
-        ObjectClass *oc;
-        CpuDefinitionInfo *info;
-
-        oc = ppc_cpu_class_by_name(alias->model);
-        if (oc == NULL) {
-            continue;
-        }
-
-        info = g_malloc0(sizeof(*info));
-        info->name = g_strdup(alias->alias);
-        info->q_typename = g_strdup(object_class_get_name(oc));
-
-        QAPI_LIST_PREPEND(cpu_list, info);
-    }
-
-    return cpu_list;
-}
-
 static void ppc_cpu_set_pc(CPUState *cs, vaddr value)
 {
     PowerPCCPU *cpu = POWERPC_CPU(cs);
@@ -7031,16 +7010,18 @@ static bool ppc_cpu_has_work(CPUState *cs)
     return cs->interrupt_request & CPU_INTERRUPT_HARD;
 }
 
-static void ppc_cpu_reset(DeviceState *dev)
+static void ppc_cpu_reset_hold(Object *obj)
 {
-    CPUState *s = CPU(dev);
+    CPUState *s = CPU(obj);
     PowerPCCPU *cpu = POWERPC_CPU(s);
     PowerPCCPUClass *pcc = POWERPC_CPU_GET_CLASS(cpu);
     CPUPPCState *env = &cpu->env;
     target_ulong msr;
     int i;
 
-    pcc->parent_reset(dev);
+    if (pcc->parent_phases.hold) {
+        pcc->parent_phases.hold(obj);
+    }
 
     msr = (target_ulong)0;
     msr |= (target_ulong)MSR_HVB;
@@ -7267,6 +7248,7 @@ static void ppc_cpu_class_init(ObjectClass *oc, void *data)
     PowerPCCPUClass *pcc = POWERPC_CPU_CLASS(oc);
     CPUClass *cc = CPU_CLASS(oc);
     DeviceClass *dc = DEVICE_CLASS(oc);
+    ResettableClass *rc = RESETTABLE_CLASS(oc);
 
     device_class_set_parent_realize(dc, ppc_cpu_realize,
                                     &pcc->parent_realize);
@@ -7275,7 +7257,8 @@ static void ppc_cpu_class_init(ObjectClass *oc, void *data)
     pcc->pvr_match = ppc_pvr_match_default;
     device_class_set_props(dc, ppc_cpu_properties);
 
-    device_class_set_parent_reset(dc, ppc_cpu_reset, &pcc->parent_reset);
+    resettable_class_set_parent_phases(rc, NULL, ppc_cpu_reset_hold, NULL,
+                                       &pcc->parent_phases);
 
     cc->class_by_name = ppc_cpu_class_by_name;
     cc->has_work = ppc_cpu_has_work;

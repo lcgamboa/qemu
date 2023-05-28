@@ -33,7 +33,7 @@
 #include "qemu/atomic.h"
 #include "qemu/atomic128.h"
 #include "exec/translate-all.h"
-#include "trace/trace-root.h"
+#include "trace.h"
 #include "tb-hash.h"
 #include "internal.h"
 #ifdef CONFIG_PLUGIN
@@ -100,9 +100,14 @@ static void tlb_window_reset(CPUTLBDesc *desc, int64_t ns,
 
 static void tb_jmp_cache_clear_page(CPUState *cpu, target_ulong page_addr)
 {
-    int i, i0 = tb_jmp_cache_hash_page(page_addr);
     CPUJumpCache *jc = cpu->tb_jmp_cache;
+    int i, i0;
 
+    if (unlikely(!jc)) {
+        return;
+    }
+
+    i0 = tb_jmp_cache_hash_page(page_addr);
     for (i = 0; i < TB_JMP_PAGE_SIZE; i++) {
         qatomic_set(&jc->array[i0 + i].tb, NULL);
     }
@@ -1142,7 +1147,7 @@ void tlb_set_page_full(CPUState *cpu, int mmu_idx,
                                                 &xlat, &sz, full->attrs, &prot);
     assert(sz >= TARGET_PAGE_SIZE);
 
-    tlb_debug("vaddr=" TARGET_FMT_lx " paddr=0x" TARGET_FMT_plx
+    tlb_debug("vaddr=" TARGET_FMT_lx " paddr=0x" HWADDR_FMT_plx
               " prot=%x idx=%d\n",
               vaddr, full->phys_addr, prot, mmu_idx);
 
@@ -1245,7 +1250,6 @@ void tlb_set_page_full(CPUState *cpu, int mmu_idx,
     desc->fulltlb[index] = *full;
     desc->fulltlb[index].xlat_section = iotlb - vaddr_page;
     desc->fulltlb[index].phys_addr = paddr_page;
-    desc->fulltlb[index].prot = prot;
 
     /* Now calculate the new entry */
     tn.addend = addend - vaddr_page;
@@ -1356,7 +1360,6 @@ static uint64_t io_readx(CPUArchState *env, CPUTLBEntryFull *full,
     MemoryRegionSection *section;
     MemoryRegion *mr;
     uint64_t val;
-    bool locked = false;
     MemTxResult r;
 
     section = iotlb_to_section(cpu, full->xlat_section, full->attrs);
@@ -1367,11 +1370,11 @@ static uint64_t io_readx(CPUArchState *env, CPUTLBEntryFull *full,
         cpu_io_recompile(cpu, retaddr);
     }
 
-    if (!qemu_mutex_iothread_locked()) {
-        qemu_mutex_lock_iothread();
-        locked = true;
+    {
+        QEMU_IOTHREAD_LOCK_GUARD();
+        r = memory_region_dispatch_read(mr, mr_offset, &val, op, full->attrs);
     }
-    r = memory_region_dispatch_read(mr, mr_offset, &val, op, full->attrs);
+
     if (r != MEMTX_OK) {
         hwaddr physaddr = mr_offset +
             section->offset_within_address_space -
@@ -1380,10 +1383,6 @@ static uint64_t io_readx(CPUArchState *env, CPUTLBEntryFull *full,
         cpu_transaction_failed(cpu, physaddr, addr, memop_size(op), access_type,
                                mmu_idx, full->attrs, r, retaddr);
     }
-    if (locked) {
-        qemu_mutex_unlock_iothread();
-    }
-
     return val;
 }
 
@@ -1410,7 +1409,6 @@ static void io_writex(CPUArchState *env, CPUTLBEntryFull *full,
     hwaddr mr_offset;
     MemoryRegionSection *section;
     MemoryRegion *mr;
-    bool locked = false;
     MemTxResult r;
 
     section = iotlb_to_section(cpu, full->xlat_section, full->attrs);
@@ -1427,11 +1425,11 @@ static void io_writex(CPUArchState *env, CPUTLBEntryFull *full,
      */
     save_iotlb_data(cpu, section, mr_offset);
 
-    if (!qemu_mutex_iothread_locked()) {
-        qemu_mutex_lock_iothread();
-        locked = true;
+    {
+        QEMU_IOTHREAD_LOCK_GUARD();
+        r = memory_region_dispatch_write(mr, mr_offset, val, op, full->attrs);
     }
-    r = memory_region_dispatch_write(mr, mr_offset, val, op, full->attrs);
+
     if (r != MEMTX_OK) {
         hwaddr physaddr = mr_offset +
             section->offset_within_address_space -
@@ -1440,9 +1438,6 @@ static void io_writex(CPUArchState *env, CPUTLBEntryFull *full,
         cpu_transaction_failed(cpu, physaddr, addr, memop_size(op),
                                MMU_DATA_STORE, mmu_idx, full->attrs, r,
                                retaddr);
-    }
-    if (locked) {
-        qemu_mutex_unlock_iothread();
     }
 }
 
@@ -1508,10 +1503,7 @@ static void notdirty_write(CPUState *cpu, vaddr mem_vaddr, unsigned size,
     trace_memory_notdirty_write_access(mem_vaddr, ram_addr, size);
 
     if (!cpu_physical_memory_get_dirty_flag(ram_addr, DIRTY_MEMORY_CODE)) {
-        struct page_collection *pages
-            = page_collection_lock(ram_addr, ram_addr + size);
-        tb_invalidate_phys_page_fast(pages, ram_addr, size, retaddr);
-        page_collection_unlock(pages);
+        tb_invalidate_phys_range_fast(ram_addr, size, retaddr);
     }
 
     /*
@@ -1596,12 +1588,12 @@ static int probe_access_internal(CPUArchState *env, target_ulong addr,
     return flags;
 }
 
-int probe_access_full(CPUArchState *env, target_ulong addr,
+int probe_access_full(CPUArchState *env, target_ulong addr, int size,
                       MMUAccessType access_type, int mmu_idx,
                       bool nonfault, void **phost, CPUTLBEntryFull **pfull,
                       uintptr_t retaddr)
 {
-    int flags = probe_access_internal(env, addr, 0, access_type, mmu_idx,
+    int flags = probe_access_internal(env, addr, size, access_type, mmu_idx,
                                       nonfault, phost, pfull, retaddr);
 
     /* Handle clean RAM pages.  */
@@ -1613,14 +1605,25 @@ int probe_access_full(CPUArchState *env, target_ulong addr,
     return flags;
 }
 
-int probe_access_flags(CPUArchState *env, target_ulong addr,
+int probe_access_flags(CPUArchState *env, target_ulong addr, int size,
                        MMUAccessType access_type, int mmu_idx,
                        bool nonfault, void **phost, uintptr_t retaddr)
 {
     CPUTLBEntryFull *full;
+    int flags;
 
-    return probe_access_full(env, addr, access_type, mmu_idx,
-                             nonfault, phost, &full, retaddr);
+    g_assert(-(addr | TARGET_PAGE_MASK) >= size);
+
+    flags = probe_access_internal(env, addr, size, access_type, mmu_idx,
+                                  nonfault, phost, &full, retaddr);
+
+    /* Handle clean RAM pages. */
+    if (unlikely(flags & TLB_NOTDIRTY)) {
+        notdirty_write(env_cpu(env), addr, 1, full, retaddr);
+        flags &= ~TLB_NOTDIRTY;
+    }
+
+    return flags;
 }
 
 void *probe_access(CPUArchState *env, target_ulong addr, int size,
@@ -1764,6 +1767,7 @@ static void *atomic_mmu_lookup(CPUArchState *env, target_ulong addr,
     CPUTLBEntry *tlbe;
     target_ulong tlb_addr;
     void *hostaddr;
+    CPUTLBEntryFull *full;
 
     tcg_debug_assert(mmu_idx < NB_MMU_MODES);
 
@@ -1802,17 +1806,26 @@ static void *atomic_mmu_lookup(CPUArchState *env, target_ulong addr,
             tlb_addr = tlb_addr_write(tlbe) & ~TLB_INVALID_MASK;
         }
 
-        /* Let the guest notice RMW on a write-only page.  */
-        if ((prot & PAGE_READ) &&
-            unlikely(tlbe->addr_read != (tlb_addr & ~TLB_NOTDIRTY))) {
-            tlb_fill(env_cpu(env), addr, size,
-                     MMU_DATA_LOAD, mmu_idx, retaddr);
+        if (prot & PAGE_READ) {
             /*
-             * Since we don't support reads and writes to different addresses,
-             * and we do have the proper page loaded for write, this shouldn't
-             * ever return.  But just in case, handle via stop-the-world.
+             * Let the guest notice RMW on a write-only page.
+             * We have just verified that the page is writable.
+             * Subpage lookups may have left TLB_INVALID_MASK set,
+             * but addr_read will only be -1 if PAGE_READ was unset.
              */
-            goto stop_the_world;
+            if (unlikely(tlbe->addr_read == -1)) {
+                tlb_fill(env_cpu(env), addr, size,
+                         MMU_DATA_LOAD, mmu_idx, retaddr);
+                /*
+                 * Since we don't support reads and writes to different
+                 * addresses, and we do have the proper page loaded for
+                 * write, this shouldn't ever return.  But just in case,
+                 * handle via stop-the-world.
+                 */
+                goto stop_the_world;
+            }
+            /* Collect TLB_WATCHPOINT for read. */
+            tlb_addr |= tlbe->addr_read;
         }
     } else /* if (prot & PAGE_READ) */ {
         tlb_addr = tlbe->addr_read;
@@ -1828,17 +1841,25 @@ static void *atomic_mmu_lookup(CPUArchState *env, target_ulong addr,
     }
 
     /* Notice an IO access or a needs-MMU-lookup access */
-    if (unlikely(tlb_addr & TLB_MMIO)) {
+    if (unlikely(tlb_addr & (TLB_MMIO | TLB_DISCARD_WRITE))) {
         /* There's really nothing that can be done to
            support this apart from stop-the-world.  */
         goto stop_the_world;
     }
 
     hostaddr = (void *)((uintptr_t)addr + tlbe->addend);
+    full = &env_tlb(env)->d[mmu_idx].fulltlb[index];
 
     if (unlikely(tlb_addr & TLB_NOTDIRTY)) {
-        notdirty_write(env_cpu(env), addr, size,
-                       &env_tlb(env)->d[mmu_idx].fulltlb[index], retaddr);
+        notdirty_write(env_cpu(env), addr, size, full, retaddr);
+    }
+
+    if (unlikely(tlb_addr & TLB_WATCHPOINT)) {
+        QEMU_BUILD_BUG_ON(PAGE_READ != BP_MEM_READ);
+        QEMU_BUILD_BUG_ON(PAGE_WRITE != BP_MEM_WRITE);
+        /* therefore prot == watchpoint bits */
+        cpu_check_watchpoint(env_cpu(env), addr, size,
+                             full->attrs, prot, retaddr);
     }
 
     return hostaddr;
@@ -2199,6 +2220,64 @@ uint64_t cpu_ldq_le_mmu(CPUArchState *env, abi_ptr addr,
     return cpu_load_helper(env, addr, oi, ra, helper_le_ldq_mmu);
 }
 
+Int128 cpu_ld16_be_mmu(CPUArchState *env, abi_ptr addr,
+                       MemOpIdx oi, uintptr_t ra)
+{
+    MemOp mop = get_memop(oi);
+    int mmu_idx = get_mmuidx(oi);
+    MemOpIdx new_oi;
+    unsigned a_bits;
+    uint64_t h, l;
+
+    tcg_debug_assert((mop & (MO_BSWAP|MO_SSIZE)) == (MO_BE|MO_128));
+    a_bits = get_alignment_bits(mop);
+
+    /* Handle CPU specific unaligned behaviour */
+    if (addr & ((1 << a_bits) - 1)) {
+        cpu_unaligned_access(env_cpu(env), addr, MMU_DATA_LOAD,
+                             mmu_idx, ra);
+    }
+
+    /* Construct an unaligned 64-bit replacement MemOpIdx. */
+    mop = (mop & ~(MO_SIZE | MO_AMASK)) | MO_64 | MO_UNALN;
+    new_oi = make_memop_idx(mop, mmu_idx);
+
+    h = helper_be_ldq_mmu(env, addr, new_oi, ra);
+    l = helper_be_ldq_mmu(env, addr + 8, new_oi, ra);
+
+    qemu_plugin_vcpu_mem_cb(env_cpu(env), addr, oi, QEMU_PLUGIN_MEM_R);
+    return int128_make128(l, h);
+}
+
+Int128 cpu_ld16_le_mmu(CPUArchState *env, abi_ptr addr,
+                       MemOpIdx oi, uintptr_t ra)
+{
+    MemOp mop = get_memop(oi);
+    int mmu_idx = get_mmuidx(oi);
+    MemOpIdx new_oi;
+    unsigned a_bits;
+    uint64_t h, l;
+
+    tcg_debug_assert((mop & (MO_BSWAP|MO_SSIZE)) == (MO_LE|MO_128));
+    a_bits = get_alignment_bits(mop);
+
+    /* Handle CPU specific unaligned behaviour */
+    if (addr & ((1 << a_bits) - 1)) {
+        cpu_unaligned_access(env_cpu(env), addr, MMU_DATA_LOAD,
+                             mmu_idx, ra);
+    }
+
+    /* Construct an unaligned 64-bit replacement MemOpIdx. */
+    mop = (mop & ~(MO_SIZE | MO_AMASK)) | MO_64 | MO_UNALN;
+    new_oi = make_memop_idx(mop, mmu_idx);
+
+    l = helper_le_ldq_mmu(env, addr, new_oi, ra);
+    h = helper_le_ldq_mmu(env, addr + 8, new_oi, ra);
+
+    qemu_plugin_vcpu_mem_cb(env_cpu(env), addr, oi, QEMU_PLUGIN_MEM_R);
+    return int128_make128(l, h);
+}
+
 /*
  * Store Helpers
  */
@@ -2551,6 +2630,60 @@ void cpu_stq_le_mmu(CPUArchState *env, target_ulong addr, uint64_t val,
                     MemOpIdx oi, uintptr_t retaddr)
 {
     cpu_store_helper(env, addr, val, oi, retaddr, helper_le_stq_mmu);
+}
+
+void cpu_st16_be_mmu(CPUArchState *env, abi_ptr addr, Int128 val,
+                     MemOpIdx oi, uintptr_t ra)
+{
+    MemOp mop = get_memop(oi);
+    int mmu_idx = get_mmuidx(oi);
+    MemOpIdx new_oi;
+    unsigned a_bits;
+
+    tcg_debug_assert((mop & (MO_BSWAP|MO_SSIZE)) == (MO_BE|MO_128));
+    a_bits = get_alignment_bits(mop);
+
+    /* Handle CPU specific unaligned behaviour */
+    if (addr & ((1 << a_bits) - 1)) {
+        cpu_unaligned_access(env_cpu(env), addr, MMU_DATA_STORE,
+                             mmu_idx, ra);
+    }
+
+    /* Construct an unaligned 64-bit replacement MemOpIdx. */
+    mop = (mop & ~(MO_SIZE | MO_AMASK)) | MO_64 | MO_UNALN;
+    new_oi = make_memop_idx(mop, mmu_idx);
+
+    helper_be_stq_mmu(env, addr, int128_gethi(val), new_oi, ra);
+    helper_be_stq_mmu(env, addr + 8, int128_getlo(val), new_oi, ra);
+
+    qemu_plugin_vcpu_mem_cb(env_cpu(env), addr, oi, QEMU_PLUGIN_MEM_W);
+}
+
+void cpu_st16_le_mmu(CPUArchState *env, abi_ptr addr, Int128 val,
+                     MemOpIdx oi, uintptr_t ra)
+{
+    MemOp mop = get_memop(oi);
+    int mmu_idx = get_mmuidx(oi);
+    MemOpIdx new_oi;
+    unsigned a_bits;
+
+    tcg_debug_assert((mop & (MO_BSWAP|MO_SSIZE)) == (MO_LE|MO_128));
+    a_bits = get_alignment_bits(mop);
+
+    /* Handle CPU specific unaligned behaviour */
+    if (addr & ((1 << a_bits) - 1)) {
+        cpu_unaligned_access(env_cpu(env), addr, MMU_DATA_STORE,
+                             mmu_idx, ra);
+    }
+
+    /* Construct an unaligned 64-bit replacement MemOpIdx. */
+    mop = (mop & ~(MO_SIZE | MO_AMASK)) | MO_64 | MO_UNALN;
+    new_oi = make_memop_idx(mop, mmu_idx);
+
+    helper_le_stq_mmu(env, addr, int128_getlo(val), new_oi, ra);
+    helper_le_stq_mmu(env, addr + 8, int128_gethi(val), new_oi, ra);
+
+    qemu_plugin_vcpu_mem_cb(env_cpu(env), addr, oi, QEMU_PLUGIN_MEM_W);
 }
 
 #include "ldst_common.c.inc"

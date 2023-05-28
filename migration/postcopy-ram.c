@@ -17,7 +17,6 @@
  */
 
 #include "qemu/osdep.h"
-#include "qemu/rcu.h"
 #include "qemu/madvise.h"
 #include "exec/target_page.h"
 #include "migration.h"
@@ -34,9 +33,9 @@
 #include "hw/boards.h"
 #include "exec/ramblock.h"
 #include "socket.h"
-#include "qemu-file.h"
 #include "yank_functions.h"
 #include "tls.h"
+#include "qemu/userfaultfd.h"
 
 /* Arbitrary limit on size of each discard command,
  * keeps them around ~200 bytes
@@ -226,11 +225,9 @@ static bool receive_ufd_features(uint64_t *features)
     int ufd;
     bool ret = true;
 
-    /* if we are here __NR_userfaultfd should exists */
-    ufd = syscall(__NR_userfaultfd, O_CLOEXEC);
+    ufd = uffd_open(O_CLOEXEC);
     if (ufd == -1) {
-        error_report("%s: syscall __NR_userfaultfd failed: %s", __func__,
-                     strerror(errno));
+        error_report("%s: uffd_open() failed: %s", __func__, strerror(errno));
         return false;
     }
 
@@ -375,7 +372,7 @@ bool postcopy_ram_supported_by_host(MigrationIncomingState *mis)
         goto out;
     }
 
-    ufd = syscall(__NR_userfaultfd, O_CLOEXEC);
+    ufd = uffd_open(O_CLOEXEC);
     if (ufd == -1) {
         error_report("%s: userfaultfd not available: %s", __func__,
                      strerror(errno));
@@ -571,9 +568,14 @@ int postcopy_ram_incoming_cleanup(MigrationIncomingState *mis)
 {
     trace_postcopy_ram_incoming_cleanup_entry();
 
-    if (mis->postcopy_prio_thread_created) {
+    if (mis->preempt_thread_status == PREEMPT_THREAD_CREATED) {
+        /* Notify the fast load thread to quit */
+        mis->preempt_thread_status = PREEMPT_THREAD_QUIT;
+        if (mis->postcopy_qemufile_dst) {
+            qemu_file_shutdown(mis->postcopy_qemufile_dst);
+        }
         qemu_thread_join(&mis->postcopy_prio_thread);
-        mis->postcopy_prio_thread_created = false;
+        mis->preempt_thread_status = PREEMPT_THREAD_NONE;
     }
 
     if (mis->have_fault_thread) {
@@ -1160,7 +1162,7 @@ static int postcopy_temp_pages_setup(MigrationIncomingState *mis)
 int postcopy_ram_incoming_setup(MigrationIncomingState *mis)
 {
     /* Open the fd for the kernel to give us userfaults */
-    mis->userfault_fd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
+    mis->userfault_fd = uffd_open(O_CLOEXEC | O_NONBLOCK);
     if (mis->userfault_fd == -1) {
         error_report("%s: Failed to open userfault fd: %s", __func__,
                      strerror(errno));
@@ -1206,7 +1208,7 @@ int postcopy_ram_incoming_setup(MigrationIncomingState *mis)
          */
         postcopy_thread_create(mis, &mis->postcopy_prio_thread, "fault-fast",
                                postcopy_preempt_thread, QEMU_THREAD_JOINABLE);
-        mis->postcopy_prio_thread_created = true;
+        mis->preempt_thread_status = PREEMPT_THREAD_CREATED;
     }
 
     trace_postcopy_ram_enable_notify();
@@ -1539,7 +1541,7 @@ void postcopy_unregister_shared_ufd(struct PostCopyFD *pcfd)
     }
 }
 
-bool postcopy_preempt_new_channel(MigrationIncomingState *mis, QEMUFile *file)
+void postcopy_preempt_new_channel(MigrationIncomingState *mis, QEMUFile *file)
 {
     /*
      * The new loading channel has its own threads, so it needs to be
@@ -1547,10 +1549,8 @@ bool postcopy_preempt_new_channel(MigrationIncomingState *mis, QEMUFile *file)
      */
     qemu_file_set_blocking(file, true);
     mis->postcopy_qemufile_dst = file;
+    qemu_sem_post(&mis->postcopy_qemufile_dst_done);
     trace_postcopy_preempt_new_channel();
-
-    /* Start the migration immediately */
-    return true;
 }
 
 /*
@@ -1618,12 +1618,25 @@ out:
     postcopy_preempt_send_channel_done(s, ioc, local_err);
 }
 
-/* Returns 0 if channel established, -1 for error. */
-int postcopy_preempt_wait_channel(MigrationState *s)
+/*
+ * This function will kick off an async task to establish the preempt
+ * channel, and wait until the connection setup completed.  Returns 0 if
+ * channel established, -1 for error.
+ */
+int postcopy_preempt_establish_channel(MigrationState *s)
 {
     /* If preempt not enabled, no need to wait */
     if (!migrate_postcopy_preempt()) {
         return 0;
+    }
+
+    /*
+     * Kick off async task to establish preempt channel.  Only do so with
+     * 8.0+ machines, because 7.1/7.2 require the channel to be created in
+     * setup phase of migration (even if racy in an unreliable network).
+     */
+    if (!s->preempt_pre_7_2) {
+        postcopy_preempt_setup(s);
     }
 
     /*
@@ -1635,22 +1648,10 @@ int postcopy_preempt_wait_channel(MigrationState *s)
     return s->postcopy_qemufile_src ? 0 : -1;
 }
 
-int postcopy_preempt_setup(MigrationState *s, Error **errp)
+void postcopy_preempt_setup(MigrationState *s)
 {
-    if (!migrate_postcopy_preempt()) {
-        return 0;
-    }
-
-    if (!migrate_multi_channels_is_allowed()) {
-        error_setg(errp, "Postcopy preempt is not supported as current "
-                   "migration stream does not support multi-channels.");
-        return -1;
-    }
-
     /* Kick an async task to connect */
     socket_send_channel_create(postcopy_preempt_send_channel_new, s);
-
-    return 0;
 }
 
 static void postcopy_pause_ram_fast_load(MigrationIncomingState *mis)
@@ -1660,6 +1661,11 @@ static void postcopy_pause_ram_fast_load(MigrationIncomingState *mis)
     qemu_sem_wait(&mis->postcopy_pause_sem_fast_load);
     qemu_mutex_lock(&mis->postcopy_prio_thread_mutex);
     trace_postcopy_pause_fast_load_continued();
+}
+
+static bool preempt_thread_should_run(MigrationIncomingState *mis)
+{
+    return mis->preempt_thread_status != PREEMPT_THREAD_QUIT;
 }
 
 void *postcopy_preempt_thread(void *opaque)
@@ -1673,13 +1679,19 @@ void *postcopy_preempt_thread(void *opaque)
 
     qemu_sem_post(&mis->thread_sync_sem);
 
+    /*
+     * The preempt channel is established in asynchronous way.  Wait
+     * for its completion.
+     */
+    qemu_sem_wait(&mis->postcopy_qemufile_dst_done);
+
     /* Sending RAM_SAVE_FLAG_EOS to terminate this thread */
     qemu_mutex_lock(&mis->postcopy_prio_thread_mutex);
-    while (1) {
+    while (preempt_thread_should_run(mis)) {
         ret = ram_load_postcopy(mis->postcopy_qemufile_dst,
                                 RAM_CHANNEL_POSTCOPY);
         /* If error happened, go into recovery routine */
-        if (ret) {
+        if (ret && preempt_thread_should_run(mis)) {
             postcopy_pause_ram_fast_load(mis);
         } else {
             /* We're done */

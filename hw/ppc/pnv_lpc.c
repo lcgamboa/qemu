@@ -26,6 +26,7 @@
 #include "hw/isa/isa.h"
 #include "hw/qdev-properties.h"
 #include "hw/ppc/pnv.h"
+#include "hw/ppc/pnv_chip.h"
 #include "hw/ppc/pnv_lpc.h"
 #include "hw/ppc/pnv_xscom.h"
 #include "hw/ppc/fdt.h"
@@ -836,7 +837,7 @@ ISABus *pnv_lpc_isa_create(PnvLpcController *lpc, bool use_cpld, Error **errp)
 
     irqs = qemu_allocate_irqs(handler, lpc, ISA_NUM_IRQS);
 
-    isa_bus_irqs(isa_bus, irqs);
+    isa_bus_register_input_irqs(isa_bus, irqs);
 
     return isa_bus;
 }

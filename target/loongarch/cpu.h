@@ -12,8 +12,9 @@
 #include "fpu/softfloat-types.h"
 #include "hw/registerfields.h"
 #include "qemu/timer.h"
+#ifndef CONFIG_USER_ONLY
 #include "exec/memory.h"
-#include "hw/sysbus.h"
+#endif
 #include "cpu-csr.h"
 
 #define IOCSRF_TEMP             0
@@ -27,6 +28,7 @@
 #define IOCSRF_GMOD             9
 #define IOCSRF_VM               11
 
+#define VERSION_REG             0x0
 #define FEATURE_REG             0x8
 #define VENDOR_REG              0x10
 #define CPUNAME_REG             0x20
@@ -356,7 +358,7 @@ OBJECT_DECLARE_CPU_TYPE(LoongArchCPU, LoongArchCPUClass,
 /**
  * LoongArchCPUClass:
  * @parent_realize: The parent class' realize handler.
- * @parent_reset: The parent class' reset handler.
+ * @parent_phases: The parent class' reset phase handlers.
  *
  * A LoongArch CPU model.
  */
@@ -366,7 +368,7 @@ struct LoongArchCPUClass {
     /*< public >*/
 
     DeviceRealize parent_realize;
-    DeviceReset parent_reset;
+    ResettablePhases parent_phases;
 };
 
 /*

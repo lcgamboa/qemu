@@ -4,7 +4,6 @@
 #include "ui/qemu-pixman.h"
 #include "qom/object.h"
 #include "qemu/notify.h"
-#include "qemu/error-report.h"
 #include "qapi/qapi-types-ui.h"
 
 #ifdef CONFIG_OPENGL
@@ -65,7 +64,7 @@ void qemu_remove_led_event_handler(QEMUPutLEDEntry *entry);
 
 void kbd_put_ledstate(int ledstate);
 
-void hmp_mouse_set(Monitor *mon, const QDict *qdict);
+bool qemu_mouse_set(int index, Error **errp);
 
 /* keysym is a unicode code except for special keys (see QEMU_KEY_xxx
    constants) */
@@ -152,8 +151,8 @@ typedef struct QEMUCursor {
 } QEMUCursor;
 
 QEMUCursor *cursor_alloc(int width, int height);
-void cursor_get(QEMUCursor *c);
-void cursor_put(QEMUCursor *c);
+QEMUCursor *cursor_ref(QEMUCursor *c);
+void cursor_unref(QEMUCursor *c);
 QEMUCursor *cursor_builtin_hidden(void);
 QEMUCursor *cursor_builtin_left_ptr(void);
 void cursor_print_ascii_art(QEMUCursor *c, const char *prefix);
@@ -460,6 +459,7 @@ QemuConsole *qemu_console_lookup_by_device(DeviceState *dev, uint32_t head);
 QemuConsole *qemu_console_lookup_by_device_name(const char *device_id,
                                                 uint32_t head, Error **errp);
 QemuConsole *qemu_console_lookup_unused(void);
+QEMUCursor *qemu_console_get_cursor(QemuConsole *con);
 bool qemu_console_is_visible(QemuConsole *con);
 bool qemu_console_is_graphic(QemuConsole *con);
 bool qemu_console_is_fixedsize(QemuConsole *con);

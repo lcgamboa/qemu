@@ -665,8 +665,8 @@ void vfu_object_set_bus_irq(PCIBus *pci_bus)
     int bus_num = pci_bus_num(pci_bus);
     int max_bdf = PCI_BUILD_BDF(bus_num, PCI_DEVFN_MAX - 1);
 
-    pci_bus_irqs(pci_bus, vfu_object_set_irq, vfu_object_map_irq, pci_bus,
-                 max_bdf);
+    pci_bus_irqs(pci_bus, vfu_object_set_irq, pci_bus, max_bdf);
+    pci_bus_map_irqs(pci_bus, vfu_object_map_irq);
 }
 
 static int vfu_object_device_reset(vfu_ctx_t *vfu_ctx, vfu_reset_type_t type)
@@ -678,7 +678,7 @@ static int vfu_object_device_reset(vfu_ctx_t *vfu_ctx, vfu_reset_type_t type)
         return 0;
     }
 
-    qdev_reset_all(DEVICE(o->pci_dev));
+    device_cold_reset(DEVICE(o->pci_dev));
 
     return 0;
 }
@@ -719,7 +719,6 @@ static void vfu_object_machine_done(Notifier *notifier, void *data)
  */
 static void vfu_object_init_ctx(VfuObject *o, Error **errp)
 {
-    ERRP_GUARD();
     DeviceState *dev = NULL;
     vfu_pci_type_t pci_type = VFU_PCI_TYPE_CONVENTIONAL;
     int ret;

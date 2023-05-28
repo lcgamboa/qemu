@@ -18,12 +18,10 @@
  *  along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <sys/types.h>
-#include <sys/time.h>
+#include "qemu/osdep.h"
 #include <sys/resource.h>
 #include <sys/sysctl.h>
 
-#include "qemu/osdep.h"
 #include "qemu/help-texts.h"
 #include "qemu/units.h"
 #include "qemu/accel.h"
@@ -46,6 +44,7 @@
 #include "trace/control.h"
 #include "crypto/init.h"
 #include "qemu/guest-random.h"
+#include "gdbstub/user.h"
 
 #include "host-os.h"
 #include "target_arch_cpu.h"
@@ -69,13 +68,9 @@ bool have_guest_base;
 # if HOST_LONG_BITS > TARGET_VIRT_ADDR_SPACE_BITS
 #  if TARGET_VIRT_ADDR_SPACE_BITS == 32 && \
       (TARGET_LONG_BITS == 32 || defined(TARGET_ABI32))
-/*
- * There are a number of places where we assign reserved_va to a variable
- * of type abi_ulong and expect it to fit.  Avoid the last page.
- */
-#   define MAX_RESERVED_VA  (0xfffffffful & TARGET_PAGE_MASK)
+#   define MAX_RESERVED_VA  0xfffffffful
 #  else
-#   define MAX_RESERVED_VA  (1ul << TARGET_VIRT_ADDR_SPACE_BITS)
+#   define MAX_RESERVED_VA  ((1ul << TARGET_VIRT_ADDR_SPACE_BITS) - 1)
 #  endif
 # else
 #  define MAX_RESERVED_VA  0
@@ -467,7 +462,7 @@ int main(int argc, char **argv)
     envlist_free(envlist);
 
     if (reserved_va) {
-            mmap_next_start = reserved_va;
+        mmap_next_start = reserved_va + 1;
     }
 
     {

@@ -27,6 +27,7 @@
 #include <dirent.h>
 #include <glib/gstdio.h>
 #include "qapi/error.h"
+#include "block/block-io.h"
 #include "block/block_int.h"
 #include "block/qdict.h"
 #include "qemu/module.h"
@@ -2783,13 +2784,10 @@ static int handle_commits(BDRVVVFATState* s)
             fail = -2;
             break;
         case ACTION_WRITEOUT: {
-#ifndef NDEBUG
-            /* these variables are only used by assert() below */
             direntry_t* entry = array_get(&(s->directory),
                     commit->param.writeout.dir_index);
             uint32_t begin = begin_of_direntry(entry);
             mapping_t* mapping = find_mapping_for_cluster(s, begin);
-#endif
 
             assert(mapping);
             assert(mapping->begin == begin);

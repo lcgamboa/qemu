@@ -9,6 +9,8 @@
 #define UART_FIFO_LENGTH 128
 
 #define TYPE_ESP32_UART "esp_soc.uart"
+#define ESP32_UART_GET_CLASS(obj) OBJECT_GET_CLASS(ESP32UARTClass, obj, TYPE_ESP32_UART)
+#define ESP32_UART_CLASS(klass) OBJECT_CLASS_CHECK(ESP32UARTClass, klass, TYPE_ESP32_UART)
 #define ESP32_UART(obj) OBJECT_CHECK(ESP32UARTState, (obj), TYPE_ESP32_UART)
 
 REG32(UART_FIFO, 0x0)
@@ -93,5 +95,13 @@ typedef struct ESPUARTState {
 
     uint32_t reg[UART_REG_CNT];
     uint32_t id;
+    MemoryRegionOps uart_ops;
 } ESP32UARTState;
 
+typedef struct ESPUARTClass {
+    SysBusDeviceClass parent_class;
+
+    /* Virtual attributes/methods */
+    void (*uart_write)(void *opaque, hwaddr addr, uint64_t value, unsigned int size);
+    uint64_t (*uart_read)(void *opaque, hwaddr addr, unsigned int size);
+} ESP32UARTClass;

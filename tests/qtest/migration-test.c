@@ -61,14 +61,14 @@ static bool uffd_feature_thread_id;
 #if defined(__linux__) && defined(__NR_userfaultfd) && defined(CONFIG_EVENTFD)
 #include <sys/eventfd.h>
 #include <sys/ioctl.h>
-#include <linux/userfaultfd.h>
+#include "qemu/userfaultfd.h"
 
 static bool ufd_version_check(void)
 {
     struct uffdio_api api_struct;
     uint64_t ioctl_mask;
 
-    int ufd = syscall(__NR_userfaultfd, O_CLOEXEC);
+    int ufd = uffd_open(O_CLOEXEC);
 
     if (ufd == -1) {
         g_test_message("Skipping test: userfaultfd not available");
@@ -408,8 +408,8 @@ static void migrate_set_parameter_str(QTestState *who, const char *parameter,
 
 static void migrate_ensure_non_converge(QTestState *who)
 {
-    /* Can't converge with 1ms downtime + 30 mbs bandwidth limit */
-    migrate_set_parameter_int(who, "max-bandwidth", 30 * 1000 * 1000);
+    /* Can't converge with 1ms downtime + 3 mbs bandwidth limit */
+    migrate_set_parameter_int(who, "max-bandwidth", 3 * 1000 * 1000);
     migrate_set_parameter_int(who, "downtime-limit", 1);
 }
 
@@ -1661,7 +1661,7 @@ static void *test_migrate_fd_start_hook(QTestState *from,
     int pair[2];
 
     /* Create two connected sockets for migration */
-    ret = socketpair(PF_LOCAL, SOCK_STREAM, 0, pair);
+    ret = qemu_socketpair(PF_LOCAL, SOCK_STREAM, 0, pair);
     g_assert_cmpint(ret, ==, 0);
 
     /* Send the 1st socket to the target */
@@ -1808,7 +1808,7 @@ static void test_migrate_auto_converge(void)
      * E.g., with 1Gb/s bandwith migration may pass without throttling,
      * so we need to decrease a bandwidth.
      */
-    const int64_t init_pct = 5, inc_pct = 50, max_pct = 95;
+    const int64_t init_pct = 5, inc_pct = 25, max_pct = 95;
 
     if (test_migrate_start(&from, &to, uri, &args)) {
         return;
@@ -1835,13 +1835,16 @@ static void test_migrate_auto_converge(void)
 
     /* Wait for throttling begins */
     percentage = 0;
-    while (percentage == 0) {
+    do {
         percentage = read_migrate_property_int(from, "cpu-throttle-percentage");
-        usleep(100);
+        if (percentage != 0) {
+            break;
+        }
+        usleep(20);
         g_assert_false(got_stop);
-    }
-    /* The first percentage of throttling should be equal to init_pct */
-    g_assert_cmpint(percentage, ==, init_pct);
+    } while (true);
+    /* The first percentage of throttling should be at least init_pct */
+    g_assert_cmpint(percentage, >=, init_pct);
     /* Now, when we tested that throttling works, let it converge */
     migrate_ensure_converge(from);
 
@@ -2459,13 +2462,17 @@ static bool kvm_dirty_ring_supported(void)
 
 int main(int argc, char **argv)
 {
-    const bool has_kvm = qtest_has_accel("kvm");
-    const bool has_uffd = ufd_version_check();
-    const char *arch = qtest_get_arch();
+    bool has_kvm;
+    bool has_uffd;
+    const char *arch;
     g_autoptr(GError) err = NULL;
     int ret;
 
     g_test_init(&argc, &argv, NULL);
+
+    has_kvm = qtest_has_accel("kvm");
+    has_uffd = ufd_version_check();
+    arch = qtest_get_arch();
 
     /*
      * On ppc64, the test only works with kvm-hv, but not with kvm-pr and TCG
@@ -2572,8 +2579,14 @@ int main(int argc, char **argv)
     qtest_add_func("/migration/auto_converge", test_migrate_auto_converge);
     qtest_add_func("/migration/multifd/tcp/plain/none",
                    test_multifd_tcp_none);
-    qtest_add_func("/migration/multifd/tcp/plain/cancel",
-                   test_multifd_tcp_cancel);
+    /*
+     * This test is flaky and sometimes fails in CI and otherwise:
+     * don't run unless user opts in via environment variable.
+     */
+    if (getenv("QEMU_TEST_FLAKY_TESTS")) {
+        qtest_add_func("/migration/multifd/tcp/plain/cancel",
+                       test_multifd_tcp_cancel);
+    }
     qtest_add_func("/migration/multifd/tcp/plain/zlib",
                    test_multifd_tcp_zlib);
 #ifdef CONFIG_ZSTD

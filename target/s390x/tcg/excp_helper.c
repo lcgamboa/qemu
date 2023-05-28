@@ -21,15 +21,15 @@
 #include "qemu/osdep.h"
 #include "qemu/log.h"
 #include "cpu.h"
-#include "s390x-internal.h"
 #include "exec/helper-proto.h"
-#include "qemu/timer.h"
 #include "exec/exec-all.h"
 #include "exec/cpu_ldst.h"
-#include "hw/s390x/ioinst.h"
-#include "exec/address-spaces.h"
+#include "s390x-internal.h"
 #include "tcg_s390x.h"
 #ifndef CONFIG_USER_ONLY
+#include "qemu/timer.h"
+#include "exec/address-spaces.h"
+#include "hw/s390x/ioinst.h"
 #include "hw/s390x/s390_flic.h"
 #include "hw/boards.h"
 #endif
@@ -85,8 +85,8 @@ void HELPER(data_exception)(CPUS390XState *env, uint32_t dxc)
 
 /*
  * Unaligned accesses are only diagnosed with MO_ALIGN.  At the moment,
- * this is only for the atomic operations, for which we want to raise a
- * specification exception.
+ * this is only for the atomic and relative long operations, for which we want
+ * to raise a specification exception.
  */
 static G_NORETURN
 void do_unaligned_access(CPUState *cs, uintptr_t retaddr)
@@ -212,7 +212,8 @@ static void do_program_interrupt(CPUS390XState *env)
     LowCore *lowcore;
     int ilen = env->int_pgm_ilen;
 
-    assert(ilen == 2 || ilen == 4 || ilen == 6);
+    assert((env->int_pgm_code == PGM_SPECIFICATION && ilen == 0) ||
+           ilen == 2 || ilen == 4 || ilen == 6);
 
     switch (env->int_pgm_code) {
     case PGM_PER:

@@ -15,6 +15,7 @@
 #include "hw/arm/boot.h"
 #include "hw/arm/linux-boot-if.h"
 #include "sysemu/kvm.h"
+#include "sysemu/tcg.h"
 #include "sysemu/sysemu.h"
 #include "sysemu/numa.h"
 #include "hw/boards.h"
@@ -656,15 +657,17 @@ int arm_load_dtb(hwaddr addr, const struct arm_boot_info *binfo,
     }
 
     if (binfo->initrd_size) {
-        rc = qemu_fdt_setprop_cell(fdt, "/chosen", "linux,initrd-start",
-                                   binfo->initrd_start);
+        rc = qemu_fdt_setprop_sized_cells(fdt, "/chosen", "linux,initrd-start",
+                                          acells, binfo->initrd_start);
         if (rc < 0) {
             fprintf(stderr, "couldn't set /chosen/linux,initrd-start\n");
             goto fail;
         }
 
-        rc = qemu_fdt_setprop_cell(fdt, "/chosen", "linux,initrd-end",
-                                   binfo->initrd_start + binfo->initrd_size);
+        rc = qemu_fdt_setprop_sized_cells(fdt, "/chosen", "linux,initrd-end",
+                                          acells,
+                                          binfo->initrd_start +
+                                          binfo->initrd_size);
         if (rc < 0) {
             fprintf(stderr, "couldn't set /chosen/linux,initrd-end\n");
             goto fail;
@@ -686,7 +689,10 @@ int arm_load_dtb(hwaddr addr, const struct arm_boot_info *binfo,
     qemu_register_reset_nosnapshotload(qemu_fdt_randomize_seeds,
                                        rom_ptr_for_as(as, addr, size));
 
-    g_free(fdt);
+    if (fdt != ms->fdt) {
+        g_free(ms->fdt);
+        ms->fdt = fdt;
+    }
 
     return size;
 
@@ -825,7 +831,10 @@ static void do_cpu_reset(void *opaque)
                 info->secondary_cpu_reset_hook(cpu, info);
             }
         }
-        arm_rebuild_hflags(env);
+
+        if (tcg_enabled()) {
+            arm_rebuild_hflags(env);
+        }
     }
 }
 
@@ -920,6 +929,12 @@ static uint64_t load_aarch64_image(const char *filename, hwaddr mem_base,
             return -1;
         }
         size = len;
+
+        /* Unpack the image if it is a EFI zboot image */
+        if (unpack_efi_zboot_image(&buffer, &size) < 0) {
+            g_free(buffer);
+            return -1;
+        }
     }
 
     /* check the arm64 magic header value -- very old kernels may not have it */

@@ -24,6 +24,8 @@
 #ifdef CONFIG_TCG
 #include "exec/cpu_ldst.h"
 #endif
+#include "qemu/interval-tree.h"
+#include "qemu/clang-tsa.h"
 
 /* allow to see translation results - the slowdown should be negligible, so we leave it */
 #define DEBUG_DISAS
@@ -445,6 +447,7 @@ static inline void *probe_read(CPUArchState *env, target_ulong addr, int size,
  * probe_access_flags:
  * @env: CPUArchState
  * @addr: guest virtual address to look up
+ * @size: size of the access
  * @access_type: read, write or execute permission
  * @mmu_idx: MMU index to use for lookup
  * @nonfault: suppress the fault
@@ -459,7 +462,7 @@ static inline void *probe_read(CPUArchState *env, target_ulong addr, int size,
  * Do handle clean pages, so exclude TLB_NOTDIRY from the returned flags.
  * For simplicity, all "mmio-like" flags are folded to TLB_MMIO.
  */
-int probe_access_flags(CPUArchState *env, target_ulong addr,
+int probe_access_flags(CPUArchState *env, target_ulong addr, int size,
                        MMUAccessType access_type, int mmu_idx,
                        bool nonfault, void **phost, uintptr_t retaddr);
 
@@ -472,7 +475,7 @@ int probe_access_flags(CPUArchState *env, target_ulong addr,
  * and must be consumed or copied immediately, before any further
  * access or changes to TLB @mmu_idx.
  */
-int probe_access_full(CPUArchState *env, target_ulong addr,
+int probe_access_full(CPUArchState *env, target_ulong addr, int size,
                       MMUAccessType access_type, int mmu_idx,
                       bool nonfault, void **phost,
                       CPUTLBEntryFull **pfull, uintptr_t retaddr);
@@ -503,22 +506,20 @@ struct tb_tc {
 };
 
 struct TranslationBlock {
-#if !TARGET_TB_PCREL
     /*
      * Guest PC corresponding to this block.  This must be the true
      * virtual address.  Therefore e.g. x86 stores EIP + CS_BASE, and
      * targets like Arm, MIPS, HP-PA, which reuse low bits for ISA or
      * privilege, must store those bits elsewhere.
      *
-     * If TARGET_TB_PCREL, the opcodes for the TranslationBlock are
-     * written such that the TB is associated only with the physical
-     * page and may be run in any virtual address context.  In this case,
-     * PC must always be taken from ENV in a target-specific manner.
+     * If CF_PCREL, the opcodes for the TranslationBlock are written
+     * such that the TB is associated only with the physical page and
+     * may be run in any virtual address context.  In this case, PC
+     * must always be taken from ENV in a target-specific manner.
      * Unwind information is taken as offsets from the page, to be
      * deposited into the "current" PC.
      */
     target_ulong pc;
-#endif
 
     /*
      * Target-specific data associated with the TranslationBlock, e.g.:
@@ -543,6 +544,7 @@ struct TranslationBlock {
 #define CF_INVALID       0x00040000 /* TB is stale. Set with @jmp_lock held */
 #define CF_PARALLEL      0x00080000 /* Generate code for a parallel context */
 #define CF_NOIRQ         0x00100000 /* Generate an uninterruptible TB */
+#define CF_PCREL         0x00200000 /* Opcodes in TB are PC-relative */
 #define CF_CLUSTER_MASK  0xff000000 /* Top 8 bits are cluster ID */
 #define CF_CLUSTER_SHIFT 24
 
@@ -559,11 +561,20 @@ struct TranslationBlock {
 
     struct tb_tc tc;
 
-    /* first and second physical page containing code. The lower bit
-       of the pointer tells the index in page_next[].
-       The list is protected by the TB's page('s) lock(s) */
+    /*
+     * Track tb_page_addr_t intervals that intersect this TB.
+     * For user-only, the virtual addresses are always contiguous,
+     * and we use a unified interval tree.  For system, we use a
+     * linked list headed in each PageDesc.  Within the list, the lsb
+     * of the previous pointer tells the index of page_next[], and the
+     * list is protected by the PageDesc lock(s).
+     */
+#ifdef CONFIG_USER_ONLY
+    IntervalTreeNode itree;
+#else
     uintptr_t page_next[2];
     tb_page_addr_t page_addr[2];
+#endif
 
     /* jmp_lock placed here to fill a 4-byte hole. Its documentation is below */
     QemuSpin jmp_lock;
@@ -575,9 +586,10 @@ struct TranslationBlock {
      * setting one of the jump targets (or patching the jump instruction). Only
      * two of such jumps are supported.
      */
+#define TB_JMP_OFFSET_INVALID 0xffff /* indicates no jump generated */
     uint16_t jmp_reset_offset[2]; /* offset of original jump target */
-#define TB_JMP_RESET_OFFSET_INVALID 0xffff /* indicates no jump generated */
-    uintptr_t jmp_target_arg[2];  /* target address or offset */
+    uint16_t jmp_insn_offset[2];  /* offset of direct jump insn */
+    uintptr_t jmp_target_addr[2]; /* target address */
 
     /*
      * Each TB has a NULL-terminated list (jmp_list_head) of incoming jumps.
@@ -601,16 +613,6 @@ struct TranslationBlock {
     uintptr_t jmp_dest[2];
 };
 
-/* Hide the read to avoid ifdefs for TARGET_TB_PCREL. */
-static inline target_ulong tb_pc(const TranslationBlock *tb)
-{
-#if TARGET_TB_PCREL
-    qemu_build_not_reached();
-#else
-    return tb->pc;
-#endif
-}
-
 /* Hide the qatomic_read to make code a little easier on the eyes */
 static inline uint32_t tb_cflags(const TranslationBlock *tb)
 {
@@ -619,24 +621,51 @@ static inline uint32_t tb_cflags(const TranslationBlock *tb)
 
 static inline tb_page_addr_t tb_page_addr0(const TranslationBlock *tb)
 {
+#ifdef CONFIG_USER_ONLY
+    return tb->itree.start;
+#else
     return tb->page_addr[0];
+#endif
 }
 
 static inline tb_page_addr_t tb_page_addr1(const TranslationBlock *tb)
 {
+#ifdef CONFIG_USER_ONLY
+    tb_page_addr_t next = tb->itree.last & TARGET_PAGE_MASK;
+    return next == (tb->itree.start & TARGET_PAGE_MASK) ? -1 : next;
+#else
     return tb->page_addr[1];
+#endif
 }
 
 static inline void tb_set_page_addr0(TranslationBlock *tb,
                                      tb_page_addr_t addr)
 {
+#ifdef CONFIG_USER_ONLY
+    tb->itree.start = addr;
+    /*
+     * To begin, we record an interval of one byte.  When the translation
+     * loop encounters a second page, the interval will be extended to
+     * include the first byte of the second page, which is sufficient to
+     * allow tb_page_addr1() above to work properly.  The final corrected
+     * interval will be set by tb_page_add() from tb->size before the
+     * node is added to the interval tree.
+     */
+    tb->itree.last = addr;
+#else
     tb->page_addr[0] = addr;
+#endif
 }
 
 static inline void tb_set_page_addr1(TranslationBlock *tb,
                                      tb_page_addr_t addr)
 {
+#ifdef CONFIG_USER_ONLY
+    /* Extend the interval to the first byte of the second page.  See above. */
+    tb->itree.last = addr;
+#else
     tb->page_addr[1] = addr;
+#endif
 }
 
 /* current cflags for hashing/comparison */
@@ -648,9 +677,8 @@ void tb_invalidate_phys_addr(target_ulong addr);
 #else
 void tb_invalidate_phys_addr(AddressSpace *as, hwaddr addr, MemTxAttrs attrs);
 #endif
-void tb_flush(CPUState *cpu);
 void tb_phys_invalidate(TranslationBlock *tb, tb_page_addr_t page_addr);
-void tb_invalidate_phys_range(tb_page_addr_t start, tb_page_addr_t end);
+void tb_invalidate_phys_range(tb_page_addr_t start, tb_page_addr_t last);
 void tb_set_jmp_target(TranslationBlock *tb, int n, uintptr_t addr);
 
 /* GETPC is the true target of the return instruction that we'll execute.  */
@@ -721,8 +749,8 @@ static inline tb_page_addr_t get_page_addr_code(CPUArchState *env,
 }
 
 #if defined(CONFIG_USER_ONLY)
-void mmap_lock(void);
-void mmap_unlock(void);
+void TSA_NO_TSA mmap_lock(void);
+void TSA_NO_TSA mmap_unlock(void);
 bool have_mmap_lock(void);
 
 /**

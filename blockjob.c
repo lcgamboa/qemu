@@ -24,6 +24,7 @@
  */
 
 #include "qemu/osdep.h"
+#include "block/aio-wait.h"
 #include "block/block.h"
 #include "block/blockjob_int.h"
 #include "block/block_int.h"
@@ -32,7 +33,6 @@
 #include "qapi/error.h"
 #include "qapi/qapi-events-block-core.h"
 #include "qapi/qmp/qerror.h"
-#include "qemu/coroutine.h"
 #include "qemu/main-loop.h"
 #include "qemu/timer.h"
 
@@ -120,7 +120,7 @@ static bool child_job_drained_poll(BdrvChild *c)
     }
 }
 
-static void child_job_drained_end(BdrvChild *c, int *drained_end_counter)
+static void child_job_drained_end(BdrvChild *c)
 {
     BlockJob *job = c->opaque;
     job_resume(&job->job);
@@ -354,7 +354,6 @@ BlockJobInfo *block_job_query_locked(BlockJob *job, Error **errp)
     info->auto_finalize = job->job.auto_finalize;
     info->auto_dismiss  = job->job.auto_dismiss;
     if (job->job.ret) {
-        info->has_error = true;
         info->error = job->job.err ?
                         g_strdup(error_get_pretty(job->job.err)) :
                         g_strdup(strerror(-job->job.ret));
@@ -414,7 +413,6 @@ static void block_job_event_completed_locked(Notifier *n, void *opaque)
                                         progress_total,
                                         progress_current,
                                         job->speed,
-                                        !!msg,
                                         msg);
 }
 

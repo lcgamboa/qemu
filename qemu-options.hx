@@ -343,6 +343,9 @@ SRST
     ::
 
         -smp 2
+
+    Note: The cluster topology will only be generated in ACPI and exposed
+    to guest if it's explicitly specified in -smp.
 ERST
 
 DEF("numa", HAS_ARG, QEMU_OPTION_numa,
@@ -1603,7 +1606,7 @@ SRST
 
     .. parsed-literal::
 
-        |qemu_system_x86| -drive file=a -drive file=b"
+        |qemu_system_x86| -drive file=a -drive file=b
 
     is interpreted like:
 
@@ -1889,8 +1892,8 @@ SRST
 ERST
 
 DEF("iscsi", HAS_ARG, QEMU_OPTION_iscsi,
-    "-iscsi [user=user][,password=password]\n"
-    "       [,header-digest=CRC32C|CR32C-NONE|NONE-CRC32C|NONE\n"
+    "-iscsi [user=user][,password=password][,password-secret=secret-id]\n"
+    "       [,header-digest=CRC32C|CR32C-NONE|NONE-CRC32C|NONE]\n"
     "       [,initiator-name=initiator-iqn][,id=target-iqn]\n"
     "       [,timeout=timeout]\n"
     "                iSCSI session parameters\n", QEMU_ARCH_ALL)
@@ -2132,7 +2135,7 @@ DEF("spice", HAS_ARG, QEMU_OPTION_spice,
     "       [,tls-channel=[main|display|cursor|inputs|record|playback]]\n"
     "       [,plaintext-channel=[main|display|cursor|inputs|record|playback]]\n"
     "       [,sasl=on|off][,disable-ticketing=on|off]\n"
-    "       [,password=<string>][,password-secret=<secret-id>]\n"
+    "       [,password-secret=<secret-id>]\n"
     "       [,image-compression=[auto_glz|auto_lz|quic|glz|lz|off]]\n"
     "       [,jpeg-wan-compression=[auto|never|always]]\n"
     "       [,zlib-glz-wan-compression=[auto|never|always]]\n"
@@ -2157,13 +2160,6 @@ SRST
 
     ``ipv4=on|off``; \ ``ipv6=on|off``; \ ``unix=on|off``
         Force using the specified IP version.
-
-    ``password=<string>``
-        Set the password you need to authenticate.
-
-        This option is deprecated and insecure because it leaves the
-        password visible in the process listing. Use ``password-secret``
-        instead.
 
     ``password-secret=<secret-id>``
         Set the ID of the ``secret`` object containing the password
@@ -2542,7 +2538,7 @@ DEF("no-hpet", 0, QEMU_OPTION_no_hpet,
     "-no-hpet        disable HPET\n", QEMU_ARCH_I386)
 SRST
 ``-no-hpet``
-    Disable HPET support.
+    Disable HPET support. Deprecated, use '-machine hpet=off' instead.
 ERST
 
 DEF("acpitable", HAS_ARG, QEMU_OPTION_acpitable,
@@ -2589,7 +2585,7 @@ DEF("smbios", HAS_ARG, QEMU_OPTION_smbios,
     "                specify SMBIOS type 17 fields\n"
     "-smbios type=41[,designation=str][,kind=str][,instance=%d][,pcidev=str]\n"
     "                specify SMBIOS type 41 fields\n",
-    QEMU_ARCH_I386 | QEMU_ARCH_ARM)
+    QEMU_ARCH_I386 | QEMU_ARCH_ARM | QEMU_ARCH_LOONGARCH)
 SRST
 ``-smbios file=binary``
     Load SMBIOS entry from binary file.
@@ -2766,9 +2762,9 @@ DEF("netdev", HAS_ARG, QEMU_OPTION_netdev,
     "-netdev socket,id=str[,fd=h][,udp=host:port][,localaddr=host:port]\n"
     "                configure a network backend to connect to another network\n"
     "                using an UDP tunnel\n"
-    "-netdev stream,id=str[,server=on|off],addr.type=inet,addr.host=host,addr.port=port[,to=maxport][,numeric=on|off][,keep-alive=on|off][,mptcp=on|off][,addr.ipv4=on|off][,addr.ipv6=on|off]\n"
-    "-netdev stream,id=str[,server=on|off],addr.type=unix,addr.path=path[,abstract=on|off][,tight=on|off]\n"
-    "-netdev stream,id=str[,server=on|off],addr.type=fd,addr.str=file-descriptor\n"
+    "-netdev stream,id=str[,server=on|off],addr.type=inet,addr.host=host,addr.port=port[,to=maxport][,numeric=on|off][,keep-alive=on|off][,mptcp=on|off][,addr.ipv4=on|off][,addr.ipv6=on|off][,reconnect=seconds]\n"
+    "-netdev stream,id=str[,server=on|off],addr.type=unix,addr.path=path[,abstract=on|off][,tight=on|off][,reconnect=seconds]\n"
+    "-netdev stream,id=str[,server=on|off],addr.type=fd,addr.str=file-descriptor[,reconnect=seconds]\n"
     "                configure a network backend to connect to another network\n"
     "                using a socket connection in stream mode.\n"
     "-netdev dgram,id=str,remote.type=inet,remote.host=maddr,remote.port=port[,local.type=inet,local.host=addr]\n"
@@ -3379,11 +3375,9 @@ DEF("chardev", HAS_ARG, QEMU_OPTION_chardev,
 #if defined(__linux__) || defined(__sun__) || defined(__FreeBSD__) \
         || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
     "-chardev serial,id=id,path=path[,mux=on|off][,logfile=PATH][,logappend=on|off]\n"
-    "-chardev tty,id=id,path=path[,mux=on|off][,logfile=PATH][,logappend=on|off]\n"
 #endif
 #if defined(__linux__) || defined(__FreeBSD__) || defined(__DragonFly__)
     "-chardev parallel,id=id,path=path[,mux=on|off][,logfile=PATH][,logappend=on|off]\n"
-    "-chardev parport,id=id,path=path[,mux=on|off][,logfile=PATH][,logappend=on|off]\n"
 #endif
 #if defined(CONFIG_SPICE)
     "-chardev spicevmc,id=id,name=name[,debug=debug][,logfile=PATH][,logappend=on|off]\n"
@@ -3398,7 +3392,7 @@ The general form of a character device option is:
 ``-chardev backend,id=id[,mux=on|off][,options]``
     Backend is one of: ``null``, ``socket``, ``udp``, ``msmouse``,
     ``vc``, ``ringbuf``, ``file``, ``pipe``, ``console``, ``serial``,
-    ``pty``, ``stdio``, ``braille``, ``tty``, ``parallel``, ``parport``,
+    ``pty``, ``stdio``, ``braille``, ``parallel``,
     ``spicevmc``, ``spiceport``. The specific backend will determine the
     applicable options.
 
@@ -3622,15 +3616,8 @@ The available backends are:
     Connect to a local BrlAPI server. ``braille`` does not take any
     options.
 
-``-chardev tty,id=id,path=path``
-    ``tty`` is only available on Linux, Sun, FreeBSD, NetBSD, OpenBSD
-    and DragonFlyBSD hosts. It is an alias for ``serial``.
-
-    ``path`` specifies the path to the tty. ``path`` is required.
-
 ``-chardev parallel,id=id,path=path``
   \
-``-chardev parport,id=id,path=path``
     ``parallel`` is only available on Linux, FreeBSD and DragonFlyBSD
     hosts.
 
@@ -4639,10 +4626,11 @@ DEF("semihosting", 0, QEMU_OPTION_semihosting,
     QEMU_ARCH_MIPS | QEMU_ARCH_NIOS2 | QEMU_ARCH_RISCV)
 SRST
 ``-semihosting``
-    Enable semihosting mode (ARM, M68K, Xtensa, MIPS, Nios II, RISC-V only).
+    Enable :ref:`Semihosting` mode (ARM, M68K, Xtensa, MIPS, Nios II, RISC-V only).
 
-    Note that this allows guest direct access to the host filesystem, so
-    should only be used with a trusted guest OS.
+    .. warning::
+      Note that this allows guest direct access to the host filesystem, so
+      should only be used with a trusted guest OS.
 
     See the -semihosting-config option documentation for further
     information about the facilities this enables.
@@ -4654,22 +4642,12 @@ QEMU_ARCH_ARM | QEMU_ARCH_M68K | QEMU_ARCH_XTENSA |
 QEMU_ARCH_MIPS | QEMU_ARCH_NIOS2 | QEMU_ARCH_RISCV)
 SRST
 ``-semihosting-config [enable=on|off][,target=native|gdb|auto][,chardev=id][,userspace=on|off][,arg=str[,...]]``
-    Enable and configure semihosting (ARM, M68K, Xtensa, MIPS, Nios II, RISC-V
+    Enable and configure :ref:`Semihosting` (ARM, M68K, Xtensa, MIPS, Nios II, RISC-V
     only).
 
-    Note that this allows guest direct access to the host filesystem, so
-    should only be used with a trusted guest OS.
-
-    On Arm this implements the standard semihosting API, version 2.0.
-
-    On M68K this implements the "ColdFire GDB" interface used by
-    libgloss.
-
-    Xtensa semihosting provides basic file IO calls, such as
-    open/read/write/seek/select. Tensilica baremetal libc for ISS and
-    linux platform "sim" use this interface.
-
-    On RISC-V this implements the standard semihosting API, version 0.2.
+    .. warning::
+      Note that this allows guest direct access to the host filesystem, so
+      should only be used with a trusted guest OS.
 
     ``target=native|gdb|auto``
         Defines where the semihosting calls will be addressed, to QEMU
@@ -4843,6 +4821,26 @@ SRST
 ``-enable-sync-profile``
     Enable synchronization profiling.
 ERST
+
+#if defined(CONFIG_TCG) && defined(CONFIG_LINUX)
+DEF("perfmap", 0, QEMU_OPTION_perfmap,
+    "-perfmap        generate a /tmp/perf-${pid}.map file for perf\n",
+    QEMU_ARCH_ALL)
+SRST
+``-perfmap``
+    Generate a map file for Linux perf tools that will allow basic profiling
+    information to be broken down into basic blocks.
+ERST
+
+DEF("jitdump", 0, QEMU_OPTION_jitdump,
+    "-jitdump        generate a jit-${pid}.dump file for perf\n",
+    QEMU_ARCH_ALL)
+SRST
+``-jitdump``
+    Generate a dump file for Linux perf tools that maps basic blocks to symbol
+    names, line numbers and JITted code.
+ERST
+#endif
 
 DEFHEADING()
 

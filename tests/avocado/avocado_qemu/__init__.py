@@ -274,6 +274,10 @@ class QemuSystemTest(QemuBaseTest):
 
         super().setUp('qemu-system-')
 
+        accel_required = self._get_unique_tag_val('accel')
+        if accel_required:
+            self.require_accelerator(accel_required)
+
         self.machine = self.params.get('machine',
                                        default=self._get_unique_tag_val('machine'))
 
@@ -305,8 +309,18 @@ class QemuSystemTest(QemuBaseTest):
         if netdevhelp.find('\n' + netdevname + '\n') < 0:
             self.cancel('no support for user networking')
 
+    def require_multiprocess(self):
+        """
+        Test for the presence of the x-pci-proxy-dev which is required
+        to support multiprocess.
+        """
+        devhelp = run_cmd([self.qemu_bin,
+                           '-M', 'none', '-device', 'help'])[0];
+        if devhelp.find('x-pci-proxy-dev') < 0:
+            self.cancel('no support for multiprocess device emulation')
+
     def _new_vm(self, name, *args):
-        self._sd = tempfile.TemporaryDirectory(prefix="avo_qemu_sock_")
+        self._sd = tempfile.TemporaryDirectory(prefix="qemu_")
         vm = QEMUMachine(self.qemu_bin, base_temp_dir=self.workdir,
                          sock_dir=self._sd.name, log_dir=self.logdir)
         self.log.debug('QEMUMachine "%s" created', name)

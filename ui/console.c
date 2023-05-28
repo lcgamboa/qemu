@@ -27,6 +27,8 @@
 #include "hw/qdev-core.h"
 #include "qapi/error.h"
 #include "qapi/qapi-commands-ui.h"
+#include "qemu/coroutine.h"
+#include "qemu/error-report.h"
 #include "qemu/fifo8.h"
 #include "qemu/main-loop.h"
 #include "qemu/module.h"
@@ -92,6 +94,8 @@ struct QemuConsole {
     uint32_t head;
     QemuUIInfo ui_info;
     QEMUTimer *ui_timer;
+    QEMUCursor *cursor;
+    int cursor_x, cursor_y, cursor_on;
     const GraphicHwOps *hw_ops;
     void *hw;
 
@@ -407,7 +411,7 @@ static void graphic_hw_update_bh(void *con)
 
 /* Safety: coroutine-only, concurrent-coroutine safe, main thread only */
 void coroutine_fn
-qmp_screendump(const char *filename, bool has_device, const char *device,
+qmp_screendump(const char *filename, const char *device,
                bool has_head, int64_t head,
                bool has_format, ImageFormat format, Error **errp)
 {
@@ -416,7 +420,7 @@ qmp_screendump(const char *filename, bool has_device, const char *device,
     DisplaySurface *surface;
     int fd;
 
-    if (has_device) {
+    if (device) {
         con = qemu_console_lookup_by_device_name(device, has_head ? head : 0,
                                                  errp);
         if (!con) {
@@ -1659,6 +1663,12 @@ void register_displaychangelistener(DisplayChangeListener *dcl)
         con = active_console;
     }
     displaychangelistener_display_console(dcl, con, dcl->con ? &error_fatal : NULL);
+    if (con && con->cursor && dcl->ops->dpy_cursor_define) {
+        dcl->ops->dpy_cursor_define(dcl, con->cursor);
+    }
+    if (con && dcl->ops->dpy_mouse_set) {
+        dcl->ops->dpy_mouse_set(dcl, con->cursor_x, con->cursor_y, con->cursor_on);
+    }
     text_console_update_cursor(NULL);
 }
 
@@ -1903,6 +1913,9 @@ void dpy_mouse_set(QemuConsole *con, int x, int y, int on)
     DisplayState *s = con->ds;
     DisplayChangeListener *dcl;
 
+    con->cursor_x = x;
+    con->cursor_y = y;
+    con->cursor_on = on;
     if (!qemu_console_is_visible(con)) {
         return;
     }
@@ -1921,6 +1934,8 @@ void dpy_cursor_define(QemuConsole *con, QEMUCursor *cursor)
     DisplayState *s = con->ds;
     DisplayChangeListener *dcl;
 
+    cursor_unref(con->cursor);
+    con->cursor = cursor_ref(cursor);
     if (!qemu_console_is_visible(con)) {
         return;
     }
@@ -2284,6 +2299,14 @@ QemuConsole *qemu_console_lookup_unused(void)
         return con;
     }
     return NULL;
+}
+
+QEMUCursor *qemu_console_get_cursor(QemuConsole *con)
+{
+    if (con == NULL) {
+        con = active_console;
+    }
+    return con->cursor;
 }
 
 bool qemu_console_is_visible(QemuConsole *con)

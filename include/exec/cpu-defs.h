@@ -36,9 +36,6 @@
 #ifndef TARGET_LONG_BITS
 # error TARGET_LONG_BITS must be defined in cpu-param.h
 #endif
-#ifndef NB_MMU_MODES
-# error NB_MMU_MODES must be defined in cpu-param.h
-#endif
 #ifndef TARGET_PHYS_ADDR_SPACE_BITS
 # error TARGET_PHYS_ADDR_SPACE_BITS must be defined in cpu-param.h
 #endif
@@ -54,28 +51,14 @@
 #  error TARGET_PAGE_BITS must be defined in cpu-param.h
 # endif
 #endif
-#ifndef TARGET_TB_PCREL
-# define TARGET_TB_PCREL 0
-#endif
 
-#define TARGET_LONG_SIZE (TARGET_LONG_BITS / 8)
+#include "exec/target_long.h"
 
-/* target_ulong is the type of a virtual address */
-#if TARGET_LONG_SIZE == 4
-typedef int32_t target_long;
-typedef uint32_t target_ulong;
-#define TARGET_FMT_lx "%08x"
-#define TARGET_FMT_ld "%d"
-#define TARGET_FMT_lu "%u"
-#elif TARGET_LONG_SIZE == 8
-typedef int64_t target_long;
-typedef uint64_t target_ulong;
-#define TARGET_FMT_lx "%016" PRIx64
-#define TARGET_FMT_ld "%" PRId64
-#define TARGET_FMT_lu "%" PRIu64
-#else
-#error TARGET_LONG_SIZE undefined
-#endif
+/*
+ * Fix the number of mmu modes to 16, which is also the maximum
+ * supported by the softmmu tlb api.
+ */
+#define NB_MMU_MODES 16
 
 #if !defined(CONFIG_USER_ONLY) && defined(CONFIG_TCG)
 
@@ -135,6 +118,10 @@ typedef struct CPUTLBEntry {
 
 QEMU_BUILD_BUG_ON(sizeof(CPUTLBEntry) != (1 << CPU_TLB_ENTRY_BITS));
 
+
+#endif  /* !CONFIG_USER_ONLY && CONFIG_TCG */
+
+#if !defined(CONFIG_USER_ONLY)
 /*
  * The full TLB entry, which is not accessed by generated TCG code,
  * so the layout is not as critical as that of CPUTLBEntry. This is
@@ -176,7 +163,9 @@ typedef struct CPUTLBEntryFull {
     TARGET_PAGE_ENTRY_EXTRA
 #endif
 } CPUTLBEntryFull;
+#endif  /* !CONFIG_USER_ONLY */
 
+#if !defined(CONFIG_USER_ONLY) && defined(CONFIG_TCG)
 /*
  * Data elements that are per MMU mode, minus the bits accessed by
  * the TCG fast path.

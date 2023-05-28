@@ -980,6 +980,7 @@ typedef struct CPUArchState {
 #define CP0C6_DATAPREF        0
     int32_t CP0_Config7;
     int64_t CP0_Config7_rw_bitmask;
+#define CP0C7_WII          31
 #define CP0C7_NAPCGEN       2
 #define CP0C7_UNIMUEN       1
 #define CP0C7_VFPUCGEN      0
@@ -1296,11 +1297,8 @@ void cpu_set_exception_base(int vp_index, target_ulong address);
 uint64_t cpu_mips_kseg0_to_phys(void *opaque, uint64_t addr);
 uint64_t cpu_mips_phys_to_kseg0(void *opaque, uint64_t addr);
 
-uint64_t cpu_mips_kvm_um_phys_to_kseg0(void *opaque, uint64_t addr);
 uint64_t cpu_mips_kseg1_to_phys(void *opaque, uint64_t addr);
 uint64_t cpu_mips_phys_to_kseg1(void *opaque, uint64_t addr);
-bool mips_um_ksegs_enabled(void);
-void mips_um_ksegs_enable(void);
 
 #if !defined(CONFIG_USER_ONLY)
 

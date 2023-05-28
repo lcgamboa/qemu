@@ -10,6 +10,8 @@
 #ifndef CXL_DEVICE_H
 #define CXL_DEVICE_H
 
+#include "hw/cxl/cxl_component.h"
+#include "hw/pci/pci_device.h"
 #include "hw/register.h"
 
 /*
@@ -168,7 +170,7 @@ CXL_DEVICE_CAPABILITY_HEADER_REGISTER(MEMORY_DEVICE,
                                       CXL_DEVICE_CAP_HDR1_OFFSET +
                                           CXL_DEVICE_CAP_REG_SIZE * 2)
 
-int cxl_initialize_mailbox(CXLDeviceState *cxl_dstate);
+void cxl_initialize_mailbox(CXLDeviceState *cxl_dstate);
 void cxl_process_mailbox(CXLDeviceState *cxl_dstate);
 
 #define cxl_device_cap_init(dstate, reg, cap_id)                           \
@@ -230,6 +232,14 @@ REG64(CXL_MEM_DEV_STS, 0)
     FIELD(CXL_MEM_DEV_STS, MBOX_READY, 4, 1)
     FIELD(CXL_MEM_DEV_STS, RESET_NEEDED, 5, 3)
 
+typedef struct CXLError {
+    QTAILQ_ENTRY(CXLError) node;
+    int type; /* Error code as per FE definition */
+    uint32_t header[32];
+} CXLError;
+
+typedef QTAILQ_HEAD(, CXLError) CXLErrorList;
+
 struct CXLType3Dev {
     /* Private */
     PCIDevice parent_obj;
@@ -246,6 +256,9 @@ struct CXLType3Dev {
 
     /* DOE */
     DOECap doe_cdat;
+
+    /* Error injection */
+    CXLErrorList error_list;
 };
 
 #define TYPE_CXL_TYPE3 "cxl-type3"

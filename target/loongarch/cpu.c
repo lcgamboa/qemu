@@ -12,12 +12,12 @@
 #include "qemu/module.h"
 #include "sysemu/qtest.h"
 #include "exec/exec-all.h"
-#include "qapi/qapi-commands-machine-target.h"
 #include "cpu.h"
 #include "internals.h"
 #include "fpu/softfloat-helpers.h"
 #include "cpu-csr.h"
 #include "sysemu/reset.h"
+#include "tcg/tcg.h"
 
 const char * const regnames[32] = {
     "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7",
@@ -128,13 +128,11 @@ static inline bool cpu_loongarch_hw_interrupts_pending(CPULoongArchState *env)
 {
     uint32_t pending;
     uint32_t status;
-    bool r;
 
     pending = FIELD_EX64(env->CSR_ESTAT, CSR_ESTAT, IS);
     status  = FIELD_EX64(env->CSR_ECFG, CSR_ECFG, LIE);
 
-    r = (pending & status) != 0;
-    return r;
+    return (pending & status) != 0;
 }
 
 static void loongarch_cpu_do_interrupt(CPUState *cs)
@@ -323,7 +321,8 @@ static void loongarch_cpu_synchronize_from_tb(CPUState *cs,
     LoongArchCPU *cpu = LOONGARCH_CPU(cs);
     CPULoongArchState *env = &cpu->env;
 
-    env->pc = tb_pc(tb);
+    tcg_debug_assert(!(cs->tcg_cflags & CF_PCREL));
+    env->pc = tb->pc;
 }
 
 static void loongarch_restore_state_to_opc(CPUState *cs,
@@ -452,14 +451,16 @@ void loongarch_cpu_list(void)
     g_slist_free(list);
 }
 
-static void loongarch_cpu_reset(DeviceState *dev)
+static void loongarch_cpu_reset_hold(Object *obj)
 {
-    CPUState *cs = CPU(dev);
+    CPUState *cs = CPU(obj);
     LoongArchCPU *cpu = LOONGARCH_CPU(cs);
     LoongArchCPUClass *lacc = LOONGARCH_CPU_GET_CLASS(cpu);
     CPULoongArchState *env = &cpu->env;
 
-    lacc->parent_reset(dev);
+    if (lacc->parent_phases.hold) {
+        lacc->parent_phases.hold(obj);
+    }
 
     env->fcsr0_mask = FCSR0_M1 | FCSR0_M2 | FCSR0_M3;
     env->fcsr0 = 0x0;
@@ -545,6 +546,8 @@ static void loongarch_qemu_write(void *opaque, hwaddr addr,
 static uint64_t loongarch_qemu_read(void *opaque, hwaddr addr, unsigned size)
 {
     switch (addr) {
+    case VERSION_REG:
+        return 0x11ULL;
     case FEATURE_REG:
         return 1ULL << IOCSRF_MSI | 1ULL << IOCSRF_EXTIOI |
                1ULL << IOCSRF_CSRIPI;
@@ -599,7 +602,7 @@ static ObjectClass *loongarch_cpu_class_by_name(const char *cpu_model)
 
     oc = object_class_by_name(cpu_model);
     if (!oc) {
-        g_autofree char *typename 
+        g_autofree char *typename
             = g_strdup_printf(LOONGARCH_CPU_TYPE_NAME("%s"), cpu_model);
         oc = object_class_by_name(typename);
         if (!oc) {
@@ -696,10 +699,12 @@ static void loongarch_cpu_class_init(ObjectClass *c, void *data)
     LoongArchCPUClass *lacc = LOONGARCH_CPU_CLASS(c);
     CPUClass *cc = CPU_CLASS(c);
     DeviceClass *dc = DEVICE_CLASS(c);
+    ResettableClass *rc = RESETTABLE_CLASS(c);
 
     device_class_set_parent_realize(dc, loongarch_cpu_realizefn,
                                     &lacc->parent_realize);
-    device_class_set_parent_reset(dc, loongarch_cpu_reset, &lacc->parent_reset);
+    resettable_class_set_parent_phases(rc, NULL, loongarch_cpu_reset_hold, NULL,
+                                       &lacc->parent_phases);
 
     cc->class_by_name = loongarch_cpu_class_by_name;
     cc->has_work = loongarch_cpu_has_work;
@@ -746,29 +751,3 @@ static const TypeInfo loongarch_cpu_type_infos[] = {
 };
 
 DEFINE_TYPES(loongarch_cpu_type_infos)
-
-static void loongarch_cpu_add_definition(gpointer data, gpointer user_data)
-{
-    ObjectClass *oc = data;
-    CpuDefinitionInfoList **cpu_list = user_data;
-    CpuDefinitionInfo *info = g_new0(CpuDefinitionInfo, 1);
-    const char *typename = object_class_get_name(oc);
-
-    info->name = g_strndup(typename,
-                           strlen(typename) - strlen("-" TYPE_LOONGARCH_CPU));
-    info->q_typename = g_strdup(typename);
-
-    QAPI_LIST_PREPEND(*cpu_list, info);
-}
-
-CpuDefinitionInfoList *qmp_query_cpu_definitions(Error **errp)
-{
-    CpuDefinitionInfoList *cpu_list = NULL;
-    GSList *list;
-
-    list = object_class_get_list(TYPE_LOONGARCH_CPU, false);
-    g_slist_foreach(list, loongarch_cpu_add_definition, &cpu_list);
-    g_slist_free(list);
-
-    return cpu_list;
-}

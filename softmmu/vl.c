@@ -96,6 +96,9 @@
 #include "fsdev/qemu-fsdev.h"
 #endif
 #include "sysemu/qtest.h"
+#ifdef CONFIG_TCG
+#include "accel/tcg/perf.h"
+#endif
 
 #include "disas/disas.h"
 
@@ -126,14 +129,11 @@
 #include "qapi/qapi-commands-misc.h"
 #include "qapi/qapi-visit-qom.h"
 #include "qapi/qapi-commands-ui.h"
-#include "qapi/qmp/qdict.h"
 #include "block/qdict.h"
 #include "qapi/qmp/qerror.h"
 #include "sysemu/iothread.h"
 #include "qemu/guest-random.h"
 #include "qemu/keyval.h"
-
-#include "config-host.h"
 
 #define MAX_VIRTIO_CONSOLES 1
 
@@ -613,7 +613,7 @@ static int parse_add_fd(void *opaque, QemuOpts *opts, Error **errp)
     }
 
     /* add the duplicate fd, and optionally the opaque string, to the fd set */
-    fdinfo = monitor_fdset_add_fd(dupfd, true, fdset_id, !!fd_opaque, fd_opaque,
+    fdinfo = monitor_fdset_add_fd(dupfd, true, fdset_id, fd_opaque,
                                   &error_abort);
     g_free(fdinfo);
 
@@ -885,7 +885,7 @@ static const QEMUOption qemu_options[] = {
 #define ARCHHEADING(text, arch_mask)
 
 #include "qemu-options.def"
-    { NULL },
+    { /* end of list */ }
 };
 
 typedef struct VGAInterfaceInfo {
@@ -1854,9 +1854,7 @@ static void qemu_apply_machine_options(QDict *qdict)
     }
 
     if (current_machine->smp.cpus > 1) {
-        Error *blocker = NULL;
-        error_setg(&blocker, QERR_REPLAY_NOT_SUPPORTED, "smp");
-        replay_add_blocker(blocker);
+        replay_add_blocker("smp");
     }
 }
 
@@ -2206,14 +2204,18 @@ static int do_configure_accelerator(void *opaque, QemuOpts *opts, Error **errp)
     int ret;
     bool qtest_with_kvm;
 
+    if (!acc) {
+        error_setg(errp, QERR_MISSING_PARAMETER, "accel");
+        goto bad;
+    }
+
     qtest_with_kvm = g_str_equal(acc, "kvm") && qtest_chrdev != NULL;
 
     if (!ac) {
-        *p_init_failed = true;
         if (!qtest_with_kvm) {
             error_report("invalid accelerator %s", acc);
         }
-        return 0;
+        goto bad;
     }
     accel = ACCEL(object_new_with_class(OBJECT_CLASS(ac)));
     object_apply_compat_props(OBJECT(accel));
@@ -2223,14 +2225,17 @@ static int do_configure_accelerator(void *opaque, QemuOpts *opts, Error **errp)
 
     ret = accel_init_machine(accel, current_machine);
     if (ret < 0) {
-        *p_init_failed = true;
         if (!qtest_with_kvm || ret != -ENOENT) {
             error_report("failed to initialize %s: %s", acc, strerror(-ret));
         }
-        return 0;
+        goto bad;
     }
 
     return 1;
+
+bad:
+    *p_init_failed = true;
+    return 0;
 }
 
 static void configure_accelerators(const char *progname)
@@ -2462,10 +2467,11 @@ static void qemu_maybe_daemonize(const char *pid_file)
 
         pid_file_realpath = g_malloc0(PATH_MAX);
         if (!realpath(pid_file, pid_file_realpath)) {
-            error_report("cannot resolve PID file path: %s: %s",
-                         pid_file, strerror(errno));
-            unlink(pid_file);
-            exit(1);
+            if (errno != ENOENT) {
+                warn_report("not removing PID file on exit: cannot resolve PID "
+                            "file path: %s: %s", pid_file, strerror(errno));
+            }
+            return;
         }
 
         qemu_unlink_pidfile_notifier = (struct UnlinkPidfileNotifier) {
@@ -2769,13 +2775,8 @@ void qemu_init(int argc, char **argv)
                 drive_add(IF_PFLASH, -1, optarg, PFLASH_OPTS);
                 break;
             case QEMU_OPTION_snapshot:
-                {
-                    Error *blocker = NULL;
-                    snapshot = 1;
-                    error_setg(&blocker, QERR_REPLAY_NOT_SUPPORTED,
-                               "-snapshot");
-                    replay_add_blocker(blocker);
-                }
+                snapshot = 1;
+                replay_add_blocker("-snapshot");
                 break;
             case QEMU_OPTION_numa:
                 opts = qemu_opts_parse_noisily(qemu_find_opts("numa"),
@@ -2928,6 +2929,14 @@ void qemu_init(int argc, char **argv)
             case QEMU_OPTION_DFILTER:
                 qemu_set_dfilter_ranges(optarg, &error_fatal);
                 break;
+#if defined(CONFIG_TCG) && defined(CONFIG_LINUX)
+            case QEMU_OPTION_perfmap:
+                perf_enable_perfmap();
+                break;
+            case QEMU_OPTION_jitdump:
+                perf_enable_jitdump();
+                break;
+#endif
             case QEMU_OPTION_seed:
                 qemu_guest_random_seed_main(optarg, &error_fatal);
                 break;
@@ -3258,9 +3267,11 @@ void qemu_init(int argc, char **argv)
                 vnc_parse(optarg);
                 break;
             case QEMU_OPTION_no_acpi:
+                warn_report("-no-acpi is deprecated, use '-machine acpi=off' instead");
                 qdict_put_str(machine_opts_dict, "acpi", "off");
                 break;
             case QEMU_OPTION_no_hpet:
+                warn_report("-no-hpet is deprecated, use '-machine hpet=off' instead");
                 qdict_put_str(machine_opts_dict, "hpet", "off");
                 break;
             case QEMU_OPTION_no_reboot:
@@ -3352,7 +3363,7 @@ void qemu_init(int argc, char **argv)
                 has_defaults = 0;
                 break;
             case QEMU_OPTION_xen_domid:
-                if (!(accel_find("xen"))) {
+                if (!(accel_find("xen")) && !(accel_find("kvm"))) {
                     error_report("Option not supported for this target");
                     exit(1);
                 }

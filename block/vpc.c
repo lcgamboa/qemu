@@ -598,7 +598,8 @@ fail:
     return ret;
 }
 
-static int vpc_get_info(BlockDriverState *bs, BlockDriverInfo *bdi)
+static int coroutine_fn
+vpc_co_get_info(BlockDriverState *bs, BlockDriverInfo *bdi)
 {
     BDRVVPCState *s = (BDRVVPCState *)bs->opaque;
 
@@ -609,7 +610,7 @@ static int vpc_get_info(BlockDriverState *bs, BlockDriverInfo *bdi)
     return 0;
 }
 
-static int coroutine_fn
+static int coroutine_fn GRAPH_RDLOCK
 vpc_co_preadv(BlockDriverState *bs, int64_t offset, int64_t bytes,
               QEMUIOVector *qiov, BdrvRequestFlags flags)
 {
@@ -659,7 +660,7 @@ fail:
     return ret;
 }
 
-static int coroutine_fn
+static int coroutine_fn GRAPH_RDLOCK
 vpc_co_pwritev(BlockDriverState *bs, int64_t offset, int64_t bytes,
                QEMUIOVector *qiov, BdrvRequestFlags flags)
 {
@@ -1004,13 +1005,13 @@ static int coroutine_fn vpc_co_create(BlockdevCreateOptions *opts,
     }
 
     /* Create BlockBackend to write to the image */
-    bs = bdrv_open_blockdev_ref(vpc_opts->file, errp);
+    bs = bdrv_co_open_blockdev_ref(vpc_opts->file, errp);
     if (bs == NULL) {
         return -EIO;
     }
 
-    blk = blk_new_with_bs(bs, BLK_PERM_WRITE | BLK_PERM_RESIZE, BLK_PERM_ALL,
-                          errp);
+    blk = blk_co_new_with_bs(bs, BLK_PERM_WRITE | BLK_PERM_RESIZE, BLK_PERM_ALL,
+                             errp);
     if (!blk) {
         ret = -EPERM;
         goto out;
@@ -1086,10 +1087,9 @@ out:
     return ret;
 }
 
-static int coroutine_fn vpc_co_create_opts(BlockDriver *drv,
-                                           const char *filename,
-                                           QemuOpts *opts,
-                                           Error **errp)
+static int coroutine_fn GRAPH_RDLOCK
+vpc_co_create_opts(BlockDriver *drv, const char *filename,
+                   QemuOpts *opts, Error **errp)
 {
     BlockdevCreateOptions *create_options = NULL;
     QDict *qdict;
@@ -1111,13 +1111,13 @@ static int coroutine_fn vpc_co_create_opts(BlockDriver *drv,
     }
 
     /* Create and open the file (protocol layer) */
-    ret = bdrv_create_file(filename, opts, errp);
+    ret = bdrv_co_create_file(filename, opts, errp);
     if (ret < 0) {
         goto fail;
     }
 
-    bs = bdrv_open(filename, NULL, NULL,
-                   BDRV_O_RDWR | BDRV_O_RESIZE | BDRV_O_PROTOCOL, errp);
+    bs = bdrv_co_open(filename, NULL, NULL,
+                      BDRV_O_RDWR | BDRV_O_RESIZE | BDRV_O_PROTOCOL, errp);
     if (bs == NULL) {
         ret = -EIO;
         goto fail;
@@ -1240,7 +1240,7 @@ static BlockDriver bdrv_vpc = {
     .bdrv_co_pwritev            = vpc_co_pwritev,
     .bdrv_co_block_status       = vpc_co_block_status,
 
-    .bdrv_get_info          = vpc_get_info,
+    .bdrv_co_get_info       = vpc_co_get_info,
 
     .is_format              = true,
     .create_opts            = &vpc_create_opts,

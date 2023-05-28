@@ -33,7 +33,6 @@
 #include "block/thread-pool.h"
 #include "qemu/error-report.h"
 #include "qemu/queue.h"
-#include "qemu/compiler.h"
 #include "qom/object.h"
 
 #ifndef _WIN32
@@ -64,9 +63,7 @@ static void sigfd_handler(void *opaque)
     ssize_t len;
 
     while (1) {
-        do {
-            len = read(fd, &info, sizeof(info));
-        } while (len == -1 && errno == EINTR);
+        len = RETRY_ON_EINTR(read(fd, &info, sizeof(info)));
 
         if (len == -1 && errno == EAGAIN) {
             break;
@@ -262,10 +259,6 @@ static int max_priority;
 static int glib_pollfds_idx;
 static int glib_n_poll_fds;
 
-void qemu_fd_register(int fd)
-{
-}
-
 static void glib_pollfds_fill(int64_t *cur_timeout)
 {
     GMainContext *context = g_main_context_default_l;
@@ -422,13 +415,6 @@ void qemu_del_wait_object(HANDLE handle, WaitObjectFunc *func, void *opaque)
     if (found) {
         w->num--;
     }
-}
-
-void qemu_fd_register(int fd)
-{
-    WSAEventSelect(fd, event_notifier_get_handle(&qemu_aio_context->notifier),
-                   FD_READ | FD_ACCEPT | FD_CLOSE |
-                   FD_CONNECT | FD_WRITE | FD_OOB);
 }
 
 static int pollfds_fill(GArray *pollfds, fd_set *rfds, fd_set *wfds,

@@ -25,6 +25,7 @@
 #include "qemu/osdep.h"
 #include <zlib.h>
 
+#include "block/block-io.h"
 #include "qapi/error.h"
 #include "qcow2.h"
 #include "qemu/bswap.h"
@@ -490,10 +491,9 @@ static int count_contiguous_subclusters(BlockDriverState *bs, int nb_clusters,
     return count;
 }
 
-static int coroutine_fn do_perform_cow_read(BlockDriverState *bs,
-                                            uint64_t src_cluster_offset,
-                                            unsigned offset_in_cluster,
-                                            QEMUIOVector *qiov)
+static int coroutine_fn GRAPH_RDLOCK
+do_perform_cow_read(BlockDriverState *bs, uint64_t src_cluster_offset,
+                    unsigned offset_in_cluster, QEMUIOVector *qiov)
 {
     int ret;
 
@@ -534,10 +534,9 @@ static int coroutine_fn do_perform_cow_read(BlockDriverState *bs,
     return 0;
 }
 
-static int coroutine_fn do_perform_cow_write(BlockDriverState *bs,
-                                             uint64_t cluster_offset,
-                                             unsigned offset_in_cluster,
-                                             QEMUIOVector *qiov)
+static int coroutine_fn GRAPH_RDLOCK
+do_perform_cow_write(BlockDriverState *bs, uint64_t cluster_offset,
+                     unsigned offset_in_cluster, QEMUIOVector *qiov)
 {
     BDRVQcow2State *s = bs->opaque;
     int ret;
@@ -885,7 +884,8 @@ int coroutine_fn qcow2_alloc_compressed_cluster_offset(BlockDriverState *bs,
     return 0;
 }
 
-static int coroutine_fn perform_cow(BlockDriverState *bs, QCowL2Meta *m)
+static int coroutine_fn GRAPH_RDLOCK
+perform_cow(BlockDriverState *bs, QCowL2Meta *m)
 {
     BDRVQcow2State *s = bs->opaque;
     Qcow2COWRegion *start = &m->cow_start;

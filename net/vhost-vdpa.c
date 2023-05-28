@@ -26,18 +26,23 @@
 #include <err.h>
 #include "standard-headers/linux/virtio_net.h"
 #include "monitor/monitor.h"
+#include "migration/migration.h"
+#include "migration/misc.h"
 #include "hw/virtio/vhost.h"
 
 /* Todo:need to add the multiqueue support here */
 typedef struct VhostVDPAState {
     NetClientState nc;
     struct vhost_vdpa vhost_vdpa;
+    Notifier migration_state;
     VHostNetState *vhost_net;
 
     /* Control commands shadow buffers */
     void *cvq_cmd_out_buffer;
     virtio_net_ctrl_ack *status;
 
+    /* The device always have SVQ enabled */
+    bool always_svq;
     bool started;
 } VhostVDPAState;
 
@@ -72,7 +77,6 @@ const int vdpa_feature_bits[] = {
     VIRTIO_F_RING_RESET,
     VIRTIO_NET_F_RSS,
     VIRTIO_NET_F_HASH_REPORT,
-    VIRTIO_NET_F_GUEST_ANNOUNCE,
     VIRTIO_NET_F_STATUS,
     VHOST_INVALID_FEATURE_BIT
 };
@@ -97,14 +101,35 @@ static const uint64_t vdpa_svq_device_features =
     BIT_ULL(VIRTIO_NET_F_MQ) |
     BIT_ULL(VIRTIO_F_ANY_LAYOUT) |
     BIT_ULL(VIRTIO_NET_F_CTRL_MAC_ADDR) |
+    /* VHOST_F_LOG_ALL is exposed by SVQ */
+    BIT_ULL(VHOST_F_LOG_ALL) |
     BIT_ULL(VIRTIO_NET_F_RSC_EXT) |
     BIT_ULL(VIRTIO_NET_F_STANDBY);
+
+#define VHOST_VDPA_NET_CVQ_ASID 1
 
 VHostNetState *vhost_vdpa_get_vhost_net(NetClientState *nc)
 {
     VhostVDPAState *s = DO_UPCAST(VhostVDPAState, nc, nc);
     assert(nc->info->type == NET_CLIENT_DRIVER_VHOST_VDPA);
     return s->vhost_net;
+}
+
+static bool vhost_vdpa_net_valid_svq_features(uint64_t features, Error **errp)
+{
+    uint64_t invalid_dev_features =
+        features & ~vdpa_svq_device_features &
+        /* Transport are all accepted at this point */
+        ~MAKE_64BIT_MASK(VIRTIO_TRANSPORT_F_START,
+                         VIRTIO_TRANSPORT_F_END - VIRTIO_TRANSPORT_F_START);
+
+    if (invalid_dev_features) {
+        error_setg(errp, "vdpa svq does not work with features 0x%" PRIx64,
+                   invalid_dev_features);
+        return false;
+    }
+
+    return vhost_svq_valid_features(features, errp);
 }
 
 static int vhost_vdpa_net_check_device_id(struct vhost_net *net)
@@ -158,13 +183,9 @@ err_init:
 static void vhost_vdpa_cleanup(NetClientState *nc)
 {
     VhostVDPAState *s = DO_UPCAST(VhostVDPAState, nc, nc);
-    struct vhost_dev *dev = &s->vhost_net->dev;
 
     qemu_vfree(s->cvq_cmd_out_buffer);
     qemu_vfree(s->status);
-    if (dev->vq_index + dev->nvqs == dev->vq_index_end) {
-        g_clear_pointer(&s->vhost_vdpa.iova_tree, vhost_iova_tree_delete);
-    }
     if (s->vhost_net) {
         vhost_net_cleanup(s->vhost_net);
         g_free(s->vhost_net);
@@ -214,15 +235,165 @@ static ssize_t vhost_vdpa_receive(NetClientState *nc, const uint8_t *buf,
     return size;
 }
 
+/** From any vdpa net client, get the netclient of the first queue pair */
+static VhostVDPAState *vhost_vdpa_net_first_nc_vdpa(VhostVDPAState *s)
+{
+    NICState *nic = qemu_get_nic(s->nc.peer);
+    NetClientState *nc0 = qemu_get_peer(nic->ncs, 0);
+
+    return DO_UPCAST(VhostVDPAState, nc, nc0);
+}
+
+static void vhost_vdpa_net_log_global_enable(VhostVDPAState *s, bool enable)
+{
+    struct vhost_vdpa *v = &s->vhost_vdpa;
+    VirtIONet *n;
+    VirtIODevice *vdev;
+    int data_queue_pairs, cvq, r;
+
+    /* We are only called on the first data vqs and only if x-svq is not set */
+    if (s->vhost_vdpa.shadow_vqs_enabled == enable) {
+        return;
+    }
+
+    vdev = v->dev->vdev;
+    n = VIRTIO_NET(vdev);
+    if (!n->vhost_started) {
+        return;
+    }
+
+    data_queue_pairs = n->multiqueue ? n->max_queue_pairs : 1;
+    cvq = virtio_vdev_has_feature(vdev, VIRTIO_NET_F_CTRL_VQ) ?
+                                  n->max_ncs - n->max_queue_pairs : 0;
+    /*
+     * TODO: vhost_net_stop does suspend, get_base and reset. We can be smarter
+     * in the future and resume the device if read-only operations between
+     * suspend and reset goes wrong.
+     */
+    vhost_net_stop(vdev, n->nic->ncs, data_queue_pairs, cvq);
+
+    /* Start will check migration setup_or_active to configure or not SVQ */
+    r = vhost_net_start(vdev, n->nic->ncs, data_queue_pairs, cvq);
+    if (unlikely(r < 0)) {
+        error_report("unable to start vhost net: %s(%d)", g_strerror(-r), -r);
+    }
+}
+
+static void vdpa_net_migration_state_notifier(Notifier *notifier, void *data)
+{
+    MigrationState *migration = data;
+    VhostVDPAState *s = container_of(notifier, VhostVDPAState,
+                                     migration_state);
+
+    if (migration_in_setup(migration)) {
+        vhost_vdpa_net_log_global_enable(s, true);
+    } else if (migration_has_failed(migration)) {
+        vhost_vdpa_net_log_global_enable(s, false);
+    }
+}
+
+static void vhost_vdpa_net_data_start_first(VhostVDPAState *s)
+{
+    struct vhost_vdpa *v = &s->vhost_vdpa;
+
+    add_migration_state_change_notifier(&s->migration_state);
+    if (v->shadow_vqs_enabled) {
+        v->iova_tree = vhost_iova_tree_new(v->iova_range.first,
+                                           v->iova_range.last);
+    }
+}
+
+static int vhost_vdpa_net_data_start(NetClientState *nc)
+{
+    VhostVDPAState *s = DO_UPCAST(VhostVDPAState, nc, nc);
+    struct vhost_vdpa *v = &s->vhost_vdpa;
+
+    assert(nc->info->type == NET_CLIENT_DRIVER_VHOST_VDPA);
+
+    if (s->always_svq ||
+        migration_is_setup_or_active(migrate_get_current()->state)) {
+        v->shadow_vqs_enabled = true;
+        v->shadow_data = true;
+    } else {
+        v->shadow_vqs_enabled = false;
+        v->shadow_data = false;
+    }
+
+    if (v->index == 0) {
+        vhost_vdpa_net_data_start_first(s);
+        return 0;
+    }
+
+    if (v->shadow_vqs_enabled) {
+        VhostVDPAState *s0 = vhost_vdpa_net_first_nc_vdpa(s);
+        v->iova_tree = s0->vhost_vdpa.iova_tree;
+    }
+
+    return 0;
+}
+
+static void vhost_vdpa_net_client_stop(NetClientState *nc)
+{
+    VhostVDPAState *s = DO_UPCAST(VhostVDPAState, nc, nc);
+    struct vhost_dev *dev;
+
+    assert(nc->info->type == NET_CLIENT_DRIVER_VHOST_VDPA);
+
+    if (s->vhost_vdpa.index == 0) {
+        remove_migration_state_change_notifier(&s->migration_state);
+    }
+
+    dev = s->vhost_vdpa.dev;
+    if (dev->vq_index + dev->nvqs == dev->vq_index_end) {
+        g_clear_pointer(&s->vhost_vdpa.iova_tree, vhost_iova_tree_delete);
+    }
+}
+
 static NetClientInfo net_vhost_vdpa_info = {
         .type = NET_CLIENT_DRIVER_VHOST_VDPA,
         .size = sizeof(VhostVDPAState),
         .receive = vhost_vdpa_receive,
+        .start = vhost_vdpa_net_data_start,
+        .stop = vhost_vdpa_net_client_stop,
         .cleanup = vhost_vdpa_cleanup,
         .has_vnet_hdr = vhost_vdpa_has_vnet_hdr,
         .has_ufo = vhost_vdpa_has_ufo,
         .check_peer_type = vhost_vdpa_check_peer_type,
 };
+
+static int64_t vhost_vdpa_get_vring_group(int device_fd, unsigned vq_index)
+{
+    struct vhost_vring_state state = {
+        .index = vq_index,
+    };
+    int r = ioctl(device_fd, VHOST_VDPA_GET_VRING_GROUP, &state);
+
+    if (unlikely(r < 0)) {
+        error_report("Cannot get VQ %u group: %s", vq_index,
+                     g_strerror(errno));
+        return r;
+    }
+
+    return state.num;
+}
+
+static int vhost_vdpa_set_address_space_id(struct vhost_vdpa *v,
+                                           unsigned vq_group,
+                                           unsigned asid_num)
+{
+    struct vhost_vring_state asid = {
+        .index = vq_group,
+        .num = asid_num,
+    };
+    int r;
+
+    r = ioctl(v->device_fd, VHOST_VDPA_SET_GROUP_ASID, &asid);
+    if (unlikely(r < 0)) {
+        error_report("Can't set vq group %u asid %u, errno=%d (%s)",
+                     asid.index, asid.num, errno, g_strerror(errno));
+    }
+    return r;
+}
 
 static void vhost_vdpa_cvq_unmap_buf(struct vhost_vdpa *v, void *addr)
 {
@@ -242,7 +413,7 @@ static void vhost_vdpa_cvq_unmap_buf(struct vhost_vdpa *v, void *addr)
         return;
     }
 
-    r = vhost_vdpa_dma_unmap(v, map->iova, map->size + 1);
+    r = vhost_vdpa_dma_unmap(v, v->address_space_id, map->iova, map->size + 1);
     if (unlikely(r != 0)) {
         error_report("Device cannot unmap: %s(%d)", g_strerror(r), r);
     }
@@ -282,8 +453,8 @@ static int vhost_vdpa_cvq_map_buf(struct vhost_vdpa *v, void *buf, size_t size,
         return r;
     }
 
-    r = vhost_vdpa_dma_map(v, map.iova, vhost_vdpa_net_cvq_cmd_page_len(), buf,
-                           !write);
+    r = vhost_vdpa_dma_map(v, v->address_space_id, map.iova,
+                           vhost_vdpa_net_cvq_cmd_page_len(), buf, !write);
     if (unlikely(r < 0)) {
         goto dma_map_err;
     }
@@ -297,14 +468,97 @@ dma_map_err:
 
 static int vhost_vdpa_net_cvq_start(NetClientState *nc)
 {
-    VhostVDPAState *s;
-    int r;
+    VhostVDPAState *s, *s0;
+    struct vhost_vdpa *v;
+    uint64_t backend_features;
+    int64_t cvq_group;
+    int cvq_index, r;
 
     assert(nc->info->type == NET_CLIENT_DRIVER_VHOST_VDPA);
 
     s = DO_UPCAST(VhostVDPAState, nc, nc);
+    v = &s->vhost_vdpa;
+
+    s0 = vhost_vdpa_net_first_nc_vdpa(s);
+    v->shadow_data = s0->vhost_vdpa.shadow_vqs_enabled;
+    v->shadow_vqs_enabled = s->always_svq;
+    s->vhost_vdpa.address_space_id = VHOST_VDPA_GUEST_PA_ASID;
+
+    if (s->vhost_vdpa.shadow_data) {
+        /* SVQ is already configured for all virtqueues */
+        goto out;
+    }
+
+    /*
+     * If we early return in these cases SVQ will not be enabled. The migration
+     * will be blocked as long as vhost-vdpa backends will not offer _F_LOG.
+     *
+     * Calling VHOST_GET_BACKEND_FEATURES as they are not available in v->dev
+     * yet.
+     */
+    r = ioctl(v->device_fd, VHOST_GET_BACKEND_FEATURES, &backend_features);
+    if (unlikely(r < 0)) {
+        error_report("Cannot get vdpa backend_features: %s(%d)",
+            g_strerror(errno), errno);
+        return -1;
+    }
+    if (!(backend_features & BIT_ULL(VHOST_BACKEND_F_IOTLB_ASID)) ||
+        !vhost_vdpa_net_valid_svq_features(v->dev->features, NULL)) {
+        return 0;
+    }
+
+    /*
+     * Check if all the virtqueues of the virtio device are in a different vq
+     * than the last vq. VQ group of last group passed in cvq_group.
+     */
+    cvq_index = v->dev->vq_index_end - 1;
+    cvq_group = vhost_vdpa_get_vring_group(v->device_fd, cvq_index);
+    if (unlikely(cvq_group < 0)) {
+        return cvq_group;
+    }
+    for (int i = 0; i < cvq_index; ++i) {
+        int64_t group = vhost_vdpa_get_vring_group(v->device_fd, i);
+
+        if (unlikely(group < 0)) {
+            return group;
+        }
+
+        if (group == cvq_group) {
+            return 0;
+        }
+    }
+
+    r = vhost_vdpa_set_address_space_id(v, cvq_group, VHOST_VDPA_NET_CVQ_ASID);
+    if (unlikely(r < 0)) {
+        return r;
+    }
+
+    v->shadow_vqs_enabled = true;
+    s->vhost_vdpa.address_space_id = VHOST_VDPA_NET_CVQ_ASID;
+
+out:
     if (!s->vhost_vdpa.shadow_vqs_enabled) {
         return 0;
+    }
+
+    if (s0->vhost_vdpa.iova_tree) {
+        /*
+         * SVQ is already configured for all virtqueues.  Reuse IOVA tree for
+         * simplicity, whether CVQ shares ASID with guest or not, because:
+         * - Memory listener need access to guest's memory addresses allocated
+         *   in the IOVA tree.
+         * - There should be plenty of IOVA address space for both ASID not to
+         *   worry about collisions between them.  Guest's translations are
+         *   still validated with virtio virtqueue_pop so there is no risk for
+         *   the guest to access memory that it shouldn't.
+         *
+         * To allocate a iova tree per ASID is doable but it complicates the
+         * code and it is not worth it for the moment.
+         */
+        v->iova_tree = s0->vhost_vdpa.iova_tree;
+    } else {
+        v->iova_tree = vhost_iova_tree_new(v->iova_range.first,
+                                           v->iova_range.last);
     }
 
     r = vhost_vdpa_cvq_map_buf(&s->vhost_vdpa, s->cvq_cmd_out_buffer,
@@ -332,6 +586,8 @@ static void vhost_vdpa_net_cvq_stop(NetClientState *nc)
         vhost_vdpa_cvq_unmap_buf(&s->vhost_vdpa, s->cvq_cmd_out_buffer);
         vhost_vdpa_cvq_unmap_buf(&s->vhost_vdpa, s->status);
     }
+
+    vhost_vdpa_net_client_stop(nc);
 }
 
 static ssize_t vhost_vdpa_net_cvq_add(VhostVDPAState *s, size_t out_len,
@@ -489,9 +745,18 @@ static int vhost_vdpa_net_handle_ctrl_avail(VhostShadowVirtqueue *svq,
     out.iov_len = iov_to_buf(elem->out_sg, elem->out_num, 0,
                              s->cvq_cmd_out_buffer,
                              vhost_vdpa_net_cvq_cmd_len());
-    dev_written = vhost_vdpa_net_cvq_add(s, out.iov_len, sizeof(status));
-    if (unlikely(dev_written < 0)) {
-        goto out;
+    if (*(uint8_t *)s->cvq_cmd_out_buffer == VIRTIO_NET_CTRL_ANNOUNCE) {
+        /*
+         * Guest announce capability is emulated by qemu, so don't forward to
+         * the device.
+         */
+        dev_written = sizeof(status);
+        *s->status = VIRTIO_NET_OK;
+    } else {
+        dev_written = vhost_vdpa_net_cvq_add(s, out.iov_len, sizeof(status));
+        if (unlikely(dev_written < 0)) {
+            goto out;
+        }
     }
 
     if (unlikely(dev_written < sizeof(status))) {
@@ -525,14 +790,15 @@ static const VhostShadowVirtqueueOps vhost_vdpa_net_svq_ops = {
 };
 
 static NetClientState *net_vhost_vdpa_init(NetClientState *peer,
-                                           const char *device,
-                                           const char *name,
-                                           int vdpa_device_fd,
-                                           int queue_pair_index,
-                                           int nvqs,
-                                           bool is_datapath,
-                                           bool svq,
-                                           VhostIOVATree *iova_tree)
+                                       const char *device,
+                                       const char *name,
+                                       int vdpa_device_fd,
+                                       int queue_pair_index,
+                                       int nvqs,
+                                       bool is_datapath,
+                                       bool svq,
+                                       struct vhost_vdpa_iova_range iova_range,
+                                       uint64_t features)
 {
     NetClientState *nc = NULL;
     VhostVDPAState *s;
@@ -550,9 +816,15 @@ static NetClientState *net_vhost_vdpa_init(NetClientState *peer,
 
     s->vhost_vdpa.device_fd = vdpa_device_fd;
     s->vhost_vdpa.index = queue_pair_index;
+    s->always_svq = svq;
+    s->migration_state.notify = vdpa_net_migration_state_notifier;
     s->vhost_vdpa.shadow_vqs_enabled = svq;
-    s->vhost_vdpa.iova_tree = iova_tree;
-    if (!is_datapath) {
+    s->vhost_vdpa.iova_range = iova_range;
+    s->vhost_vdpa.shadow_data = svq;
+    if (queue_pair_index == 0) {
+        vhost_vdpa_net_valid_svq_features(features,
+                                          &s->vhost_vdpa.migration_blocker);
+    } else if (!is_datapath) {
         s->cvq_cmd_out_buffer = qemu_memalign(qemu_real_host_page_size(),
                                             vhost_vdpa_net_cvq_cmd_page_len());
         memset(s->cvq_cmd_out_buffer, 0, vhost_vdpa_net_cvq_cmd_page_len());
@@ -562,6 +834,15 @@ static NetClientState *net_vhost_vdpa_init(NetClientState *peer,
 
         s->vhost_vdpa.shadow_vq_ops = &vhost_vdpa_net_svq_ops;
         s->vhost_vdpa.shadow_vq_ops_opaque = s;
+
+        /*
+         * TODO: We cannot migrate devices with CVQ as there is no way to set
+         * the device state (MAC, MQ, etc) before starting the datapath.
+         *
+         * Migration blocker ownership now belongs to s->vhost_vdpa.
+         */
+        error_setg(&s->vhost_vdpa.migration_blocker,
+                   "net vdpa cannot migrate with CVQ feature");
     }
     ret = vhost_vdpa_add(nc, (void *)&s->vhost_vdpa, queue_pair_index, nvqs);
     if (ret) {
@@ -569,14 +850,6 @@ static NetClientState *net_vhost_vdpa_init(NetClientState *peer,
         return NULL;
     }
     return nc;
-}
-
-static int vhost_vdpa_get_iova_range(int fd,
-                                     struct vhost_vdpa_iova_range *iova_range)
-{
-    int ret = ioctl(fd, VHOST_VDPA_GET_IOVA_RANGE, iova_range);
-
-    return ret < 0 ? -errno : 0;
 }
 
 static int vhost_vdpa_get_features(int fd, uint64_t *features, Error **errp)
@@ -629,25 +902,25 @@ int net_init_vhost_vdpa(const Netdev *netdev, const char *name,
     uint64_t features;
     int vdpa_device_fd;
     g_autofree NetClientState **ncs = NULL;
-    g_autoptr(VhostIOVATree) iova_tree = NULL;
+    struct vhost_vdpa_iova_range iova_range;
     NetClientState *nc;
     int queue_pairs, r, i = 0, has_cvq = 0;
 
     assert(netdev->type == NET_CLIENT_DRIVER_VHOST_VDPA);
     opts = &netdev->u.vhost_vdpa;
-    if (!opts->has_vhostdev && !opts->has_vhostfd) {
+    if (!opts->vhostdev && !opts->vhostfd) {
         error_setg(errp,
                    "vhost-vdpa: neither vhostdev= nor vhostfd= was specified");
         return -1;
     }
 
-    if (opts->has_vhostdev && opts->has_vhostfd) {
+    if (opts->vhostdev && opts->vhostfd) {
         error_setg(errp,
                    "vhost-vdpa: vhostdev= and vhostfd= are mutually exclusive");
         return -1;
     }
 
-    if (opts->has_vhostdev) {
+    if (opts->vhostdev) {
         vdpa_device_fd = qemu_open(opts->vhostdev, O_RDWR, errp);
         if (vdpa_device_fd == -1) {
             return -errno;
@@ -673,23 +946,15 @@ int net_init_vhost_vdpa(const Netdev *netdev, const char *name,
         return queue_pairs;
     }
 
-    if (opts->x_svq) {
-        struct vhost_vdpa_iova_range iova_range;
+    r = vhost_vdpa_get_iova_range(vdpa_device_fd, &iova_range);
+    if (unlikely(r < 0)) {
+        error_setg(errp, "vhost-vdpa: get iova range failed: %s",
+                   strerror(-r));
+        goto err;
+    }
 
-        uint64_t invalid_dev_features =
-            features & ~vdpa_svq_device_features &
-            /* Transport are all accepted at this point */
-            ~MAKE_64BIT_MASK(VIRTIO_TRANSPORT_F_START,
-                             VIRTIO_TRANSPORT_F_END - VIRTIO_TRANSPORT_F_START);
-
-        if (invalid_dev_features) {
-            error_setg(errp, "vdpa svq does not work with features 0x%" PRIx64,
-                       invalid_dev_features);
-            goto err_svq;
-        }
-
-        vhost_vdpa_get_iova_range(vdpa_device_fd, &iova_range);
-        iova_tree = vhost_iova_tree_new(iova_range.first, iova_range.last);
+    if (opts->x_svq && !vhost_vdpa_net_valid_svq_features(features, errp)) {
+        goto err;
     }
 
     ncs = g_malloc0(sizeof(*ncs) * queue_pairs);
@@ -697,7 +962,7 @@ int net_init_vhost_vdpa(const Netdev *netdev, const char *name,
     for (i = 0; i < queue_pairs; i++) {
         ncs[i] = net_vhost_vdpa_init(peer, TYPE_VHOST_VDPA, name,
                                      vdpa_device_fd, i, 2, true, opts->x_svq,
-                                     iova_tree);
+                                     iova_range, features);
         if (!ncs[i])
             goto err;
     }
@@ -705,13 +970,11 @@ int net_init_vhost_vdpa(const Netdev *netdev, const char *name,
     if (has_cvq) {
         nc = net_vhost_vdpa_init(peer, TYPE_VHOST_VDPA, name,
                                  vdpa_device_fd, i, 1, false,
-                                 opts->x_svq, iova_tree);
+                                 opts->x_svq, iova_range, features);
         if (!nc)
             goto err;
     }
 
-    /* iova_tree ownership belongs to last NetClientState */
-    g_steal_pointer(&iova_tree);
     return 0;
 
 err:
@@ -721,7 +984,6 @@ err:
         }
     }
 
-err_svq:
     qemu_close(vdpa_device_fd);
 
     return -1;

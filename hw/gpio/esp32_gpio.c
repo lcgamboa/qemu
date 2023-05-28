@@ -133,10 +133,7 @@ static void set_gpio(void *opaque, int n, int val) {
         }
     }
 }
-extern const struct {
-    int width;
-    int height;
-} ttgo_board_skin;
+
 
 static void esp32_gpio_write(void *opaque, hwaddr addr, uint64_t value,
                              unsigned int size) {
@@ -255,7 +252,7 @@ static void esp32_gpio_write(void *opaque, hwaddr addr, uint64_t value,
     }
 }
 
-static const MemoryRegionOps uart_ops = {
+static const MemoryRegionOps gpio_ops = {
     .read = esp32_gpio_read,
     .write = esp32_gpio_write,
     .endianness = DEVICE_LITTLE_ENDIAN,
@@ -269,7 +266,7 @@ static void esp32_gpio_init(Object *obj) {
     Esp32GpioState *s = ESP32_GPIO(obj);
     SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
 
-    memory_region_init_io(&s->iomem, obj, &uart_ops, s, TYPE_ESP32_GPIO,
+    memory_region_init_io(&s->iomem, obj, &gpio_ops, s, TYPE_ESP32_GPIO,
                           0x1000);
     sysbus_init_mmio(sbd, &s->iomem);
     sysbus_init_irq(sbd, &s->irq);

@@ -12,7 +12,7 @@
 
 #include "qemu/osdep.h"
 #include "qemu/option.h"
-#include "qapi/qmp/qerror.h"
+#include "qemu/accel.h"
 #include "sysemu/replay.h"
 #include "qemu/units.h"
 #include "hw/boards.h"
@@ -38,10 +38,19 @@
 #include "exec/confidential-guest-support.h"
 #include "hw/virtio/virtio.h"
 #include "hw/virtio/virtio-pci.h"
-#include "qom/object_interfaces.h"
+
+GlobalProperty hw_compat_7_2[] = {
+    { "e1000e", "migrate-timadj", "off" },
+    { "virtio-mem", "x-early-migration", "false" },
+    { "migration", "x-preempt-pre-7-2", "true" },
+};
+const size_t hw_compat_7_2_len = G_N_ELEMENTS(hw_compat_7_2);
 
 GlobalProperty hw_compat_7_1[] = {
     { "virtio-device", "queue_reset", "false" },
+    { "virtio-rng-pci", "vectors", "0" },
+    { "virtio-rng-pci-transitional", "vectors", "0" },
+    { "virtio-rng-pci-non-transitional", "vectors", "0" },
 };
 const size_t hw_compat_7_1_len = G_N_ELEMENTS(hw_compat_7_1);
 
@@ -554,11 +563,10 @@ static void machine_get_mem(Object *obj, Visitor *v, const char *name,
 static void machine_set_mem(Object *obj, Visitor *v, const char *name,
                             void *opaque, Error **errp)
 {
+    ERRP_GUARD();
     MachineState *ms = MACHINE(obj);
     MachineClass *mc = MACHINE_GET_CLASS(obj);
     MemorySizeConfiguration *mem;
-
-    ERRP_GUARD();
 
     if (!visit_type_MemorySizeConfiguration(v, name, &mem, errp)) {
         return;
@@ -684,7 +692,6 @@ HotpluggableCPUList *machine_query_hotpluggable_cpus(MachineState *machine)
 
         cpu = machine->possible_cpus->cpus[i].cpu;
         if (cpu) {
-            cpu_item->has_qom_path = true;
             cpu_item->qom_path = object_get_canonical_path(cpu);
         }
         QAPI_LIST_PREPEND(head, cpu_item);
@@ -873,8 +880,7 @@ static void machine_copy_boot_config(MachineState *ms, BootConfiguration *config
 
     machine_free_boot_config(ms);
     ms->boot_config = *config;
-    if (!config->has_order) {
-        ms->boot_config.has_order = true;
+    if (!config->order) {
         ms->boot_config.order = g_strdup(machine_class->default_boot_order);
     }
 }
@@ -889,13 +895,13 @@ static void machine_set_boot(Object *obj, Visitor *v, const char *name,
     if (!visit_type_BootConfiguration(v, name, &config, errp)) {
         return;
     }
-    if (config->has_order) {
+    if (config->order) {
         validate_bootdevices(config->order, errp);
         if (*errp) {
             goto out_free;
         }
     }
-    if (config->has_once) {
+    if (config->once) {
         validate_bootdevices(config->once, errp);
         if (*errp) {
             goto out_free;
@@ -1424,7 +1430,7 @@ void qdev_machine_creation_done(void)
 {
     cpu_synchronize_all_post_init();
 
-    if (current_machine->boot_config.has_once) {
+    if (current_machine->boot_config.once) {
         qemu_boot_set(current_machine->boot_config.once, &error_fatal);
         qemu_register_reset(restore_boot_order, g_strdup(current_machine->boot_config.order));
     }

@@ -198,6 +198,8 @@ static void initialize_debug_host(CPUDebug *s)
     s->info.cap_insn_split = 6;
 #elif defined(__hppa__)
     s->info.print_insn = print_insn_hppa;
+#elif defined(__loongarch__)
+    s->info.print_insn = print_insn_loongarch;
 #endif
 }
 
@@ -239,7 +241,8 @@ void target_disas(FILE *out, CPUState *cpu, target_ulong code,
     }
 }
 
-static int gstring_printf(FILE *stream, const char *fmt, ...)
+static int G_GNUC_PRINTF(2, 3)
+gstring_printf(FILE *stream, const char *fmt, ...)
 {
     /* We abuse the FILE parameter to pass a GString. */
     GString *s = (GString *)stream;

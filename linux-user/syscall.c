@@ -22,6 +22,8 @@
 #include "qemu/path.h"
 #include "qemu/memfd.h"
 #include "qemu/queue.h"
+#include "qemu/plugin.h"
+#include "target_mman.h"
 #include <elf.h>
 #include <endian.h>
 #include <grp.h>
@@ -95,50 +97,7 @@
 #include <linux/soundcard.h>
 #include <linux/kd.h>
 #include <linux/mtio.h>
-
-#ifdef HAVE_SYS_MOUNT_FSCONFIG
-/*
- * glibc >= 2.36 linux/mount.h conflicts with sys/mount.h,
- * which in turn prevents use of linux/fs.h. So we have to
- * define the constants ourselves for now.
- */
-#define FS_IOC_GETFLAGS                _IOR('f', 1, long)
-#define FS_IOC_SETFLAGS                _IOW('f', 2, long)
-#define FS_IOC_GETVERSION              _IOR('v', 1, long)
-#define FS_IOC_SETVERSION              _IOW('v', 2, long)
-#define FS_IOC_FIEMAP                  _IOWR('f', 11, struct fiemap)
-#define FS_IOC32_GETFLAGS              _IOR('f', 1, int)
-#define FS_IOC32_SETFLAGS              _IOW('f', 2, int)
-#define FS_IOC32_GETVERSION            _IOR('v', 1, int)
-#define FS_IOC32_SETVERSION            _IOW('v', 2, int)
-
-#define BLKGETSIZE64 _IOR(0x12,114,size_t)
-#define BLKDISCARD _IO(0x12,119)
-#define BLKIOMIN _IO(0x12,120)
-#define BLKIOOPT _IO(0x12,121)
-#define BLKALIGNOFF _IO(0x12,122)
-#define BLKPBSZGET _IO(0x12,123)
-#define BLKDISCARDZEROES _IO(0x12,124)
-#define BLKSECDISCARD _IO(0x12,125)
-#define BLKROTATIONAL _IO(0x12,126)
-#define BLKZEROOUT _IO(0x12,127)
-
-#define FIBMAP     _IO(0x00,1)
-#define FIGETBSZ   _IO(0x00,2)
-
-struct file_clone_range {
-        __s64 src_fd;
-        __u64 src_offset;
-        __u64 src_length;
-        __u64 dest_offset;
-};
-
-#define FICLONE         _IOW(0x94, 9, int)
-#define FICLONERANGE    _IOW(0x94, 13, struct file_clone_range)
-
-#else
 #include <linux/fs.h>
-#endif
 #include <linux/fd.h>
 #if defined(CONFIG_FIEMAP)
 #include <linux/fiemap.h>
@@ -211,9 +170,13 @@ struct file_clone_range {
 #define CLONE_IGNORED_FLAGS                     \
     (CLONE_DETACHED | CLONE_IO)
 
+#ifndef CLONE_PIDFD
+# define CLONE_PIDFD 0x00001000
+#endif
+
 /* Flags for fork which we can implement within QEMU itself */
 #define CLONE_OPTIONAL_FORK_FLAGS               \
-    (CLONE_SETTLS | CLONE_PARENT_SETTID |       \
+    (CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_PIDFD | \
      CLONE_CHILD_CLEARTID | CLONE_CHILD_SETTID)
 
 /* Flags for thread creation which we can implement within QEMU itself */
@@ -696,7 +659,8 @@ safe_syscall4(pid_t, wait4, pid_t, pid, int *, status, int, options, \
 #endif
 safe_syscall5(int, waitid, idtype_t, idtype, id_t, id, siginfo_t *, infop, \
               int, options, struct rusage *, rusage)
-safe_syscall3(int, execve, const char *, filename, char **, argv, char **, envp)
+safe_syscall5(int, execveat, int, dirfd, const char *, filename,
+              char **, argv, char **, envp, int, flags)
 #if defined(TARGET_NR_select) || defined(TARGET_NR__newselect) || \
     defined(TARGET_NR_pselect6) || defined(TARGET_NR_pselect6_time64)
 safe_syscall6(int, pselect6, int, nfds, fd_set *, readfds, fd_set *, writefds, \
@@ -837,49 +801,52 @@ static inline int host_to_target_sock_type(int host_type)
 }
 
 static abi_ulong target_brk;
-static abi_ulong target_original_brk;
 static abi_ulong brk_page;
 
 void target_set_brk(abi_ulong new_brk)
 {
-    target_original_brk = target_brk = HOST_PAGE_ALIGN(new_brk);
+    target_brk = new_brk;
     brk_page = HOST_PAGE_ALIGN(target_brk);
 }
 
-//#define DEBUGF_BRK(message, args...) do { fprintf(stderr, (message), ## args); } while (0)
-#define DEBUGF_BRK(message, args...)
-
 /* do_brk() must return target values and target errnos. */
-abi_long do_brk(abi_ulong new_brk)
+abi_long do_brk(abi_ulong brk_val)
 {
     abi_long mapped_addr;
     abi_ulong new_alloc_size;
+    abi_ulong new_brk, new_host_brk_page;
 
     /* brk pointers are always untagged */
 
-    DEBUGF_BRK("do_brk(" TARGET_ABI_FMT_lx ") -> ", new_brk);
-
-    if (!new_brk) {
-        DEBUGF_BRK(TARGET_ABI_FMT_lx " (!new_brk)\n", target_brk);
-        return target_brk;
-    }
-    if (new_brk < target_original_brk) {
-        DEBUGF_BRK(TARGET_ABI_FMT_lx " (new_brk < target_original_brk)\n",
-                   target_brk);
+    /* return old brk value if brk_val unchanged or zero */
+    if (!brk_val || brk_val == target_brk) {
         return target_brk;
     }
 
-    /* If the new brk is less than the highest page reserved to the
-     * target heap allocation, set it and we're almost done...  */
-    if (new_brk <= brk_page) {
-        /* Heap contents are initialized to zero, as for anonymous
-         * mapped pages.  */
-        if (new_brk > target_brk) {
-            memset(g2h_untagged(target_brk), 0, new_brk - target_brk);
+    new_brk = TARGET_PAGE_ALIGN(brk_val);
+    new_host_brk_page = HOST_PAGE_ALIGN(brk_val);
+
+    /* brk_val and old target_brk might be on the same page */
+    if (new_brk == TARGET_PAGE_ALIGN(target_brk)) {
+        if (brk_val > target_brk) {
+            /* empty remaining bytes in (possibly larger) host page */
+            memset(g2h_untagged(target_brk), 0, new_host_brk_page - target_brk);
         }
-	target_brk = new_brk;
-        DEBUGF_BRK(TARGET_ABI_FMT_lx " (new_brk <= brk_page)\n", target_brk);
-	return target_brk;
+        target_brk = brk_val;
+        return target_brk;
+    }
+
+    /* Release heap if necesary */
+    if (new_brk < target_brk) {
+        /* empty remaining bytes in (possibly larger) host page */
+        memset(g2h_untagged(brk_val), 0, new_host_brk_page - brk_val);
+
+        /* free unused host pages and set new brk_page */
+        target_munmap(new_host_brk_page, brk_page - new_host_brk_page);
+        brk_page = new_host_brk_page;
+
+        target_brk = brk_val;
+        return target_brk;
     }
 
     /* We need to allocate more memory after the brk... Note that
@@ -888,10 +855,14 @@ abi_long do_brk(abi_ulong new_brk)
      * itself); instead we treat "mapped but at wrong address" as
      * a failure and unmap again.
      */
-    new_alloc_size = HOST_PAGE_ALIGN(new_brk - brk_page);
-    mapped_addr = get_errno(target_mmap(brk_page, new_alloc_size,
+    new_alloc_size = new_host_brk_page - brk_page;
+    if (new_alloc_size) {
+        mapped_addr = get_errno(target_mmap(brk_page, new_alloc_size,
                                         PROT_READ|PROT_WRITE,
                                         MAP_ANON|MAP_PRIVATE, 0, 0));
+    } else {
+        mapped_addr = brk_page;
+    }
 
     if (mapped_addr == brk_page) {
         /* Heap contents are initialized to zero, as for anonymous
@@ -903,10 +874,8 @@ abi_long do_brk(abi_ulong new_brk)
          * then shrunken).  */
         memset(g2h_untagged(target_brk), 0, brk_page - target_brk);
 
-        target_brk = new_brk;
-        brk_page = HOST_PAGE_ALIGN(target_brk);
-        DEBUGF_BRK(TARGET_ABI_FMT_lx " (mapped_addr == brk_page)\n",
-            target_brk);
+        target_brk = brk_val;
+        brk_page = new_host_brk_page;
         return target_brk;
     } else if (mapped_addr != -1) {
         /* Mapped but at wrong address, meaning there wasn't actually
@@ -914,10 +883,6 @@ abi_long do_brk(abi_ulong new_brk)
          */
         target_munmap(mapped_addr, new_alloc_size);
         mapped_addr = -1;
-        DEBUGF_BRK(TARGET_ABI_FMT_lx " (mapped_addr != -1)\n", target_brk);
-    }
-    else {
-        DEBUGF_BRK(TARGET_ABI_FMT_lx " (otherwise)\n", target_brk);
     }
 
 #if defined(TARGET_ALPHA)
@@ -1755,6 +1720,11 @@ static inline abi_long target_to_host_sockaddr(int fd, struct sockaddr *addr,
 	lladdr = (struct target_sockaddr_ll *)addr;
 	lladdr->sll_ifindex = tswap32(lladdr->sll_ifindex);
 	lladdr->sll_hatype = tswap16(lladdr->sll_hatype);
+    } else if (sa_family == AF_INET6) {
+        struct sockaddr_in6 *in6addr;
+
+        in6addr = (struct sockaddr_in6 *)addr;
+        in6addr->sin6_scope_id = tswap32(in6addr->sin6_scope_id);
     }
     unlock_user(target_saddr, target_addr, 0);
 
@@ -1871,6 +1841,14 @@ static inline abi_long target_to_host_cmsg(struct msghdr *msgh,
             __get_user(cred->pid, &target_cred->pid);
             __get_user(cred->uid, &target_cred->uid);
             __get_user(cred->gid, &target_cred->gid);
+        } else if (cmsg->cmsg_level == SOL_ALG) {
+            uint32_t *dst = (uint32_t *)data;
+
+            memcpy(dst, target_data, len);
+            /* fix endianess of first 32-bit word */
+            if (len >= sizeof(uint32_t)) {
+                *dst = tswap32(*dst);
+            }
         } else {
             qemu_log_mask(LOG_UNIMP, "Unsupported ancillary data: %d/%d\n",
                           cmsg->cmsg_level, cmsg->cmsg_type);
@@ -2800,8 +2778,13 @@ get_timeout:
         ret = get_errno(getsockopt(sockfd, level, optname, &val, &lv));
         if (ret < 0)
             return ret;
-        if (optname == SO_TYPE) {
+        switch (optname) {
+        case SO_TYPE:
             val = host_to_target_sock_type(val);
+            break;
+        case SO_ERROR:
+            val = host_to_target_errno(val);
+            break;
         }
         if (len > lv)
             len = lv;
@@ -3322,7 +3305,10 @@ static abi_long do_sendrecvmsg_locked(int fd, struct target_msghdr *msgp,
                      target_vec, count, send);
     if (vec == NULL) {
         ret = -host_to_target_errno(errno);
-        goto out2;
+        /* allow sending packet without any iov, e.g. with MSG_MORE flag */
+        if (!send || ret) {
+            goto out2;
+        }
     }
     msg.msg_iovlen = count;
     msg.msg_iov = vec;
@@ -3374,7 +3360,9 @@ static abi_long do_sendrecvmsg_locked(int fd, struct target_msghdr *msgp,
     }
 
 out:
-    unlock_iovec(vec, target_vec, count, !send);
+    if (vec) {
+        unlock_iovec(vec, target_vec, count, !send);
+    }
 out2:
     return ret;
 }
@@ -4607,7 +4595,7 @@ static inline abi_ulong do_shmat(CPUArchState *cpu_env,
     }
     raddr=h2g((unsigned long)host_raddr);
 
-    page_set_flags(raddr, raddr + shm_info.shm_segsz,
+    page_set_flags(raddr, raddr + shm_info.shm_segsz - 1,
                    PAGE_VALID | PAGE_RESET | PAGE_READ |
                    (shmflg & SHM_RDONLY ? 0 : PAGE_WRITE));
 
@@ -4637,7 +4625,7 @@ static inline abi_long do_shmdt(abi_ulong shmaddr)
     for (i = 0; i < N_SHM_REGIONS; ++i) {
         if (shm_regions[i].in_use && shm_regions[i].start == shmaddr) {
             shm_regions[i].in_use = false;
-            page_set_flags(shmaddr, shmaddr + shm_regions[i].size, 0);
+            page_set_flags(shmaddr, shmaddr + shm_regions[i].size - 1, 0);
             break;
         }
     }
@@ -5471,7 +5459,7 @@ static abi_long do_ioctl_rt(const IOCTLEntry *ie, uint8_t *buf_temp,
     for (i = 0; i < se->nb_fields; i++) {
         if (dst_offsets[i] == offsetof(struct rtentry, rt_dev)) {
             assert(*field_types == TYPE_PTRVOID);
-            target_rt_dev_ptr = (abi_ulong *)(argptr + src_offsets[i]);
+            target_rt_dev_ptr = argptr + src_offsets[i];
             host_rt_dev_ptr = (unsigned long *)(buf_temp + dst_offsets[i]);
             if (*target_rt_dev_ptr != 0) {
                 *host_rt_dev_ptr = (unsigned long)lock_user_string(
@@ -6747,6 +6735,17 @@ static int do_fork(CPUArchState *env, unsigned int flags, abi_ulong newsp,
             return -TARGET_EINVAL;
         }
 
+#if !defined(__NR_pidfd_open) || !defined(TARGET_NR_pidfd_open)
+        if (flags & CLONE_PIDFD) {
+            return -TARGET_EINVAL;
+        }
+#endif
+
+        /* Can not allow CLONE_PIDFD with CLONE_PARENT_SETTID */
+        if ((flags & CLONE_PIDFD) && (flags & CLONE_PARENT_SETTID)) {
+            return -TARGET_EINVAL;
+        }
+
         if (block_signals()) {
             return -QEMU_ERESTARTSYS;
         }
@@ -6774,8 +6773,23 @@ static int do_fork(CPUArchState *env, unsigned int flags, abi_ulong newsp,
                 ts->child_tidptr = child_tidptr;
         } else {
             cpu_clone_regs_parent(env, flags);
+            if (flags & CLONE_PIDFD) {
+                int pid_fd = 0;
+#if defined(__NR_pidfd_open) && defined(TARGET_NR_pidfd_open)
+                int pid_child = ret;
+                pid_fd = pidfd_open(pid_child, 0);
+                if (pid_fd >= 0) {
+                        fcntl(pid_fd, F_SETFD, fcntl(pid_fd, F_GETFL)
+                                               | FD_CLOEXEC);
+                } else {
+                        pid_fd = 0;
+                }
+#endif
+                put_user_u32(pid_fd, parent_tidptr);
+                }
             fork_end(0);
         }
+        g_assert(!cpu_in_exclusive_context(cpu));
     }
     return ret;
 }
@@ -7629,6 +7643,14 @@ static inline int target_to_host_mlockall_arg(int arg)
 }
 #endif
 
+static inline int target_to_host_msync_arg(abi_long arg)
+{
+    return ((arg & TARGET_MS_ASYNC) ? MS_ASYNC : 0) |
+           ((arg & TARGET_MS_INVALIDATE) ? MS_INVALIDATE : 0) |
+           ((arg & TARGET_MS_SYNC) ? MS_SYNC : 0) |
+           (arg & ~(TARGET_MS_ASYNC | TARGET_MS_INVALIDATE | TARGET_MS_SYNC));
+}
+
 #if (defined(TARGET_NR_stat64) || defined(TARGET_NR_lstat64) ||     \
      defined(TARGET_NR_fstat64) || defined(TARGET_NR_fstatat64) ||  \
      defined(TARGET_NR_newfstatat))
@@ -8102,6 +8124,9 @@ static int open_self_stat(CPUArchState *cpu_env, int fd)
             gchar *bin = g_strrstr(ts->bprm->argv[0], "/");
             bin = bin ? bin + 1 : ts->bprm->argv[0];
             g_string_printf(buf, "(%.15s) ", bin);
+        } else if (i == 2) {
+            /* task state */
+            g_string_assign(buf, "R "); /* we are running right now */
         } else if (i == 3) {
             /* ppid */
             g_string_printf(buf, FMT_pid " ", getppid());
@@ -8269,11 +8294,17 @@ static int open_cpuinfo(CPUArchState *cpu_env, int fd)
 #if defined(TARGET_HPPA)
 static int open_cpuinfo(CPUArchState *cpu_env, int fd)
 {
-    dprintf(fd, "cpu family\t: PA-RISC 1.1e\n");
-    dprintf(fd, "cpu\t\t: PA7300LC (PCX-L2)\n");
-    dprintf(fd, "capabilities\t: os32\n");
-    dprintf(fd, "model\t\t: 9000/778/B160L\n");
-    dprintf(fd, "model name\t: Merlin L2 160 QEMU (9000/778/B160L)\n");
+    int i, num_cpus;
+
+    num_cpus = sysconf(_SC_NPROCESSORS_ONLN);
+    for (i = 0; i < num_cpus; i++) {
+        dprintf(fd, "processor\t: %d\n", i);
+        dprintf(fd, "cpu family\t: PA-RISC 1.1e\n");
+        dprintf(fd, "cpu\t\t: PA7300LC (PCX-L2)\n");
+        dprintf(fd, "capabilities\t: os32\n");
+        dprintf(fd, "model\t\t: 9000/778/B160L - "
+                    "Merlin L2 160 QEMU (9000/778/B160L)\n\n");
+    }
     return 0;
 }
 #endif
@@ -8355,6 +8386,119 @@ static int do_openat(CPUArchState *cpu_env, int dirfd, const char *pathname, int
     }
 
     return safe_openat(dirfd, path(pathname), flags, mode);
+}
+
+static int do_execveat(CPUArchState *cpu_env, int dirfd,
+                       abi_long pathname, abi_long guest_argp,
+                       abi_long guest_envp, int flags)
+{
+    int ret;
+    char **argp, **envp;
+    int argc, envc;
+    abi_ulong gp;
+    abi_ulong addr;
+    char **q;
+    void *p;
+
+    argc = 0;
+
+    for (gp = guest_argp; gp; gp += sizeof(abi_ulong)) {
+        if (get_user_ual(addr, gp)) {
+            return -TARGET_EFAULT;
+        }
+        if (!addr) {
+            break;
+        }
+        argc++;
+    }
+    envc = 0;
+    for (gp = guest_envp; gp; gp += sizeof(abi_ulong)) {
+        if (get_user_ual(addr, gp)) {
+            return -TARGET_EFAULT;
+        }
+        if (!addr) {
+            break;
+        }
+        envc++;
+    }
+
+    argp = g_new0(char *, argc + 1);
+    envp = g_new0(char *, envc + 1);
+
+    for (gp = guest_argp, q = argp; gp; gp += sizeof(abi_ulong), q++) {
+        if (get_user_ual(addr, gp)) {
+            goto execve_efault;
+        }
+        if (!addr) {
+            break;
+        }
+        *q = lock_user_string(addr);
+        if (!*q) {
+            goto execve_efault;
+        }
+    }
+    *q = NULL;
+
+    for (gp = guest_envp, q = envp; gp; gp += sizeof(abi_ulong), q++) {
+        if (get_user_ual(addr, gp)) {
+            goto execve_efault;
+        }
+        if (!addr) {
+            break;
+        }
+        *q = lock_user_string(addr);
+        if (!*q) {
+            goto execve_efault;
+        }
+    }
+    *q = NULL;
+
+    /*
+     * Although execve() is not an interruptible syscall it is
+     * a special case where we must use the safe_syscall wrapper:
+     * if we allow a signal to happen before we make the host
+     * syscall then we will 'lose' it, because at the point of
+     * execve the process leaves QEMU's control. So we use the
+     * safe syscall wrapper to ensure that we either take the
+     * signal as a guest signal, or else it does not happen
+     * before the execve completes and makes it the other
+     * program's problem.
+     */
+    p = lock_user_string(pathname);
+    if (!p) {
+        goto execve_efault;
+    }
+
+    if (is_proc_myself(p, "exe")) {
+        ret = get_errno(safe_execveat(dirfd, exec_path, argp, envp, flags));
+    } else {
+        ret = get_errno(safe_execveat(dirfd, p, argp, envp, flags));
+    }
+
+    unlock_user(p, pathname, 0);
+
+    goto execve_end;
+
+execve_efault:
+    ret = -TARGET_EFAULT;
+
+execve_end:
+    for (gp = guest_argp, q = argp; *q; gp += sizeof(abi_ulong), q++) {
+        if (get_user_ual(addr, gp) || !addr) {
+            break;
+        }
+        unlock_user(*q, addr, 0);
+    }
+    for (gp = guest_envp, q = envp; *q; gp += sizeof(abi_ulong), q++) {
+        if (get_user_ual(addr, gp) || !addr) {
+            break;
+        }
+        unlock_user(*q, addr, 0);
+    }
+
+    g_free(argp);
+    g_free(envp);
+    return ret;
 }
 
 #define TIMER_MAGIC 0x0caf0000
@@ -8642,7 +8786,13 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
         if (CPU_NEXT(first_cpu)) {
             TaskState *ts = cpu->opaque;
 
-            object_property_set_bool(OBJECT(cpu), "realized", false, NULL);
+            if (ts->child_tidptr) {
+                put_user_u32(0, ts->child_tidptr);
+                do_sys_futex(g2h(cpu, ts->child_tidptr),
+                             FUTEX_WAKE, INT_MAX, NULL, NULL, 0);
+            }
+
+            object_unparent(OBJECT(cpu));
             object_unref(OBJECT(cpu));
             /*
              * At this point the CPU should be unrealized and removed
@@ -8652,11 +8802,6 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
 
             pthread_mutex_unlock(&clone_lock);
 
-            if (ts->child_tidptr) {
-                put_user_u32(0, ts->child_tidptr);
-                do_sys_futex(g2h(cpu, ts->child_tidptr),
-                             FUTEX_WAKE, INT_MAX, NULL, NULL, 0);
-            }
             thread_cpu = NULL;
             g_free(ts);
             rcu_unregister_thread();
@@ -8866,104 +9011,10 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
         unlock_user(p, arg2, 0);
         return ret;
 #endif
+    case TARGET_NR_execveat:
+        return do_execveat(cpu_env, arg1, arg2, arg3, arg4, arg5);
     case TARGET_NR_execve:
-        {
-            char **argp, **envp;
-            int argc, envc;
-            abi_ulong gp;
-            abi_ulong guest_argp;
-            abi_ulong guest_envp;
-            abi_ulong addr;
-            char **q;
-
-            argc = 0;
-            guest_argp = arg2;
-            for (gp = guest_argp; gp; gp += sizeof(abi_ulong)) {
-                if (get_user_ual(addr, gp))
-                    return -TARGET_EFAULT;
-                if (!addr)
-                    break;
-                argc++;
-            }
-            envc = 0;
-            guest_envp = arg3;
-            for (gp = guest_envp; gp; gp += sizeof(abi_ulong)) {
-                if (get_user_ual(addr, gp))
-                    return -TARGET_EFAULT;
-                if (!addr)
-                    break;
-                envc++;
-            }
-
-            argp = g_new0(char *, argc + 1);
-            envp = g_new0(char *, envc + 1);
-
-            for (gp = guest_argp, q = argp; gp;
-                  gp += sizeof(abi_ulong), q++) {
-                if (get_user_ual(addr, gp))
-                    goto execve_efault;
-                if (!addr)
-                    break;
-                if (!(*q = lock_user_string(addr)))
-                    goto execve_efault;
-            }
-            *q = NULL;
-
-            for (gp = guest_envp, q = envp; gp;
-                  gp += sizeof(abi_ulong), q++) {
-                if (get_user_ual(addr, gp))
-                    goto execve_efault;
-                if (!addr)
-                    break;
-                if (!(*q = lock_user_string(addr)))
-                    goto execve_efault;
-            }
-            *q = NULL;
-
-            if (!(p = lock_user_string(arg1)))
-                goto execve_efault;
-            /* Although execve() is not an interruptible syscall it is
-             * a special case where we must use the safe_syscall wrapper:
-             * if we allow a signal to happen before we make the host
-             * syscall then we will 'lose' it, because at the point of
-             * execve the process leaves QEMU's control. So we use the
-             * safe syscall wrapper to ensure that we either take the
-             * signal as a guest signal, or else it does not happen
-             * before the execve completes and makes it the other
-             * program's problem.
-             */
-            if (is_proc_myself(p, "exe")) {
-                ret = get_errno(safe_execve(exec_path, argp, envp));
-            } else {
-                ret = get_errno(safe_execve(p, argp, envp));
-            }
-            unlock_user(p, arg1, 0);
-
-            goto execve_end;
-
-        execve_efault:
-            ret = -TARGET_EFAULT;
-
-        execve_end:
-            for (gp = guest_argp, q = argp; *q;
-                  gp += sizeof(abi_ulong), q++) {
-                if (get_user_ual(addr, gp)
-                    || !addr)
-                    break;
-                unlock_user(*q, addr, 0);
-            }
-            for (gp = guest_envp, q = envp; *q;
-                  gp += sizeof(abi_ulong), q++) {
-                if (get_user_ual(addr, gp)
-                    || !addr)
-                    break;
-                unlock_user(*q, addr, 0);
-            }
-
-            g_free(argp);
-            g_free(envp);
-        }
-        return ret;
+        return do_execveat(cpu_env, AT_FDCWD, arg1, arg2, arg3, 0);
     case TARGET_NR_chdir:
         if (!(p = lock_user_string(arg1)))
             return -TARGET_EFAULT;
@@ -9986,18 +10037,13 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
                 /* Short circuit this for the magic exe check. */
                 ret = -TARGET_EINVAL;
             } else if (is_proc_myself((const char *)p, "exe")) {
-                char real[PATH_MAX], *temp;
-                temp = realpath(exec_path, real);
-                /* Return value is # of bytes that we wrote to the buffer. */
-                if (temp == NULL) {
-                    ret = get_errno(-1);
-                } else {
-                    /* Don't worry about sign mismatch as earlier mapping
-                     * logic would have thrown a bad address error. */
-                    ret = MIN(strlen(real), arg3);
-                    /* We cannot NUL terminate the string. */
-                    memcpy(p2, real, ret);
-                }
+                /*
+                 * Don't worry about sign mismatch as earlier mapping
+                 * logic would have thrown a bad address error.
+                 */
+                ret = MIN(strlen(exec_path), arg3);
+                /* We cannot NUL terminate the string. */
+                memcpy(p2, exec_path, ret);
             } else {
                 ret = get_errno(readlink(path(p), p2, arg3));
             }
@@ -10018,18 +10064,13 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
                 /* Short circuit this for the magic exe check. */
                 ret = -TARGET_EINVAL;
             } else if (is_proc_myself((const char *)p, "exe")) {
-                char real[PATH_MAX], *temp;
-                temp = realpath(exec_path, real);
-                /* Return value is # of bytes that we wrote to the buffer. */
-                if (temp == NULL) {
-                    ret = get_errno(-1);
-                } else {
-                    /* Don't worry about sign mismatch as earlier mapping
-                     * logic would have thrown a bad address error. */
-                    ret = MIN(strlen(real), arg4);
-                    /* We cannot NUL terminate the string. */
-                    memcpy(p2, real, ret);
-                }
+                /*
+                 * Don't worry about sign mismatch as earlier mapping
+                 * logic would have thrown a bad address error.
+                 */
+                ret = MIN(strlen(exec_path), arg4);
+                /* We cannot NUL terminate the string. */
+                memcpy(p2, exec_path, ret);
             } else {
                 ret = get_errno(readlinkat(arg1, path(p), p2, arg4));
             }
@@ -10126,7 +10167,8 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
         /* ??? msync/mlock/munlock are broken for softmmu.  */
 #ifdef TARGET_NR_msync
     case TARGET_NR_msync:
-        return get_errno(msync(g2h(cpu, arg1), arg2, arg3));
+        return get_errno(msync(g2h(cpu, arg1), arg2,
+                               target_to_host_msync_arg(arg3)));
 #endif
 #ifdef TARGET_NR_mlock
     case TARGET_NR_mlock:
@@ -12883,8 +12925,8 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
             if (!lock_user_struct(VERIFY_READ, target_rnew, arg3, 1)) {
                 return -TARGET_EFAULT;
             }
-            rnew.rlim_cur = tswap64(target_rnew->rlim_cur);
-            rnew.rlim_max = tswap64(target_rnew->rlim_max);
+            __get_user(rnew.rlim_cur, &target_rnew->rlim_cur);
+            __get_user(rnew.rlim_max, &target_rnew->rlim_max);
             unlock_user_struct(target_rnew, arg3, 0);
             rnewp = &rnew;
         }
@@ -12894,8 +12936,8 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
             if (!lock_user_struct(VERIFY_WRITE, target_rold, arg4, 1)) {
                 return -TARGET_EFAULT;
             }
-            target_rold->rlim_cur = tswap64(rold.rlim_cur);
-            target_rold->rlim_max = tswap64(rold.rlim_max);
+            __put_user(rold.rlim_cur, &target_rold->rlim_cur);
+            __put_user(rold.rlim_max, &target_rold->rlim_max);
             unlock_user_struct(target_rold, arg4, 1);
         }
         return ret;
@@ -13115,8 +13157,12 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
 
 #if defined(TARGET_NR_timerfd_create) && defined(CONFIG_TIMERFD)
     case TARGET_NR_timerfd_create:
-        return get_errno(timerfd_create(arg1,
-                          target_to_host_bitmask(arg2, fcntl_flags_tbl)));
+        ret = get_errno(timerfd_create(arg1,
+                        target_to_host_bitmask(arg2, fcntl_flags_tbl)));
+        if (ret >= 0) {
+            fd_trans_register(ret, &target_timerfd_trans);
+        }
+        return ret;
 #endif
 
 #if defined(TARGET_NR_timerfd_gettime) && defined(CONFIG_TIMERFD)

@@ -16,10 +16,12 @@
 #include "qapi/error.h"
 #include "qemu/error-report.h"
 #include "sysemu/kvm.h"
+#include "sysemu/cpus.h"
 #include "qom/object_interfaces.h"
 #include "exec/confidential-guest-support.h"
 #include "hw/s390x/ipl.h"
 #include "hw/s390x/pv.h"
+#include "hw/s390x/sclp.h"
 #include "target/s390x/kvm/kvm_s390x.h"
 
 static bool info_valid;
@@ -105,6 +107,33 @@ int s390_pv_vm_enable(void)
 void s390_pv_vm_disable(void)
 {
      s390_pv_cmd_exit(KVM_PV_DISABLE, NULL);
+}
+
+static void *s390_pv_do_unprot_async_fn(void *p)
+{
+     s390_pv_cmd_exit(KVM_PV_ASYNC_CLEANUP_PERFORM, NULL);
+     return NULL;
+}
+
+bool s390_pv_vm_try_disable_async(void)
+{
+    /*
+     * t is only needed to create the thread; once qemu_thread_create
+     * returns, it can safely be discarded.
+     */
+    QemuThread t;
+
+    if (!kvm_check_extension(kvm_state, KVM_CAP_S390_PROTECTED_ASYNC_DISABLE)) {
+        return false;
+    }
+    if (s390_pv_cmd(KVM_PV_ASYNC_CLEANUP_PREPARE, NULL) != 0) {
+        return false;
+    }
+
+    qemu_thread_create(&t, "async_cleanup", s390_pv_do_unprot_async_fn, NULL,
+                       QEMU_THREAD_DETACHED);
+
+    return true;
 }
 
 int s390_pv_set_sec_parms(uint64_t origin, uint64_t length)
@@ -249,6 +278,41 @@ struct S390PVGuestClass {
     ConfidentialGuestSupportClass parent_class;
 };
 
+/*
+ * If protected virtualization is enabled, the amount of data that the
+ * Read SCP Info Service Call can use is limited to one page. The
+ * available space also depends on the Extended-Length SCCB (ELS)
+ * feature which can take more buffer space to store feature
+ * information. This impacts the maximum number of CPUs supported in
+ * the machine.
+ */
+static uint32_t s390_pv_get_max_cpus(void)
+{
+    int offset_cpu = s390_has_feat(S390_FEAT_EXTENDED_LENGTH_SCCB) ?
+        offsetof(ReadInfo, entries) : SCLP_READ_SCP_INFO_FIXED_CPU_OFFSET;
+
+    return (TARGET_PAGE_SIZE - offset_cpu) / sizeof(CPUEntry);
+}
+
+static bool s390_pv_check_cpus(Error **errp)
+{
+    MachineState *ms = MACHINE(qdev_get_machine());
+    uint32_t pv_max_cpus = s390_pv_get_max_cpus();
+
+    if (ms->smp.max_cpus > pv_max_cpus) {
+        error_setg(errp, "Protected VMs support a maximum of %d CPUs",
+                   pv_max_cpus);
+        return false;
+    }
+
+    return true;
+}
+
+static bool s390_pv_guest_check(ConfidentialGuestSupport *cgs, Error **errp)
+{
+    return s390_pv_check_cpus(errp);
+}
+
 int s390_pv_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
 {
     if (!object_dynamic_cast(OBJECT(cgs), TYPE_S390_PV_GUEST)) {
@@ -258,6 +322,10 @@ int s390_pv_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
     if (!s390_has_feat(S390_FEAT_UNPACK)) {
         error_setg(errp,
                    "CPU model does not support Protected Virtualization");
+        return -1;
+    }
+
+    if (!s390_pv_guest_check(cgs, errp)) {
         return -1;
     }
 

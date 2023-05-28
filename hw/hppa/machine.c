@@ -28,7 +28,6 @@
 #include "qapi/error.h"
 #include "net/net.h"
 #include "qemu/log.h"
-#include "net/net.h"
 
 #define MIN_SEABIOS_HPPA_VERSION 6 /* require at least this fw version */
 
@@ -99,7 +98,7 @@ static ISABus *hppa_isa_bus(void)
     isa_irqs = i8259_init(isa_bus,
                           /* qemu_allocate_irq(dino_set_isa_irq, s, 0)); */
                           NULL);
-    isa_bus_irqs(isa_bus, isa_irqs);
+    isa_bus_register_input_irqs(isa_bus, isa_irqs);
 
     return isa_bus;
 }

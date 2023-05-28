@@ -21,6 +21,7 @@
 #include "qemu/osdep.h"
 #include "qemu/cutils.h"
 #include "qemu/qemu-print.h"
+#include "qemu/error-report.h"
 #include "qapi/error.h"
 #include "cpu.h"
 #include "internal.h"
@@ -32,7 +33,6 @@
 #include "hw/qdev-properties.h"
 #include "hw/qdev-clock.h"
 #include "semihosting/semihost.h"
-#include "qapi/qapi-commands-machine-target.h"
 #include "fpu_helper.h"
 
 const char regnames[32][3] = {
@@ -144,11 +144,13 @@ static bool mips_cpu_has_work(CPUState *cs)
     /*
      * Prior to MIPS Release 6 it is implementation dependent if non-enabled
      * interrupts wake-up the CPU, however most of the implementations only
-     * check for interrupts that can be taken.
+     * check for interrupts that can be taken. For pre-release 6 CPUs,
+     * check for CP0 Config7 'Wait IE ignore' bit.
      */
     if ((cs->interrupt_request & CPU_INTERRUPT_HARD) &&
         cpu_mips_hw_interrupts_pending(env)) {
         if (cpu_mips_hw_interrupts_enabled(env) ||
+            (env->CP0_Config7 & (1 << CP0C7_WII)) ||
             (env->insn_flags & ISA_MIPS_R6)) {
             has_work = true;
         }
@@ -182,14 +184,16 @@ static bool mips_cpu_has_work(CPUState *cs)
 
 #include "cpu-defs.c.inc"
 
-static void mips_cpu_reset(DeviceState *dev)
+static void mips_cpu_reset_hold(Object *obj)
 {
-    CPUState *cs = CPU(dev);
+    CPUState *cs = CPU(obj);
     MIPSCPU *cpu = MIPS_CPU(cs);
     MIPSCPUClass *mcc = MIPS_CPU_GET_CLASS(cpu);
     CPUMIPSState *env = &cpu->env;
 
-    mcc->parent_reset(dev);
+    if (mcc->parent_phases.hold) {
+        mcc->parent_phases.hold(obj);
+    }
 
     memset(env, 0, offsetof(CPUMIPSState, end_reset_fields));
 
@@ -290,12 +294,7 @@ static void mips_cpu_reset(DeviceState *dev)
     env->tlb->tlb_in_use = env->tlb->nb_tlb;
     env->CP0_Wired = 0;
     env->CP0_GlobalNumber = (cs->cpu_index & 0xFF) << CP0GN_VPId;
-    env->CP0_EBase = (cs->cpu_index & 0x3FF);
-    if (mips_um_ksegs_enabled()) {
-        env->CP0_EBase |= 0x40000000;
-    } else {
-        env->CP0_EBase |= (int32_t)0x80000000;
-    }
+    env->CP0_EBase = KSEG0_BASE | (cs->cpu_index & 0x3FF);
     if (env->CP0_Config3 & (1 << CP0C3_CMGCR)) {
         env->CP0_CMGCRBase = 0x1fbf8000 >> 4;
     }
@@ -437,9 +436,7 @@ static void mips_cpu_disas_set_info(CPUState *s, disassemble_info *info)
         info->print_insn = print_insn_little_mips;
 #endif
     } else {
-#if defined(CONFIG_NANOMIPS_DIS)
         info->print_insn = print_insn_nanomips;
-#endif
     }
 }
 
@@ -562,10 +559,12 @@ static void mips_cpu_class_init(ObjectClass *c, void *data)
     MIPSCPUClass *mcc = MIPS_CPU_CLASS(c);
     CPUClass *cc = CPU_CLASS(c);
     DeviceClass *dc = DEVICE_CLASS(c);
+    ResettableClass *rc = RESETTABLE_CLASS(c);
 
     device_class_set_parent_realize(dc, mips_cpu_realizefn,
                                     &mcc->parent_realize);
-    device_class_set_parent_reset(dc, mips_cpu_reset, &mcc->parent_reset);
+    resettable_class_set_parent_phases(rc, NULL, mips_cpu_reset_hold, NULL,
+                                       &mcc->parent_phases);
 
     cc->class_by_name = mips_cpu_class_by_name;
     cc->has_work = mips_cpu_has_work;
@@ -626,34 +625,6 @@ static void mips_cpu_register_types(void)
 }
 
 type_init(mips_cpu_register_types)
-
-static void mips_cpu_add_definition(gpointer data, gpointer user_data)
-{
-    ObjectClass *oc = data;
-    CpuDefinitionInfoList **cpu_list = user_data;
-    CpuDefinitionInfo *info;
-    const char *typename;
-
-    typename = object_class_get_name(oc);
-    info = g_malloc0(sizeof(*info));
-    info->name = g_strndup(typename,
-                           strlen(typename) - strlen("-" TYPE_MIPS_CPU));
-    info->q_typename = g_strdup(typename);
-
-    QAPI_LIST_PREPEND(*cpu_list, info);
-}
-
-CpuDefinitionInfoList *qmp_query_cpu_definitions(Error **errp)
-{
-    CpuDefinitionInfoList *cpu_list = NULL;
-    GSList *list;
-
-    list = object_class_get_list(TYPE_MIPS_CPU, false);
-    g_slist_foreach(list, mips_cpu_add_definition, &cpu_list);
-    g_slist_free(list);
-
-    return cpu_list;
-}
 
 /* Could be used by generic CPU object */
 MIPSCPU *mips_cpu_create_with_clock(const char *cpu_type, Clock *cpu_refclk)

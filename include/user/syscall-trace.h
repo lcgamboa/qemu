@@ -10,6 +10,8 @@
 #ifndef SYSCALL_TRACE_H
 #define SYSCALL_TRACE_H
 
+#include "exec/user/abitypes.h"
+#include "qemu/plugin.h"
 #include "trace/trace-root.h"
 
 /*
