@@ -209,7 +209,6 @@ void Esp32_WLAN_setup_ap(DeviceState *dev,Esp32WifiState *s) {
     s->ap_state = Esp32_WLAN__STATE_NOT_AUTHENTICATED;
     s->beacon_ap=0;
     memcpy(s->ap_macaddr,(uint8_t[]){0x01,0x13,0x46,0xbf,0x31,0x50},sizeof(s->ap_macaddr));
-    memcpy(s->macaddr,(uint8_t[]){0x10,0x01,0x00,0xc4,0x0a,0x24},sizeof(s->macaddr));
 
     s->inject_timer_running = 0;
     s->inject_sequence_number = 0;
@@ -277,7 +276,7 @@ void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame)
                 break;
             case IEEE80211_TYPE_MGT_SUBTYPE_ASSOCIATION_RESP:
                 if(DEBUG) printf("assoc resp\n");
-                mac80211_frame *frame1=Esp32_WLAN_create_dhcp_discover();
+                mac80211_frame *frame1=Esp32_WLAN_create_dhcp_discover(s);
                 memcpy(frame1->bssid_address,BROADCAST,6);
                 memcpy(frame1->source_address,frame->destination_address,6);
                 memcpy(frame1->destination_address,frame->source_address,6);
@@ -344,13 +343,12 @@ void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame)
             dhcp_request_t *req=(dhcp_request_t *)&frame->data_and_fcs[8];
             // check for a dhcp offer
             if(req->dhcp.bp_options[0]==0x35 && req->dhcp.bp_options[2]==0x2) {
-                mac80211_frame *frame1=Esp32_WLAN_create_dhcp_request(req->dhcp.yiaddr);
+                mac80211_frame *frame1=Esp32_WLAN_create_dhcp_request(s,req->dhcp.yiaddr);
                 memcpy(frame1->bssid_address,BROADCAST,6);
                 memcpy(frame1->source_address,s->macaddr,6);
                 memcpy(frame1->destination_address,frame->source_address,6);
                 send_single_frame(s,0,frame1);
                 memcpy(s->ap_macaddr,(uint8_t[]){0x10,0x01,0x00,0xc4,0x0a,0x25},sizeof(s->ap_macaddr));
-                memcpy(s->macaddr,(uint8_t[]){0x10,0x01,0x00,0xc4,0x0a,0x24},sizeof(s->macaddr));
                 memcpy(s->associated_ap_macaddr,s->ap_macaddr,sizeof(s->ap_macaddr));
                 s->ap_state=Esp32_WLAN__STATE_STA_ASSOCIATED; 
             }

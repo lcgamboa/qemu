@@ -125,16 +125,17 @@ static uint16_t in_cksum(uint16_t *addr, int len) {
     return (answer);
 }
 
-static mac80211_frame *Esp32_WLAN_create_dhcp_frame(int cmd_size, uint8_t dhcp_commands[]) {
+static mac80211_frame *Esp32_WLAN_create_dhcp_frame(Esp32WifiState *s, int cmd_size, uint8_t dhcp_commands[]) {
     mac80211_frame *frame=new_frame(IEEE80211_TYPE_DATA,IEEE80211_TYPE_DATA_SUBTYPE_DATA);
     frame->frame_control.flags=1;
     add_data(frame,8,(uint8_t[]){ 0xaa, 0xaa ,0x03 ,00 ,00 ,00 ,8 ,00});
     dhcp_request_t req={
         {.version_size=0x45,.ttl=0xff,.protocol=0x11,.dest_ip={0xff,0xff,0xff,0xff}},
         {.src_port_l=0x44,.dest_port_l=0x43},
-        {.htype=1,.hlen=6,.xid=0x1d3d00,.chaddr={0x10,0x01,0x00,0xc4,0x0a,0x24},
+        {.htype=1,.hlen=6,.xid=0x1d3d00,.chaddr={0,0,0,0,0,0},
         .magic_cookie=0x63538263}
     };    
+    memcpy(req.dhcp.chaddr, s->macaddr, 6);
     int len=sizeof(req)+cmd_size;
     req.ipheader.len_h=len>>8;
     req.ipheader.len_l=len&0xff;
@@ -147,7 +148,7 @@ static mac80211_frame *Esp32_WLAN_create_dhcp_frame(int cmd_size, uint8_t dhcp_c
     return frame;
 }
 
-mac80211_frame *Esp32_WLAN_create_dhcp_request(uint8_t *ip) {
+mac80211_frame *Esp32_WLAN_create_dhcp_request(Esp32WifiState *s, uint8_t *ip) {
     uint8_t dhcp_commands[]={
         0x35, 1, 3,
         0x39, 2 ,5 ,0xdc ,
@@ -156,10 +157,10 @@ mac80211_frame *Esp32_WLAN_create_dhcp_request(uint8_t *ip) {
         0x37, 0x04, 0x01, 0x03, 0x1c, 0x06,
         0xff, 0, 0
     };
-    return Esp32_WLAN_create_dhcp_frame(sizeof(dhcp_commands),dhcp_commands);
+    return Esp32_WLAN_create_dhcp_frame(s, sizeof(dhcp_commands),dhcp_commands);
 }
     
-mac80211_frame *Esp32_WLAN_create_dhcp_discover(void) {
+mac80211_frame *Esp32_WLAN_create_dhcp_discover(Esp32WifiState *s) {
     uint8_t dhcp_commands[]={
         0x35, 1, 1,
         0x39, 2 ,5 ,0xdc ,
@@ -168,7 +169,7 @@ mac80211_frame *Esp32_WLAN_create_dhcp_discover(void) {
         0x37 ,0x04 ,0x01 ,0x03 ,0x1c ,0x06 ,
         0xff, 0,0
     };
-    return Esp32_WLAN_create_dhcp_frame(sizeof(dhcp_commands),dhcp_commands);
+    return Esp32_WLAN_create_dhcp_frame(s,sizeof(dhcp_commands),dhcp_commands);
 }
 
 mac80211_frame *Esp32_WLAN_create_association_request(access_point_info *ap) {
