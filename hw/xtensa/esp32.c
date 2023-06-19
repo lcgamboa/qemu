@@ -255,11 +255,11 @@ static void esp32_soc_add_periph_device(MemoryRegion *dest, void* dev, hwaddr dp
     g_free(name);
 }
 
-static void esp32_soc_add_unimp_device(MemoryRegion *dest, const char* name, hwaddr dport_base_addr, size_t size)
+static void esp32_soc_add_unimp_device(MemoryRegion *dest, const char* name, hwaddr dport_base_addr, size_t size, uint32_t default_value)
 {
-    create_unimplemented_device(name, dport_base_addr, size);
+    create_unimplemented_device_default_value(name, dport_base_addr, size, default_value);
     char * name_apb = g_strdup_printf("%s-apb", name);
-    create_unimplemented_device(name_apb, dport_base_addr - DR_REG_DPORT_APB_BASE + APB_REG_BASE, size);
+    create_unimplemented_device_default_value(name_apb, dport_base_addr - DR_REG_DPORT_APB_BASE + APB_REG_BASE, size, default_value);
     g_free(name_apb);
 }
 
@@ -525,18 +525,19 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     qdev_realize(DEVICE(&s->iomux), &s->periph_bus, &error_abort);
     esp32_soc_add_periph_device(sys_mem, &s->iomux, DR_REG_IO_MUX_BASE);
 
-    esp32_soc_add_unimp_device(sys_mem, "esp32.rtcio", DR_REG_RTCIO_BASE, 0x400);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.hinf", DR_REG_HINF_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.slc", DR_REG_SLC_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.slchost", DR_REG_SLCHOST_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.apbctrl", DR_REG_APB_CTRL_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.i2s0", DR_REG_I2S_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.i2s1", DR_REG_I2S1_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.fe2", DR_REG_FE2_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.chipv7_phy", DR_REG_PHY_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.chipv7_phyb", DR_REG_WDEV_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.unknown_wifi", DR_REG_NRX_BASE  , 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.unknown_wifi1", DR_REG_BB_BASE , 0x1000);
+    esp32_soc_add_unimp_device(sys_mem, "esp32.rtcio", DR_REG_RTCIO_BASE, 0x400,0);
+    esp32_soc_add_unimp_device(sys_mem, "esp32.hinf", DR_REG_HINF_BASE, 0x1000,0);
+    esp32_soc_add_unimp_device(sys_mem, "esp32.slc", DR_REG_SLC_BASE, 0x1000,0);
+    esp32_soc_add_unimp_device(sys_mem, "esp32.slchost", DR_REG_SLCHOST_BASE, 0x1000,0);
+    esp32_soc_add_unimp_device(sys_mem, "esp32.apbctrl", DR_REG_APB_CTRL_BASE, 0x1000,0);
+    esp32_soc_add_unimp_device(sys_mem, "esp32.i2s0", DR_REG_I2S_BASE, 0x1000,0);
+    esp32_soc_add_unimp_device(sys_mem, "esp32.i2s1", DR_REG_I2S1_BASE, 0x1000,0);
+    esp32_soc_add_unimp_device(sys_mem, "esp32.fe2", DR_REG_FE2_BASE, 0x1000, -1);
+    esp32_soc_add_unimp_device(sys_mem, "esp32.chipv7_phy", DR_REG_PHY_BASE, 0x1000,-1);
+    esp32_soc_add_unimp_device(sys_mem, "esp32.chipv7_phyb", DR_REG_WDEV_BASE, 0x1000,0);
+    esp32_soc_add_unimp_device(sys_mem, "esp32.unknown_wifi", DR_REG_NRX_BASE  , 0x1000,-1);
+    esp32_soc_add_unimp_device(sys_mem, "esp32.unknown_wifi1", DR_REG_BB_BASE , 0x1000,-1);
+
 
     /* st7789v is attached to SPI2 and SPI2 so the both HSPI and VSPI will work, 
     they share a single console*/
@@ -812,6 +813,18 @@ static void esp32_machine_init_openeth(Esp32SocState *ss)
         }
         
         if (nd->used && nd->model && strcmp(nd->model, TYPE_ESP32_WIFI) == 0) {
+            //get macaddres from efuse file
+            Esp32EfuseState *efuse = esp32_efuse_find();
+            device_cold_reset(DEVICE(efuse));
+            if((!efuse->efuse_rd.blk0[1])&&(!efuse->efuse_rd.blk0[2])){
+                memcpy(ss->wifi.macaddr,(uint8_t[]){0x10,0x01,0x00,0xc4,0x0a,0x24},sizeof(ss->wifi.macaddr));
+            }
+            else{
+               char * mptr = (char *)&efuse->efuse_rd.blk0[1];
+               for(int i=0; i < 6 ; i++){
+                  ss->wifi.macaddr[i]=mptr[5-i];
+              }
+            }
             qdev_set_nic_properties(DEVICE(&ss->wifi), nd);
             sbd = SYS_BUS_DEVICE(DEVICE(&ss->wifi));
             sysbus_realize_and_unref(sbd, &error_fatal);
