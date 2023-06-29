@@ -91,12 +91,7 @@ static uint64_t esp32_efuse_read(void *opaque, hwaddr addr, unsigned int size)
     case A_EFUSE_DATE:
         r = 0x16042600;
     }
-    
-    //if mac address not defined in efuse file, use this mac address
-    if(!r){
-        if(addr == 4) r= 0x00c40a24;//0xC4000110;
-        if(addr == 8) r= 0xfe1001;//0xfe240A;
-    }
+
     return r;
 }
 
@@ -166,6 +161,11 @@ static void esp32_efuse_read_op(Esp32EfuseState *s)
             error_report("%s: failed to read the block device (%d)", __func__, ret);
             return;
         }
+    }
+    //if mac address not defined in efuse file, use this default mac address
+     if((!s->efuse_rd.blk0[1])&&(!s->efuse_rd.blk0[2])){
+        s->efuse_rd.blk0[1] = 0x00c40a24;//0xC4000110;
+        s->efuse_rd.blk0[2] = 0xfe1001;//0xfe240A;
     }
 
     memset(&s->efuse_rd_dis, 0, sizeof(s->efuse_rd_dis));

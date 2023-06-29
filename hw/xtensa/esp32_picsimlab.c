@@ -1125,14 +1125,9 @@ static void esp32_machine_init_openeth(Esp32SocState *ss)
             //get macaddres from efuse file
             Esp32EfuseState *efuse = esp32_efuse_find();
             device_cold_reset(DEVICE(efuse));
-            if((!efuse->efuse_rd.blk0[1])&&(!efuse->efuse_rd.blk0[2])){
-                memcpy(ss->wifi.macaddr,(uint8_t[]){0x10,0x01,0x00,0xc4,0x0a,0x24},sizeof(ss->wifi.macaddr));
-            }
-            else{
-               char * mptr = (char *)&efuse->efuse_rd.blk0[1];
-               for(int i=0; i < 6 ; i++){
-                  ss->wifi.macaddr[i]=mptr[5-i];
-              }
+            char * mptr = (char *)&efuse->efuse_rd.blk0[1];
+            for(int i=0; i < 6 ; i++){
+                ss->wifi.macaddr[i]=mptr[5-i];
             }
             qdev_set_nic_properties(DEVICE(&ss->wifi), nd);
             sbd = SYS_BUS_DEVICE(DEVICE(&ss->wifi));
