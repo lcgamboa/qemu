@@ -159,6 +159,10 @@ if gcrypt.found()
   softmmu_ss.add(when: [gcrypt, 'CONFIG_XTENSA_ESP32'], if_true: files(
     'esp32_rsa.c',
   ))
+  softmmu_ss.add(when: [gcrypt, 'CONFIG_RISCV_ESP32C3'], if_true: files(
+    'esp32c3_aes.c',
+    'esp32c3_rsa.c'
+  ))
 endif
 
 softmmu_ss.add(when: 'CONFIG_GRLIB', if_true: files('grlib_ahb_apb_pnp.c'))

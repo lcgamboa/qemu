@@ -360,8 +360,6 @@ static void esp32c3_efuse_write(void *opaque, hwaddr addr,
     }
 
     /* Treat the interrupt-related cases separately */
-    const uint32_t former_status = s->efuses.int_st.val;
-
     switch (addr) {
         case offsetof(ESP32C3EfuseRegs, int_clr):
             /* Only clear the bits that are set to 1 in the value */
@@ -417,9 +415,7 @@ static void esp32c3_efuse_write(void *opaque, hwaddr addr,
     const uint32_t new_status = (s->efuses.int_ena.val | s->efuses.int_raw.val) & 0b11;
     s->efuses.int_st.val = new_status;
 
-    if (former_status != new_status) {
-        qemu_set_irq(s->irq, new_status ? 1 : 0);
-    }
+    qemu_set_irq(s->irq, new_status ? 1 : 0);
 }
 
 

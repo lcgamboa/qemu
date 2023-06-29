@@ -40,11 +40,15 @@
 #include "hw/ssi/esp32c3_spi.h"
 #include "hw/misc/esp32c3_rtc_cntl.h"
 #include "hw/misc/esp32c3_aes.h"
+#include "hw/misc/esp32c3_rsa.h"
 #include "hw/misc/esp32c3_jtag.h"
+#include "hw/dma/esp32c3_gdma.h"
 
 #define ESP32C3_IO_WARNING          0
 
 #define ESP32C3_RESET_ADDRESS       0x40000000
+
+#define MB (1024*1024)
 
 
 /* Define a new "class" which derivates from "MachineState" */
@@ -64,8 +68,10 @@ struct Esp32C3MachineState {
     ESP32C3CacheState cache;
     ESP32C3EfuseState efuse;
     ESP32C3ClockState clock;
+    ESP32C3GdmaState gdma;
     ESP32C3AesState aes;
     ESP32C3ShaState sha;
+    ESP32C3RsaState rsa;
     ESP32C3TimgState timg[2];
     ESP32C3SysTimerState systimer;
     ESP32C3SpiState spi1;
@@ -169,8 +175,10 @@ static void esp32c3_cpu_reset(void* opaque, int n, int level)
         device_cold_reset(DEVICE(&s->cache));
         device_cold_reset(DEVICE(&s->efuse));
         device_cold_reset(DEVICE(&s->clock));
+        device_cold_reset(DEVICE(&s->gdma));
         device_cold_reset(DEVICE(&s->aes));
         device_cold_reset(DEVICE(&s->sha));
+        device_cold_reset(DEVICE(&s->rsa));
         device_cold_reset(DEVICE(&s->systimer));
         device_cold_reset(DEVICE(&s->spi1));
         device_cold_reset(DEVICE(&s->rtccntl));
@@ -187,6 +195,41 @@ static void esp32c3_cpu_reset(void* opaque, int n, int level)
         ShutdownCause cause = SHUTDOWN_CAUSE_GUEST_RESET;
         qemu_system_reset_request(cause);
     }
+}
+
+static void esp32c3_init_spi_flash(Esp32C3MachineState *ms, BlockBackend* blk)
+{
+    DeviceState *spi_master = DEVICE(&ms->spi1);
+    BusState* spi_bus = qdev_get_child_bus(spi_master, "spi");
+    const char* flash_model = NULL;
+    int64_t image_size = blk_getlength(blk);
+
+    switch (image_size) {
+        case 2 * MB:
+            flash_model = "w25x16";
+            break;
+        case 4 * MB:
+            flash_model = "gd25q32";
+            break;
+        case 8 * MB:
+            flash_model = "gd25q64";
+            break;
+        case 16 * MB:
+            flash_model = "is25lp128";
+            break;
+        default:
+            error_report("Drive size error: only 2, 4, 8, and 16MB images are supported");
+            return;
+    }
+
+    /* Create the SPI flash model */
+    DeviceState *flash_dev = qdev_new(flash_model);
+    qdev_prop_set_drive(flash_dev, "drive", blk);
+
+    /* Realize the SPI flash, its "drive" (blk) property must already be set! */
+    qdev_realize(flash_dev, spi_bus, &error_fatal);
+    qdev_connect_gpio_out_named(spi_master, SSI_GPIO_CS, 0,
+                                qdev_get_gpio_in_named(flash_dev, SSI_GPIO_CS, 0));
 }
 
 
@@ -276,6 +319,8 @@ static void esp32c3_machine_init(MachineState *machine)
     object_initialize_child(OBJECT(machine), "clock", &ms->clock, TYPE_ESP32C3_CLOCK);
     object_initialize_child(OBJECT(machine), "sha", &ms->sha, TYPE_ESP32C3_SHA);
     object_initialize_child(OBJECT(machine), "aes", &ms->aes, TYPE_ESP32C3_AES);
+    object_initialize_child(OBJECT(machine), "gdma", &ms->gdma, TYPE_ESP32C3_GDMA);
+    object_initialize_child(OBJECT(machine), "rsa", &ms->rsa, TYPE_ESP32C3_RSA);
     object_initialize_child(OBJECT(machine), "timg0", &ms->timg[0], TYPE_ESP32C3_TIMG);
     object_initialize_child(OBJECT(machine), "timg1", &ms->timg[1], TYPE_ESP32C3_TIMG);
     object_initialize_child(OBJECT(machine), "systimer", &ms->systimer, TYPE_ESP32C3_SYSTIMER);
@@ -325,17 +370,8 @@ static void esp32c3_machine_init(MachineState *machine)
         qdev_realize(DEVICE(&ms->spi1), &ms->periph_bus, &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->spi1), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_SPI1_BASE, mr, 0);
-
-
-        DeviceState *flash_dev = qdev_new("gd25q32");
-        DeviceState *spi_master = DEVICE(&ms->spi1);
-        BusState* spi_bus = qdev_get_child_bus(spi_master, "spi");
-        qdev_realize(flash_dev, spi_bus, &error_fatal);
-        qdev_connect_gpio_out_named(spi_master, SSI_GPIO_CS, 0,
-                                    qdev_get_gpio_in_named(flash_dev, SSI_GPIO_CS, 0));
-        qdev_prop_set_drive(flash_dev, "drive", blk);
+        esp32c3_init_spi_flash(ms, blk);
     }
-
 
     for (int i = 0; i < ESP32C3_UART_COUNT; ++i) {
         const hwaddr uart_base[] = { DR_REG_UART_BASE, DR_REG_UART1_BASE };
@@ -387,20 +423,6 @@ static void esp32c3_machine_init(MachineState *machine)
         }
     }
 
-    /* SHA realization */
-    {
-        qdev_realize(DEVICE(&ms->sha), &ms->periph_bus, &error_fatal);
-        MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->sha), 0);
-        memory_region_add_subregion_overlap(sys_mem, DR_REG_SHA_BASE, mr, 0);
-    }
-
-    /* AES realization */
-    {
-        qdev_realize(DEVICE(&ms->aes), &ms->periph_bus, &error_fatal);
-        MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->aes), 0);
-        memory_region_add_subregion_overlap(sys_mem, DR_REG_AES_BASE, mr, 0);
-    }
-
     /* Timer Groups realization */
     {
         qdev_realize(DEVICE(&ms->timg[0]), &ms->periph_bus, &error_fatal);
@@ -439,6 +461,49 @@ static void esp32c3_machine_init(MachineState *machine)
             sysbus_connect_irq(SYS_BUS_DEVICE(&ms->systimer), i,
                            qdev_get_gpio_in(intmatrix_dev, ETS_SYSTIMER_TARGET0_EDGE_INTR_SOURCE + i));
         }
+    }
+
+    /* GDMA Realization */
+    {
+        object_property_set_link(OBJECT(&ms->gdma), "soc_mr", OBJECT(dram), &error_abort);
+        qdev_realize(DEVICE(&ms->gdma), &ms->periph_bus, &error_fatal);
+        MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->gdma), 0);
+        memory_region_add_subregion_overlap(sys_mem, DR_REG_GDMA_BASE, mr, 0);
+        /* Connect the IRQs to the Interrupt Matrix */
+        for (int i = 0; i < ESP32C3_GDMA_CHANNEL_COUNT; i++) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(&ms->gdma), i,
+                               qdev_get_gpio_in(intmatrix_dev, ETS_DMA_CH0_INTR_SOURCE + i));
+        }
+
+    }
+
+    /* SHA realization */
+    {
+        ms->sha.gdma = &ms->gdma;
+        qdev_realize(DEVICE(&ms->sha), &ms->periph_bus, &error_fatal);
+        MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->sha), 0);
+        memory_region_add_subregion_overlap(sys_mem, DR_REG_SHA_BASE, mr, 0);
+        sysbus_connect_irq(SYS_BUS_DEVICE(&ms->sha), 0,
+                           qdev_get_gpio_in(intmatrix_dev, ETS_SHA_INTR_SOURCE));
+    }
+
+    /* AES realization */
+    {
+        ms->aes.gdma = &ms->gdma;
+        qdev_realize(DEVICE(&ms->aes), &ms->periph_bus, &error_fatal);
+        MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->aes), 0);
+        memory_region_add_subregion_overlap(sys_mem, DR_REG_AES_BASE, mr, 0);
+        sysbus_connect_irq(SYS_BUS_DEVICE(&ms->aes), 0,
+                           qdev_get_gpio_in(intmatrix_dev, ETS_AES_INTR_SOURCE));
+    }
+
+    /* RSA realization */
+    {
+        qdev_realize(DEVICE(&ms->rsa), &ms->periph_bus, &error_fatal);
+        MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->rsa), 0);
+        memory_region_add_subregion_overlap(sys_mem, DR_REG_RSA_BASE, mr, 0);
+        sysbus_connect_irq(SYS_BUS_DEVICE(&ms->rsa), 0,
+                           qdev_get_gpio_in(intmatrix_dev, ETS_RSA_INTR_SOURCE));
     }
 
     /* Open and load the "bios", which is the ROM binary, also named "first stage bootloader" */

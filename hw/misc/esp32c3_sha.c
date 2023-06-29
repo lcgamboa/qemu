@@ -16,9 +16,20 @@
 #include "hw/sysbus.h"
 #include "hw/registerfields.h"
 #include "hw/misc/esp32c3_sha.h"
-
+#include "hw/irq.h"
 
 #define SHA_WARNING 0
+#define SHA_DEBUG 0
+
+#define SHA_OP_TYPE_MASK    (1 << 0)
+#define SHA_OP_DMA_MASK     (1 << 1)
+
+typedef enum {
+    OP_START         = 0,
+    OP_CONTINUE      = 1,
+    OP_DMA_START     = SHA_OP_DMA_MASK | OP_START,
+    OP_DMA_CONTINUE  = SHA_OP_DMA_MASK | OP_CONTINUE,
+} ESP32C3ShaOperation;
 
 
 static ESP32C3HashAlg esp32c3_algs[] = {
@@ -40,28 +51,83 @@ static ESP32C3HashAlg esp32c3_algs[] = {
 };
 
 
-static void esp32c3_resume_hash(ESP32C3ShaState *s)
+static void esp32c3_sha_continue_hash(ESP32C3ShaState *s)
 {
-    /* TODO: we can imagine a scenario where the application wants to calculate the hash of a
-     * precalculated context, in that case, the application would fill the `hash` registers and
-     * call `continue` instead of using `start`. We don't support that for the moment. */
     assert(s->mode <= ESP32C3_SHA_256_MODE);
     ESP32C3HashAlg alg = esp32c3_algs[s->mode];
-
-    assert(alg.compress);
 
     alg.compress(&s->context, (uint8_t*) s->message);
     memcpy(s->hash, &s->context, alg.len);
 }
 
 
-static void esp32c3_start_hash(ESP32C3ShaState *s)
+static void esp32c3_sha_continue_dma(ESP32C3ShaState *s)
+{
+    assert(s->mode <= ESP32C3_SHA_256_MODE);
+    ESP32C3HashAlg alg = esp32c3_algs[s->mode];
+    uint32_t gdma_out_idx = 0;
+
+    assert(alg.compress);
+
+    /* Number of blocks to process, each block is ESP32C3_MESSAGE_SIZE bytes big */
+    const uint32_t blocks = s->block;
+    const uint32_t buf_size = blocks * ESP32C3_MESSAGE_SIZE;
+
+    /* Get the GDMA channel connected to SHA module.
+     * Specify ESP32C3_GDMA_OUT_IDX since the data are going OUT of GDMA but IN our current component. */
+    if ( !esp32c3_gdma_get_channel_periph(s->gdma, GDMA_SHA, ESP32C3_GDMA_OUT_IDX, &gdma_out_idx) )
+    {
+        warn_report("[SHA] GDMA requested but no properly configured channel found");
+        return;
+    }
+
+    /* Allocate the buffer that will contain the data and get teh actual data */
+    uint8_t* buffer = g_malloc(blocks * ESP32C3_MESSAGE_SIZE);
+    if (buffer == NULL)
+    {
+        error_report("[SHA] No more memory in host!");
+        return;
+    }
+
+    if ( !esp32c3_gdma_read_channel(s->gdma, gdma_out_idx, buffer, buf_size) ) {
+        warn_report("[SHA] Error reading from GDMA buffer");
+        g_free(buffer);
+    }
+
+    /* Perform the actual SHA operation on the whole buffer */
+    for (uint32_t i = 0; i < blocks; i++)
+    {
+        alg.compress(&s->context, buffer + i * ESP32C3_MESSAGE_SIZE);
+    }
+
+    memcpy(s->hash, &s->context, alg.len);
+
+    g_free(buffer);
+
+    /* Trigger an interrupt if enabled! */
+    if (s->int_ena) {
+        qemu_irq_raise(s->irq);
+    }
+}
+
+
+static void esp32c3_sha_start(ESP32C3ShaState *s, ESP32C3ShaOperation op)
 {
     ESP32C3HashAlg alg = esp32c3_algs[s->mode];
+    assert(alg.init && alg.compress);
 
-    if (alg.init && alg.compress) {
+    if ((op & SHA_OP_TYPE_MASK) == OP_START) {
         alg.init(&s->context);
-        esp32c3_resume_hash(s);
+    } else {
+        /* Continue operation: initialize the context from the current hash.
+         * We don't have any accessor to do it so ... do it the "dirty" way */
+        memcpy(&s->context, s->hash, alg.len);
+    }
+
+    if ((op & SHA_OP_DMA_MASK) == SHA_OP_DMA_MASK) {
+        esp32c3_sha_continue_dma(s);
+    } else {
+        esp32c3_sha_continue_hash(s);
     }
 }
 
@@ -86,20 +152,28 @@ static uint64_t esp32c3_sha_read(void *opaque, hwaddr addr, unsigned int size)
         break;
     case A_SHA_H_MEM ... A_SHA_M_MEM - 1:
         index = (addr - A_SHA_H_MEM) / sizeof(uint32_t);
-        r = __builtin_bswap32(s->hash[index]);
+        r = bswap32(s->hash[index]);
         break;
     case A_SHA_M_MEM ... ESP32C3_SHA_REGS_SIZE - 1:
         index = (addr - A_SHA_M_MEM) / sizeof(uint32_t);
         r = s->message[index];
         break;
     case A_SHA_DMA_BLOCK_NUM:
+        r = s->block;
+        break;
     case A_SHA_IRQ_ENA:
+        r = s->int_ena ? 1 : 0;
+        break;
     default:
 #if SHA_WARNING
         warn_report("[ESP32-C3] SHA DMA and IRQ unsupported for now, ignoring...\n");
 #endif
         break;
     }
+
+#if SHA_DEBUG
+    info_report("[ESP32-C3] SHA reading %08lx (%08lx)", addr, r);
+#endif
 
     return r;
 }
@@ -111,35 +185,71 @@ static void esp32c3_sha_write(void *opaque, hwaddr addr,
     ESP32C3ShaState *s = ESP32C3_SHA(opaque);
     hwaddr index = 0;
 
+#if SHA_DEBUG
+    info_report("[ESP32-C3] SHA writing %08lx (%08lx)", addr, value);
+#endif
+
     switch (addr) {
     case A_SHA_MODE:
         /* Make sure the value is always between 0 and 2 as the real hardware doesn't
          * accept a value of 3. Choose SHA-1 by default in that case. */
         s->mode = (value & 0b11) % 3;
         break;
+
     case A_SHA_START:
-        esp32c3_start_hash(s);
+        if (FIELD_EX32(value, SHA_START, START)) {
+            esp32c3_sha_start(s, OP_START);
+        }
         break;
+
     case A_SHA_CONTINUE:
-        esp32c3_resume_hash(s);
+        if (FIELD_EX32(value, SHA_CONTINUE, CONTINUE)) {
+            esp32c3_sha_start(s, OP_CONTINUE);
+        }
         break;
+
     case A_SHA_H_MEM ... A_SHA_M_MEM - 1:
+        /* Only support word aligned access for the moment */
+        if (size != sizeof(uint32_t)) {
+            error_report("[SHA] Only 32-bit word access supported at the moment");
+        }
         index = (addr - A_SHA_H_MEM) / sizeof(uint32_t);
-        s->hash[index] = (uint32_t) value;
+        s->hash[index] = bswap32((uint32_t) value);
         break;
+
     case A_SHA_M_MEM ... ESP32C3_SHA_REGS_SIZE - 1:
         index = (addr - A_SHA_M_MEM) / sizeof(uint32_t);
         s->message[index] = (uint32_t) value;
         break;
+
     case A_SHA_DMA_BLOCK_NUM:
+        s->block = FIELD_EX32(value, SHA_DMA_BLOCK_NUM, DMA_BLOCK_NUM);
+        break;
+
     case A_SHA_DMA_START:
+        if (FIELD_EX32(value, SHA_DMA_START, DMA_START)) {
+            esp32c3_sha_start(s, OP_DMA_START);
+        }
+        break;
+
     case A_SHA_DMA_CONTINUE:
+        if (FIELD_EX32(value, SHA_DMA_CONTINUE, DMA_CONTINUE)) {
+            esp32c3_sha_start(s, OP_DMA_CONTINUE);
+        }
+        break;
+
     case A_SHA_CLEAR_IRQ:
+        qemu_irq_lower(s->irq);
+        break;
+
     case A_SHA_IRQ_ENA:
+        s->int_ena = FIELD_EX32(value, SHA_IRQ_ENA, INTERRUPT_ENA) != 0;
+        break;
+
     default:
 #if SHA_WARNING
         /* Unsupported for now, do nothing */
-        warn_report("[SHA] DMA and IRQ unsupported for now, ignoring\n");
+        warn_report("[SHA] Unsupported write to %08lx\n", addr);
 #endif
         break;
     }
@@ -151,6 +261,30 @@ static const MemoryRegionOps esp32c3_sha_ops = {
     .endianness = DEVICE_LITTLE_ENDIAN,
 };
 
+
+static void esp32c3_sha_reset(DeviceState *dev)
+{
+    ESP32C3ShaState *s = ESP32C3_SHA(dev);
+    memset(s->hash, 0, 8 * sizeof(uint32_t));
+    memset(s->message, 0, ESP32C3_MESSAGE_WORDS * sizeof(uint32_t));
+
+    s->block = 0;
+    s->int_ena = 0;
+    qemu_irq_lower(s->irq);
+}
+
+
+static void esp32c3_sha_realize(DeviceState *dev, Error **errp)
+{
+    ESP32C3ShaState *s = ESP32C3_SHA(dev);
+
+    /* Make sure GDMA was set of issue an error */
+    if (s->gdma == NULL) {
+        error_report("[SHA] GDMA controller must be set!");
+    }
+}
+
+
 static void esp32c3_sha_init(Object *obj)
 {
     ESP32C3ShaState *s = ESP32C3_SHA(obj);
@@ -159,6 +293,16 @@ static void esp32c3_sha_init(Object *obj)
     memory_region_init_io(&s->iomem, obj, &esp32c3_sha_ops, s,
                           TYPE_ESP32C3_SHA, ESP32C3_SHA_REGS_SIZE);
     sysbus_init_mmio(sbd, &s->iomem);
+
+    sysbus_init_irq(sbd, &s->irq);
+}
+
+static void esp32_sha_class_init(ObjectClass *klass, void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(klass);
+
+    dc->realize = esp32c3_sha_realize;
+    dc->reset = esp32c3_sha_reset;
 }
 
 static const TypeInfo esp32c3_sha_info = {
@@ -166,6 +310,7 @@ static const TypeInfo esp32c3_sha_info = {
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(ESP32C3ShaState),
     .instance_init = esp32c3_sha_init,
+    .class_init = esp32_sha_class_init,
 };
 
 static void esp32c3_sha_register_types(void)

@@ -19,6 +19,8 @@
 #include "hw/char/esp32c3_uart.h"
 #include "hw/misc/esp32c3_rtc_cntl.h"
 
+#define ESP32_UART_AUTOBAUD A_UART_AUTOBAUD
+
 static uint64_t esp32c3_uart_read(void *opaque, hwaddr addr, unsigned int size)
 {
     ESP32C3UARTClass *class = ESP32C3_UART_GET_CLASS(opaque);
@@ -32,15 +34,24 @@ static void esp32c3_uart_write(void *opaque, hwaddr addr,
                        uint64_t value, unsigned int size)
 {
     ESP32C3UARTClass *class = ESP32C3_UART_GET_CLASS(opaque);
+    uint32_t autobaud = 0;
 
-    /* Same as above */
-    class->parent_uart_write(opaque, addr, value, size);
-}
+    /* UART_RXD_CNT_REG register is not at the same address on the ESP32 and ESP32-C3, so make the
+     * the translation here. */
+    switch (addr) {
 
-static void esp32c3_uart_init(Object *obj)
-{
-    /* No need to call parent's class function, this is done automatically by the QOM, even before
-     * calling the current function. */
+        case A_ESP32C3_UART_CONF0:
+            /* On the C3, AUTOBAUD is part of CONF0 register, but on the ESP32, it has its own
+             * register, poke that register instead */
+            autobaud = FIELD_EX32(value, ESP32C3_UART_CONF0, AUTOBAUD_EN) ? 1 : 0;
+            class->parent_uart_write(opaque, ESP32_UART_AUTOBAUD, autobaud, sizeof(uint32_t));
+            /* CONF0 is still a valid register on the ESP32, so fall-through the default case*/
+
+        default:
+            class->parent_uart_write(opaque, addr, value, size);
+            break;
+
+    }
 }
 
 static void esp32c3_uart_reset(DeviceState *dev)
@@ -59,6 +70,14 @@ static void esp32c3_uart_realize(DeviceState *dev, Error **errp)
     /* Call the realize function of the parent class: ESP32UARTClass */
     esp32c3_class->parent_realize(dev, errp);
 }
+
+
+static void esp32c3_uart_init(Object *obj)
+{
+    /* No need to call parent's class function, this is done automatically by the QOM, even before
+     * calling the current function. */
+}
+
 
 static void esp32c3_uart_class_init(ObjectClass *klass, void *data)
 {

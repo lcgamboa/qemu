@@ -259,7 +259,7 @@ struct ESP32C3EfuseRegs {
     uint32_t rd_key5_data6;                                      /*Register $n of BLOCK9 (KEY5).*/
     uint32_t rd_key5_data7;                                      /*Register $n of BLOCK9 (KEY5).*/
     uint32_t rd_sys_part2_data0;                                 /*Register $n of BLOCK10 (system).*/
-    uint32_t rd_sys_part2_data1;                                 /*Register $n of BLOCK9 (KEY5).*/
+    uint32_t rd_sys_part2_data1;                                 /*Register $n of BLOCK10 (system).*/
     uint32_t rd_sys_part2_data2;                                 /*Register $n of BLOCK10 (system).*/
     uint32_t rd_sys_part2_data3;                                 /*Register $n of BLOCK10 (system).*/
     uint32_t rd_sys_part2_data4;                                 /*Register $n of BLOCK10 (system).*/

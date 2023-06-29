@@ -8,7 +8,7 @@
 #define ESP32C3_SPI(obj) OBJECT_CHECK(ESP32C3SpiState, (obj), TYPE_ESP32C3_SPI)
 
 /**
- * Size of the Timegroup I/O registers area
+ * Size of the SPI I/O registers area
  */
 #define ESP32C3_SPI_IO_SIZE (A_SPI_MEM_DATE + 4)
 
@@ -25,14 +25,24 @@ typedef struct ESP32C3SpiState {
     qemu_irq cs_gpio[ESP32C3_SPI_CS_COUNT];
 
     uint32_t mem_cmd;
+    /**
+     * In user mode, this register represents the flash address.
+     * In other modes, bits 0 to 23 included is the memory address and bits 24 to 31 included
+     * is the number of bytes to process.
+     */
     uint32_t mem_addr;
     uint32_t mem_ctrl;
+    uint32_t mem_ctrl1;
+    uint32_t mem_ctrl2;
+    uint32_t mem_clock;
     uint32_t mem_user;
     uint32_t mem_user1;
     uint32_t mem_user2;
     uint32_t mem_miso_len;
     uint32_t mem_mosi_len;
+    uint32_t mem_rd_st;
     uint32_t data_reg[ESP32C3_SPI_BUF_WORDS];
+    uint32_t mem_sus_st;
 } ESP32C3SpiState;
 
 
@@ -102,6 +112,8 @@ REG32(SPI_MEM_USER, 0x018)
     FIELD(SPI_MEM_USER, FWRITE_QUAD, 13, 1)
     FIELD(SPI_MEM_USER, FWRITE_DUAL, 12, 1)
     FIELD(SPI_MEM_USER, CK_OUT_EDGE, 9, 1)
+    FIELD(SPI_MEM_USER, CS_SETUP, 7, 1)
+    FIELD(SPI_MEM_USER, CS_HOLD, 6, 1)
 
 REG32(SPI_MEM_USER1, 0x01C)
     FIELD(SPI_MEM_USER1, USR_ADDR_BITLEN, 26, 6)

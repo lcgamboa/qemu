@@ -103,6 +103,12 @@ static void esp32c3_intmatrix_irq_handler(void *opaque, int n, int level)
     /* Update the level mirror */
     assert(n <= ESP32C3_INT_MATRIX_INPUTS);
 
+    /* Make sure level is 0 or 1 */
+    level = level ? 1 : 0;
+
+    /* Save the former level of the pin */
+    const int former_level = BIT_SET(s->irq_levels, n) ? 1 : 0;
+
     if (level) {
         SET_BIT(s->irq_levels, n);
     } else {
@@ -111,8 +117,9 @@ static void esp32c3_intmatrix_irq_handler(void *opaque, int n, int level)
 
     const int line = s->irq_map[n];
 
-    /* If the line is not enable, don't do anything special, the level has been recorded already */
-    if ((s->irq_enabled & BIT(line)) == 0) {
+    /* If the line is not enable, don't do anything special, the level has been recorded already.
+     * Don't do anything if the line is at the same level as before */
+    if ((s->irq_enabled & BIT(line)) == 0 || former_level == level) {
         return;
     }
 

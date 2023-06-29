@@ -7,6 +7,7 @@
 #include "crypto/sha256_i.h"
 #include "crypto/sha224_i.h"
 #include "crypto/sha1_i.h"
+#include "hw/dma/esp32c3_gdma.h"
 
 #define TYPE_ESP32C3_SHA "misc.esp32c3.sha"
 #define ESP32C3_SHA(obj) OBJECT_CHECK(ESP32C3ShaState, (obj), TYPE_ESP32C3_SHA)
@@ -62,6 +63,15 @@ typedef struct ESP32C3ShaState {
     uint32_t hash[8];
     /* User data value */
     uint32_t message[ESP32C3_MESSAGE_WORDS];
+
+    /* DMA related */
+    /* Number of block to process in DMA mode */
+    uint32_t block;
+    bool int_ena;
+    qemu_irq irq;
+
+    /* Public: must be set before realizing instance*/
+    ESP32C3GdmaState *gdma;
 } ESP32C3ShaState;
 
 
@@ -76,10 +86,10 @@ REG32(SHA_DMA_BLOCK_NUM, 0x00C)
     FIELD(SHA_DMA_BLOCK_NUM, DMA_BLOCK_NUM, 0, 6)
 
 REG32(SHA_START, 0x010)
-    FIELD(SHA_START, START, 1, 31)
+    FIELD(SHA_START, START, 0, 1)
 
 REG32(SHA_CONTINUE, 0x014)
-    FIELD(SHA_CONTINUE, CONTINUE, 1, 31)
+    FIELD(SHA_CONTINUE, CONTINUE, 0, 1)
 
 REG32(SHA_BUSY, 0x018)
     FIELD(SHA_BUSY, BUSY_STATE, 0, 1)

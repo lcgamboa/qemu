@@ -12,6 +12,7 @@
 #include "hw/hw.h"
 #include "hw/sysbus.h"
 #include "hw/registerfields.h"
+#include "hw/dma/esp32c3_gdma.h"
 
 #define TYPE_ESP32C3_AES "misc.esp32c3.aes"
 #define ESP32C3_AES(obj) OBJECT_CHECK(ESP32C3AesState, (obj), TYPE_ESP32C3_AES)
@@ -35,6 +36,18 @@
 #define ESP32C3_AES_MODE_256_DEC    6
 
 
+/**
+ * Block Cipher modes
+ */
+#define ESP32C3_AES_ECB_CIPHER    0
+#define ESP32C3_AES_CBC_CIPHER    1
+#define ESP32C3_AES_OFB_CIPHER    2
+#define ESP32C3_AES_CTR_CIPHER    3
+#define ESP32C3_AES_CFB8_CIPHER   4
+#define ESP32C3_AES_CFB128_CIPHER 5
+#define ESP32C3_AES_CIPHER_COUNT  6
+
+
 typedef struct ESP32C3AesState {
     SysBusDevice parent_object;
     MemoryRegion iomem;
@@ -42,7 +55,7 @@ typedef struct ESP32C3AesState {
     uint32_t key[ESP32C3_AES_KEY_REG_CNT];
     uint32_t text_in[ESP32C3_AES_TEXT_REG_CNT];
     uint32_t text_out[ESP32C3_AES_TEXT_REG_CNT];
-    uint32_t iv_mem[ESP32C3_AES_IV_REG_CNT];
+    uint8_t iv_mem[ESP32C3_AES_IV_REG_CNT];
 
     uint32_t mode_reg;
     uint32_t state_reg;
@@ -51,8 +64,11 @@ typedef struct ESP32C3AesState {
     uint32_t block_num_reg;
     uint32_t inc_sel_reg;
 
-    uint32_t int_st;
     uint32_t int_ena_reg;
+    qemu_irq irq;
+
+    /* Public: must be set by the machine before realizing current instance */
+    ESP32C3GdmaState *gdma;
 } ESP32C3AesState;
 
 
