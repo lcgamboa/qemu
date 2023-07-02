@@ -357,18 +357,19 @@ static void esp32_uart_realize(DeviceState *dev, Error **errp)
 }
 
 
-static const MemoryRegionOps uart_ops = {
-    .read =  uart_read,
-    .write = uart_write,
-    .endianness = DEVICE_LITTLE_ENDIAN,
-};
-
 static void esp32_uart_init(Object *obj)
 {
     ESP32UARTState *s = ESP32_UART(obj);
     SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
+    ESP32UARTClass *class = ESP32_UART_GET_CLASS(obj);
 
-    memory_region_init_io(&s->iomem, obj, &uart_ops, s,
+    s->uart_ops = (MemoryRegionOps) {
+        .read =  class->uart_read,
+        .write = class->uart_write,
+        .endianness = DEVICE_LITTLE_ENDIAN,
+    };
+
+    memory_region_init_io(&s->iomem, obj, &s->uart_ops, s,
                           TYPE_ESP32_UART, UART_REG_CNT * sizeof(uint32_t));
     sysbus_init_mmio(sbd, &s->iomem);
     sysbus_init_irq(sbd, &s->irq);
@@ -387,6 +388,11 @@ static Property esp32_uart_properties[] = {
 static void esp32_uart_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
+    ESP32UARTClass *class = ESP32_UART_CLASS(klass);
+
+    /* Populate the virtual attributes and methods here (if any) */
+    class->uart_write = uart_write;
+    class->uart_read = uart_read;
 
     dc->reset = esp32_uart_reset;
     dc->realize = esp32_uart_realize;
@@ -398,7 +404,8 @@ static const TypeInfo esp32_uart_info = {
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(ESP32UARTState),
     .instance_init = esp32_uart_init,
-    .class_init = esp32_uart_class_init
+    .class_init = esp32_uart_class_init,
+    .class_size = sizeof(ESP32UARTClass)
 };
 
 static void esp32_uart_register_types(void)
