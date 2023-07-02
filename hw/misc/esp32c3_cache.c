@@ -49,7 +49,7 @@ static inline uint32_t check_and_reset_ena(uint32_t* hwreg, uint32_t ena_mask, u
 static inline uint32_t esp32c3_read_mmu_value(ESP32C3CacheState *s, hwaddr reg_addr)
 {
     /* Make the assumption that the address is aligned on sizeof(uint32_t) */
-    const int index = reg_addr / sizeof(uint32_t);
+    const uint32_t index = reg_addr / sizeof(uint32_t);
     return (uint32_t) s->mmu[index].val;
 }
 
@@ -57,10 +57,11 @@ static inline uint32_t esp32c3_read_mmu_value(ESP32C3CacheState *s, hwaddr reg_a
 static inline void esp32c3_write_mmu_value(ESP32C3CacheState *s, hwaddr reg_addr, uint32_t value)
 {
     /* Make the assumption that the address is aligned on sizeof(uint32_t) */
-    const int index = reg_addr / sizeof(uint32_t);
+    const uint32_t index = reg_addr / sizeof(uint32_t);
     /* Reserved bits shall always be 0 */
-    ESP32C3MMUEntry e = { 0 };
-    e.page_number = (uint8_t) (value & 0xff);
+    ESP32C3MMUEntry e = { .val = value };
+    /* Always keep reserved as 0 */
+    e.reserved = 0;
     if (s->mmu[index].val != e.val) {
         assert(s->flash_blk != NULL);
         /* Update the cache (MemoryRegion) */
@@ -92,7 +93,7 @@ static uint64_t esp32c3_cache_read(void *opaque, hwaddr addr, unsigned int size)
 
     if (addr & 0x3) {
         /* Unaligned access, should we fail? */
-        error_report("[QEMU] unaligned access to the cache registers\n");
+        error_report("[QEMU] unaligned access to the cache registers");
     }
 
     switch(addr) {
@@ -129,13 +130,13 @@ static uint64_t esp32c3_cache_read(void *opaque, hwaddr addr, unsigned int size)
             break;
         default:
 #if CACHE_WARNING
-            warn_report("[CACHE] Unsupported read to 0x%lx\n", addr);
+            warn_report("[CACHE] Unsupported read to 0x%lx", addr);
 #endif
             break;
     }
 
 #if CACHE_DEBUG
-    info_report("[CACHE] Reading 0x%lx (0x%lx)\n", addr, r);
+    info_report("[CACHE] Reading 0x%lx (0x%lx)", addr, r);
 #endif
 
     return r;
@@ -171,7 +172,7 @@ static void esp32c3_cache_write(void *opaque, hwaddr addr, uint64_t value,
     }
 
 #if CACHE_DEBUG
-    info_report("[CACHE] Writing 0x%lx = %08lx\n", addr, value);
+    info_report("[CACHE] Writing 0x%lx = %08lx", addr, value);
 #endif
 
 }

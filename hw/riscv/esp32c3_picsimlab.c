@@ -356,7 +356,6 @@ static void esp32c3_cpu_reset(void* opaque, int n, int level)
         for (int i = 0; i < ESP32C3_UART_COUNT; i++) {
             device_cold_reset(DEVICE(&s->uart[i]));
         }
-
         ShutdownCause cause = SHUTDOWN_CAUSE_GUEST_RESET;
         qemu_system_reset_request(cause);
     }

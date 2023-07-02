@@ -29,9 +29,9 @@
 
 typedef union ESP32C3MMUEntry {
     struct {
-        uint32_t    reserved    : 23;   /* Must always be 0 */
-        uint32_t    invalid     : 1;
         uint32_t    page_number : 8;
+        uint32_t    invalid     : 1;
+        uint32_t    reserved    : 23;   /* Must always be 0 */
     };
     uint32_t val;
 } ESP32C3MMUEntry;

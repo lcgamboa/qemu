@@ -49,6 +49,8 @@ typedef struct ESP32C3SpiTransaction {
     uint32_t addr;
     uint32_t addr_bytes;
 
+    uint32_t dummy_bytes;
+
     void* data;
     uint32_t tx_bytes;
     uint32_t rx_bytes;
@@ -105,13 +107,13 @@ static uint64_t esp32c3_spi_read(void *opaque, hwaddr addr, unsigned int size)
             break;
         default:
 #if SPI1_WARNING
-            warn_report("[SPI1] Unsupported read to 0x%lx\n", addr);
+            warn_report("[SPI1] Unsupported read to 0x%lx", addr);
 #endif
             break;
     }
 
 #if SPI1_DEBUG
-    info_report("[SPI1] Reading 0x%lx (0x%lx)\n", addr, r);
+    info_report("[SPI1] Reading 0x%lx (0x%lx)", addr, r);
 #endif
 
     return r;
@@ -135,12 +137,18 @@ static void esp32c3_spi_txrx_buffer(ESP32C3SpiState *s,
     }
 }
 
+static void esp32c3_spi_dummy_cycles(ESP32C3SpiState *s, uint32_t dummy_bytes) {
+    for (int i = 0; i < dummy_bytes; i++) {
+        ssi_transfer(s->spi, 0);
+    }
+}
 
 static void esp32c3_spi_perform_transaction(ESP32C3SpiState *s, const ESP32C3SpiTransaction *t)
 {
     qemu_set_irq(s->cs_gpio[0], 0);
     esp32c3_spi_txrx_buffer(s, &t->cmd, t->cmd_bytes, NULL, 0);
     esp32c3_spi_txrx_buffer(s, &t->addr, t->addr_bytes, NULL, 0);
+    esp32c3_spi_dummy_cycles(s, t->dummy_bytes);
     esp32c3_spi_txrx_buffer(s, t->data, t->tx_bytes, t->data, t->rx_bytes);
     qemu_set_irq(s->cs_gpio[0], 1);
 }
@@ -157,6 +165,21 @@ static inline void esp32c3_spi_get_addr(ESP32C3SpiState *s, uint32_t* addr, uint
     *len = (address_len + 1) / 8;
 }
 
+static inline void esp32c3_spi_get_dummy(ESP32C3SpiState *s, uint32_t* len)
+{
+    const uint32_t dummy_count = FIELD_EX32(s->mem_user1, SPI_MEM_USER1, USR_DUMMY_CYCLELEN);
+
+    /* Dummy cycles are interpreted as bytes by the emulated SPI Flash. As such, we shall convert
+     * our dummy cycles count in bytes, rounding it up. For example:
+     * 0 cycles = 0 byte
+     * 1 cycle = 1 byte
+     * ...
+     * 8 cycles = 1 byte
+     * 9 cycles = 2 bytes
+     * etc..
+     */
+    *len = (dummy_count + 7) / 8;
+}
 
 static void esp32c3_spi_begin_transaction(ESP32C3SpiState *s)
 {
@@ -188,6 +211,11 @@ static void esp32c3_spi_begin_transaction(ESP32C3SpiState *s)
         esp32c3_spi_get_addr(s, &t.addr, &t.addr_bytes);
         if (t.addr_bytes > 0 && t.addr_bytes <= 4) {
             t.addr = t.addr >> (32 - t.addr_bytes * 8);
+        }
+
+        /* Only calculate and include dummy cycles when the USR_DUMMY bit is set! */
+        if (s->mem_user & R_SPI_MEM_USER_USR_DUMMY_MASK) {
+            esp32c3_spi_get_dummy(s, &t.dummy_bytes);
         }
     }
 
@@ -287,7 +315,9 @@ static void esp32c3_spi_special_command(ESP32C3SpiState *s, uint32_t command)
             break;
 
         default:
-            printf("[SPI1] Unsupported special command %x\n", command);
+#if SPI1_WARNING
+            warn_report("[SPI1] Unsupported special command %x", command);
+#endif
             return;
     }
     esp32c3_spi_perform_transaction(s, &t);
@@ -301,7 +331,7 @@ static void esp32c3_spi_write(void *opaque, hwaddr addr,
     uint32_t wvalue = (uint32_t) value;
 
 #if SPI1_DEBUG
-    info_report("[SPI1] Writing 0x%lx = %08lx\n", addr, value);
+    info_report("[SPI1] Writing 0x%lx = %08lx", addr, value);
 #endif
 
     switch (addr) {
@@ -353,7 +383,7 @@ static void esp32c3_spi_write(void *opaque, hwaddr addr,
             break;
         default:
 #if SPI1_WARNING
-            warn_report("[SPI1] Unsupported write to 0x%lx (%08lx)\n", addr, value);
+            warn_report("[SPI1] Unsupported write to 0x%lx (%08lx)", addr, value);
 #endif
             break;
     }
