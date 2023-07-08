@@ -12,64 +12,7 @@
 #include "hw/misc/esp32c3_aes.h"
 #include "qemu/error-report.h"
 #include <gcrypt.h>
-
-#ifdef __MINGW32__
-#include <winsock2.h>
-#ifdef __GNUC__
-#include <sys/param.h>
-#endif
-
-#if BYTE_ORDER == LITTLE_ENDIAN
-__forceinline unsigned __int64 htonll(unsigned __int64 Value) { return (((unsigned __int64)htonl(Value & 0xFFFFFFFFUL)) << 32) | htonl((u_long)(Value >> 32)); }
-__forceinline unsigned __int64 ntohll(unsigned __int64 Value) { return (((unsigned __int64)ntohl(Value & 0xFFFFFFFFUL)) << 32) | ntohl((u_long)(Value >> 32)); }
-
-#define htobe16(x) htons(x)
-#define htole16(x) (x)
-#define be16toh(x) ntohs(x)
-#define le16toh(x) (x)
- 
-#define htobe32(x) htonl(x)
-#define htole32(x) (x)
-#define be32toh(x) ntohl(x)
-#define le32toh(x) (x)
- 
-#define htobe64(x) htonll(x)
-#define htole64(x) (x)
-#define be64toh(x) ntohll(x)
-#define le64toh(x) (x)
-
-#elif BYTE_ORDER == BIG_ENDIAN
-
-		/* that would be xbox 360 */
-#define htobe16(x) (x)
-#define htole16(x) __builtin_bswap16(x)
-#define be16toh(x) (x)
-#define le16toh(x) __builtin_bswap16(x)
- 
-#define htobe32(x) (x)
-#define htole32(x) __builtin_bswap32(x)
-#define be32toh(x) (x)
-#define le32toh(x) __builtin_bswap32(x)
- 
-#define htobe64(x) (x)
-#define htole64(x) __builtin_bswap64(x)
-#define be64toh(x) (x)
-#define le64toh(x) __builtin_bswap64(x)
-
-#else
-
-#error byte order not supported
-
-#endif
-
-#define __BYTE_ORDER    BYTE_ORDER
-#define __BIG_ENDIAN    BIG_ENDIAN
-#define __LITTLE_ENDIAN LITTLE_ENDIAN
-#define __PDP_ENDIAN    PDP_ENDIAN
-
-#else
-#include <endian.h>
-#endif
+#include "qemu/bswap.h"
 #include "hw/irq.h"
 #include "crypto/aes.h"
 
@@ -108,19 +51,19 @@ static void esp32c3_aes_ctr_add_counter(ESP32C3AesState *s, uint32_t blocks)
         /* 128-bit mode, no native 128 integer type, use two 64-bit types */
         uint64_t* low_ptr = (uint64_t*) (s->iv_mem + sizeof(uint64_t));
         uint64_t* high_ptr = (uint64_t*) s->iv_mem;
-        const uint64_t original = be64toh(*low_ptr);
+        const uint64_t original = be64_to_cpu(*low_ptr);
         uint64_t value = original + blocks;
-        *low_ptr = htobe64(value);
+        *low_ptr = cpu_to_be64(value);
         /* If the value overflowed, we have to update the upper part too */
         if (original > value) {
-            value = be64toh(*high_ptr) + 1;
-            *high_ptr = htobe64(value);
+            value = be64_to_cpu(*high_ptr) + 1;
+            *high_ptr = cpu_to_be64(value);
         }
     } else {
         /* 32-bit mode */
         uint32_t* counter_ptr = (uint32_t*) &s->iv_mem[ESP32C3_AES_IV_REG_CNT - sizeof(uint32_t)];
-        const uint32_t value = be32toh(*counter_ptr) + blocks;
-        *counter_ptr = htobe32(value);
+        const uint32_t value = be32_to_cpu(*counter_ptr) + blocks;
+        *counter_ptr = cpu_to_be32(value);
     }
 }
 

@@ -163,35 +163,37 @@ static const MemoryRegionOps esp32c3_io_ops = {
 };
 
 
-static void esp32c3_cpu_reset(void* opaque, int n, int level)
+static void esp32c3_system_reset(void* opaque)
 {
-    Esp32C3MachineState *s = ESP32C3_MACHINE(qdev_get_machine());
+    Esp32C3MachineState *s = (Esp32C3MachineState *) opaque;
 
+    /* Reset the devices */
+    device_cold_reset(DEVICE(&s->intmatrix));
+    device_cold_reset(DEVICE(&s->gpio));
+    device_cold_reset(DEVICE(&s->cache));
+    device_cold_reset(DEVICE(&s->efuse));
+    device_cold_reset(DEVICE(&s->clock));
+    device_cold_reset(DEVICE(&s->gdma));
+    device_cold_reset(DEVICE(&s->aes));
+    device_cold_reset(DEVICE(&s->sha));
+    device_cold_reset(DEVICE(&s->rsa));
+    device_cold_reset(DEVICE(&s->systimer));
+    device_cold_reset(DEVICE(&s->spi1));
+    device_cold_reset(DEVICE(&s->rtccntl));
+    device_cold_reset(DEVICE(&s->jtag));
+
+    for (int i = 0; i < 2; i++) {
+        device_cold_reset(DEVICE(&s->timg[i]));
+    }
+ 
+    for (int i = 0; i < ESP32C3_UART_COUNT; i++) {
+        device_cold_reset(DEVICE(&s->uart[i]));
+    }
+}
+ 
+static void esp32c3_reset_from_rtc(void* opaque, int n, int level)
+{
     if (level) {
-
-        /* Reset the devices */
-        device_cold_reset(DEVICE(&s->intmatrix));
-        device_cold_reset(DEVICE(&s->gpio));
-        device_cold_reset(DEVICE(&s->cache));
-        device_cold_reset(DEVICE(&s->efuse));
-        device_cold_reset(DEVICE(&s->clock));
-        device_cold_reset(DEVICE(&s->gdma));
-        device_cold_reset(DEVICE(&s->aes));
-        device_cold_reset(DEVICE(&s->sha));
-        device_cold_reset(DEVICE(&s->rsa));
-        device_cold_reset(DEVICE(&s->systimer));
-        device_cold_reset(DEVICE(&s->spi1));
-        device_cold_reset(DEVICE(&s->rtccntl));
-        device_cold_reset(DEVICE(&s->jtag));
-
-        for (int i = 0; i < 2; i++) {
-            device_cold_reset(DEVICE(&s->timg[i]));
-        }
-
-        for (int i = 0; i < ESP32C3_UART_COUNT; i++) {
-            device_cold_reset(DEVICE(&s->uart[i]));
-        }
-
         ShutdownCause cause = SHUTDOWN_CAUSE_GUEST_RESET;
         qemu_system_reset_request(cause);
     }
@@ -299,7 +301,7 @@ static void esp32c3_machine_init(MachineState *machine)
 
 
     /* Initialize the I/O of the CPU */
-    qdev_init_gpio_in_named(DEVICE(&ms->soc), esp32c3_cpu_reset, ESP32C3_RTC_CPU_RESET_GPIO, 1);
+    qdev_init_gpio_in_named(DEVICE(&ms->soc), esp32c3_reset_from_rtc, ESP32C3_RTC_CPU_RESET_GPIO, 1);
 
     /* Initialize the I/O peripherals */
     for (int i = 0; i < ESP32C3_UART_COUNT; ++i) {
@@ -505,6 +507,9 @@ static void esp32c3_machine_init(MachineState *machine)
         sysbus_connect_irq(SYS_BUS_DEVICE(&ms->rsa), 0,
                            qdev_get_gpio_in(intmatrix_dev, ETS_RSA_INTR_SOURCE));
     }
+
+    /* Register reset function so that it is called when `system_reset` is invoked in QEMU monitor */
+    qemu_register_reset(esp32c3_system_reset, ms);
 
     /* Open and load the "bios", which is the ROM binary, also named "first stage bootloader" */
     char *rom_binary = qemu_find_file(QEMU_FILE_TYPE_BIOS, "esp32c3-rom.bin");

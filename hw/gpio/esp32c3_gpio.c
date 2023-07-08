@@ -172,10 +172,25 @@ static void esp32c3_gpio_init(Object *obj)
                           0x1000);
 }
 
+static void esp32c3_gpio_reset(DeviceState *dev)
+{
+    /*
+    static int reset_cont = 0;
+    if(reset_cont > 0) {
+        Esp32GpioState *s = ESP32_GPIO(dev);
+        s->strap_mode  = ESP32C3_STRAP_MODE_FLASH_BOOT;
+    }
+    reset_cont++;
+    */
+}
+
 /* If we need to override any function from the parent (reset, realize, ...), it shall be done
  * in this class_init function */
 static void esp32c3_gpio_class_init(ObjectClass *klass, void *data)
 {
+    DeviceClass *dc = DEVICE_CLASS(klass);
+
+    dc->reset = esp32c3_gpio_reset;
 }
 
 static const TypeInfo esp32c3_gpio_info = {
