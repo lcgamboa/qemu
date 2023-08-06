@@ -41,10 +41,12 @@
 #include "hw/misc/esp32c3_rtc_cntl.h"
 #include "hw/misc/esp32c3_aes.h"
 #include "hw/misc/esp32c3_rsa.h"
+#include "hw/misc/esp32c3_hmac.h"
 #include "hw/misc/esp32c3_jtag.h"
 #include "hw/dma/esp32c3_gdma.h"
 #include "hw/misc/esp32c3_iomux.h"
 #include "hw/irq.h"
+#include "hw/misc/unimp.h"
 
 #ifdef _WIN32
 #include "chardev/char-win.h"
@@ -81,6 +83,7 @@ struct Esp32C3MachineState {
     ESP32C3AesState aes;
     ESP32C3ShaState sha;
     ESP32C3RsaState rsa;
+    ESP32C3HmacState hmac;
     ESP32C3TimgState timg[2];
     ESP32C3SysTimerState systimer;
     ESP32C3SpiState spi1;
@@ -399,6 +402,12 @@ static void esp32c3_init_spi_flash(Esp32C3MachineState *ms, BlockBackend* blk)
 }
 
 
+static void esp32c3_add_unimp_device(MemoryRegion *dest, const char* name, hwaddr dport_base_addr, size_t size, uint32_t default_value)
+{
+    create_unimplemented_device_default_value(name, dport_base_addr, size, default_value);
+}
+
+
 static void esp32c3_machine_init(MachineState *machine)
 {
     /* First thing to do is to check if a drive format and a file ahve been passed through the command line.
@@ -488,6 +497,7 @@ static void esp32c3_machine_init(MachineState *machine)
     object_initialize_child(OBJECT(machine), "aes", &ms->aes, TYPE_ESP32C3_AES);
     object_initialize_child(OBJECT(machine), "gdma", &ms->gdma, TYPE_ESP32C3_GDMA);
     object_initialize_child(OBJECT(machine), "rsa", &ms->rsa, TYPE_ESP32C3_RSA);
+    object_initialize_child(OBJECT(machine), "hmac", &ms->hmac, TYPE_ESP32C3_HMAC);
     object_initialize_child(OBJECT(machine), "timg0", &ms->timg[0], TYPE_ESP32C3_TIMG);
     object_initialize_child(OBJECT(machine), "timg1", &ms->timg[1], TYPE_ESP32C3_TIMG);
     object_initialize_child(OBJECT(machine), "systimer", &ms->systimer, TYPE_ESP32C3_SYSTIMER);
@@ -598,6 +608,14 @@ static void esp32c3_machine_init(MachineState *machine)
         }
     }
 
+    /* HMAC realization */
+    {
+        ms->hmac.efuse = &ms->efuse;
+        qdev_realize(DEVICE(&ms->hmac), &ms->periph_bus, &error_fatal);
+        MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->hmac), 0);
+        memory_region_add_subregion_overlap(sys_mem, DR_REG_HMAC_BASE, mr, 0);
+    }
+
     /* Timer Groups realization */
     {
         qdev_realize(DEVICE(&ms->timg[0]), &ms->periph_bus, &error_fatal);
@@ -680,6 +698,30 @@ static void esp32c3_machine_init(MachineState *machine)
         sysbus_connect_irq(SYS_BUS_DEVICE(&ms->rsa), 0,
                            qdev_get_gpio_in(intmatrix_dev, ETS_RSA_INTR_SOURCE));
     }
+
+
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.sensitive", DR_REG_SENSITIVE_BASE, 0x1000,0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.mmu", DR_REG_MMU_TABLE, 0x1000,0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.hmac", DR_REG_HMAC_BASE, 0x1000,0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.digital_sig", DR_REG_DIGITAL_SIGNATURE_BASE, 0x1000,0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.dedicategpio", DR_REG_DEDICATED_GPIO_BASE, 0x1000,0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.worldcntl", DR_REG_WORLD_CNTL_BASE, 0x1000,0);
+
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.spi0", DR_REG_SPI0_BASE, 0x1000,0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.fe2", DR_REG_FE2_BASE, 0x1000,0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.fe", DR_REG_FE_BASE, 0x1000,0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.i2c", DR_REG_I2C_EXT_BASE, 0x1000,0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.uhci0", DR_REG_UHCI0_BASE, 0x1000,0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.rmt", DR_REG_RMT_BASE, 0x1000,0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.ledc", DR_REG_LEDC_BASE, 0x1000,0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.spi2", DR_REG_SPI2_BASE, 0x1000,0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.twai", DR_REG_TWAI_BASE, 0x1000,0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.i2s0", DR_REG_I2S0_BASE, 0x1000,0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.saradc", DR_REG_APB_SARADC_BASE, 0x1000,0);
+
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.nrx", DR_REG_NRX_BASE  - 0x0C00, 0x1000,-1);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.bb", DR_REG_BB_BASE , 0x1000,-1);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.aes_xts", DR_REG_AES_XTS_BASE, 0x1000,0);
 
     /* Register reset function so that it is called when `system_reset` is invoked in QEMU monitor */
     qemu_register_reset(esp32c3_system_reset, ms);

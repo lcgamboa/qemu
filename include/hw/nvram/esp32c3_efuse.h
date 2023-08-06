@@ -14,6 +14,7 @@
 #include "hw/sysbus.h"
 #include "hw/misc/esp32c3_reg.h"
 #include "sysemu/block-backend.h"
+#include "qemu/error-report.h"
 
 #define TYPE_ESP32C3_EFUSE "nvram.esp32c3.efuse"
 #define ESP32C3_EFUSE(obj) OBJECT_CHECK(ESP32C3EfuseState, (obj), TYPE_ESP32C3_EFUSE)
@@ -62,6 +63,20 @@
 #define EFUSE_WRITE_OPCODE  0x5A5A
 #define EFUSE_READ_OPCODE   0x5AA5
 
+typedef enum {
+    EFUSE_BLOCK0 = 0,
+    EFUSE_MAC_SPI_SYS_0 = 1,
+    EFUSE_BLOCK_SYS_DATA = 2,
+    EFUSE_BLOCK_USR_DATA = 3,
+    EFUSE_BLOCK_KEY0 = 4,
+    EFUSE_BLOCK_KEY1 = 5,
+    EFUSE_BLOCK_KEY2 = 6,
+    EFUSE_BLOCK_KEY3 = 7,
+    EFUSE_BLOCK_KEY4 = 8,
+    EFUSE_BLOCK_KEY5 = 9,
+    EFUSE_BLOCK_KEY6 = 10,
+    EFUSE_BLOCK_MAX,
+} EfuseBlocks;
 
 /* Structure definition taken from `esp32c3/soc/efuse_struct.h` and re-adapted with few arrays */
 struct ESP32C3EfuseRegs {
@@ -549,4 +564,47 @@ static inline bool esp32c3_efuse_is_read_cmd(ESP32C3EfuseState *s)
 static inline bool esp32c3_efuse_is_write_cmd(ESP32C3EfuseState *s)
 {
     return s->efuses.conf.op_code == EFUSE_WRITE_OPCODE && s->efuses.cmd.pgm_cmd;
+}
+
+/**
+ * @brief Returns the key purpose of the given efuse key block number
+ */
+static inline uint32_t esp32c3_efuse_get_key_purpose(ESP32C3EfuseState *s, const int efuse_block_num)
+{
+    uint32_t purpose = -1;
+    switch (efuse_block_num) {
+        case EFUSE_BLOCK_KEY0:
+            purpose = s->efuses.rd_repeat_data1.key_purpose_0;
+            break;
+        case EFUSE_BLOCK_KEY1:
+            purpose = s->efuses.rd_repeat_data1.key_purpose_1;
+            break;
+        case EFUSE_BLOCK_KEY2:
+            purpose = s->efuses.rd_repeat_data2.key_purpose_2;
+            break;
+        case EFUSE_BLOCK_KEY3:
+            purpose = s->efuses.rd_repeat_data2.key_purpose_3;
+            break;
+        case EFUSE_BLOCK_KEY4:
+            purpose = s->efuses.rd_repeat_data2.key_purpose_4;
+            break;
+        case EFUSE_BLOCK_KEY5:
+            purpose = s->efuses.rd_repeat_data2.key_purpose_5;
+            break;
+        default:
+            error_report("[Efuse] Out of range key block specified: %d", efuse_block_num);
+            break;
+    }
+
+    return purpose;
+}
+
+
+static inline void esp32c3_efuse_get_key(ESP32C3EfuseState *s, const uint8_t efuse_block_num, uint8_t* efuse_key)
+{
+    if (efuse_block_num < EFUSE_BLOCK_KEY0 || efuse_block_num > EFUSE_BLOCK_KEY6) {
+        error_report("[Efuse] Out of range key block specified: %d", efuse_block_num);
+    } else {
+        memcpy(efuse_key, &s->efuses.rd_key0_data0 + (efuse_block_num - EFUSE_BLOCK_KEY0) * 8, 32);
+    }
 }

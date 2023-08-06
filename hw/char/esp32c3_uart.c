@@ -20,20 +20,34 @@
 #include "hw/misc/esp32c3_rtc_cntl.h"
 
 #define ESP32_UART_AUTOBAUD A_UART_AUTOBAUD
+#define ESP32_UART_CONF1    A_UART_CONF1
 
 static uint64_t esp32c3_uart_read(void *opaque, hwaddr addr, unsigned int size)
 {
     ESP32C3UARTClass *class = ESP32C3_UART_GET_CLASS(opaque);
-    /* Nothing special to do at the moment here, but it is possible to override the
-     * parent's read function behavior. */
+    ESP32C3UARTState *s = ESP32C3_UART(opaque);
+    uint32_t r = 0;
 
-    return class->parent_uart_read(opaque, addr, size);
+    switch (addr)
+    {
+    case A_ESP32C3_UART_CONF1:
+        /* Return the mirrored conf1 */
+        r = s->conf1;
+        break;
+
+    default:
+        r = class->parent_uart_read(opaque, addr, size);
+        break;
+    }
+
+    return r;
 }
 
 static void esp32c3_uart_write(void *opaque, hwaddr addr,
                        uint64_t value, unsigned int size)
 {
     ESP32C3UARTClass *class = ESP32C3_UART_GET_CLASS(opaque);
+    ESP32C3UARTState *s = ESP32C3_UART(opaque);
     uint32_t autobaud = 0;
 
     /* UART_RXD_CNT_REG register is not at the same address on the ESP32 and ESP32-C3, so make the
@@ -45,12 +59,29 @@ static void esp32c3_uart_write(void *opaque, hwaddr addr,
              * register, poke that register instead */
             autobaud = FIELD_EX32(value, ESP32C3_UART_CONF0, AUTOBAUD_EN) ? 1 : 0;
             class->parent_uart_write(opaque, ESP32_UART_AUTOBAUD, autobaud, sizeof(uint32_t));
-            /* CONF0 is still a valid register on the ESP32, so fall-through the default case*/
+            class->parent_uart_write(opaque, addr, value, size);
+            break;
+
+        case A_ESP32C3_UART_MEM_CONF:
+            s->parent.rx_tout_thres = FIELD_EX32(value, ESP32C3_UART_MEM_CONF, RX_TOUT_THRHD);
+            break;
+
+        case A_ESP32C3_UART_CONF1:
+            /* Store the value in our own mirror as the application may read it back */
+            s->conf1 = value;
+
+            /* Write the protected members of the parent's structure */
+            s->parent.rx_tout_ena = FIELD_EX32(value, ESP32C3_UART_CONF1, RX_TOUT_EN);
+            s->parent.tx_empty_threshold = FIELD_EX32(value, ESP32C3_UART_CONF1, TXFIFO_EMPTY_THRHD);
+            s->parent.rx_full_threshold = FIELD_EX32(value, ESP32C3_UART_CONF1, RXFIFO_FULL_THRHD);
+
+            esp32_uart_set_rx_timeout(&s->parent);
+            esp32_uart_update_irq(&s->parent);
+            break;
 
         default:
             class->parent_uart_write(opaque, addr, value, size);
             break;
-
     }
 }
 

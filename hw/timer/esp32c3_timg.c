@@ -166,7 +166,8 @@ static inline bool esp32c3_wdt_enabled(ESP32C3WdtState* wdt)
 static void esp32c3_wdt_cb(void* opaque)
 {
     ESP32C3WdtState* wdt = (ESP32C3WdtState*) opaque;
-    ESP32C3WdtStageConf conf = wdt->stage_conf[wdt->current_stage];
+    const int cur_stage = wdt->current_stage;
+    ESP32C3WdtStageConf conf = wdt->stage_conf[cur_stage];
 
     /* Check which action must be taken for the current stage */
     if (conf == ESP32C3_WDT_INTERRUPT) {
@@ -180,9 +181,19 @@ static void esp32c3_wdt_cb(void* opaque)
         return;
     }
 
-    const int new_stage = (wdt->current_stage + 1)  % ESP32C3_WDT_STAGE_COUNT;
+    const int new_stage = (cur_stage + 1)  % ESP32C3_WDT_STAGE_COUNT;
     wdt->current_stage = new_stage;
-    esp32c3_virtual_counter_alarm_in_ticks(&wdt->counter, wdt->stage[new_stage]);
+
+    if (conf == ESP32C3_WDT_OFF) {
+        /* If the current stage is disabled, the counter shall not be reset to 0!
+         * Get the number of ticks elapsed to calculate the remaining ticks before the next stage alarm.
+         * A simpler option would be to reuse wdt->stage[cur_stage], but if the application modified this
+         * register after scheduling an alarm, the result would be undefined. */
+        const int64_t elapsed = esp32c3_virtual_counter_update(&wdt->counter);
+        esp32c3_virtual_counter_alarm_in_ticks(&wdt->counter, wdt->stage[new_stage] - elapsed);
+    } else {
+        esp32c3_virtual_counter_alarm_in_ticks(&wdt->counter, wdt->stage[new_stage]);
+    }
 }
 
 static void esp32c3_wdt_update_prescaler(ESP32C3WdtState* wdt, uint32_t value)
@@ -211,9 +222,11 @@ static void esp32c3_wdt_update_stage(ESP32C3WdtState* wdt, int index, uint32_t v
         int64_t counter_value = esp32c3_virtual_counter_update(&wdt->counter);
         int64_t diff = (int64_t) value - counter_value;
         if (diff <= 0) {
-            /* If the difference is negative, the new limit is smaller than the current value,
-            * manually trigger the alarm. */
-            esp32c3_wdt_cb(wdt);
+            /* On the real hardware, the WDT is simply disabled if the new comparator value for the current
+             * stage is smaller than the current value. It will be restarted (not resumed) when fed.
+             * Just like the real hardware, keep the "enable" bit to 1, moreover it is required for feeding.
+             */
+            timer_del(&wdt->counter.timer);
         } else {
             /* The new alarm is set to happen in `diff` ticks, reschedule the alarm */
             esp32c3_virtual_counter_alarm_in_ticks(&wdt->counter, diff);
@@ -655,11 +668,11 @@ static void esp32c3_timg_reset(DeviceState* ts)
     s->wdt.wkey = ESP32C3_WDT_DEFAULT_WKEY;
     s->wdt.current_stage = 0;
     memset(&s->wdt.stage_conf, 0, sizeof(s->wdt.stage_conf));
-    s->wdt.stage[0] = 0x26000000;
+    s->wdt.stage[0] = 26000000;
     s->wdt.stage[1] = 0x7FFFFFFF;
     s->wdt.stage[2] = 0x0FFFFFFF;
     s->wdt.stage[3] = 0x0FFFFFFF;
-    s->wdt.prescaler = 0x100;
+    s->wdt.prescaler = 1;
     s->wdt.raw_st = 0;
     s->wdt.int_enabled = 0;
 
@@ -668,7 +681,7 @@ static void esp32c3_timg_reset(DeviceState* ts)
     s->t0.raw_st = 0;
     s->t0.int_enabled = 0;
     s->t0.value_rel = 0;
-    /* Set teh divider to 1 */
+    /* Set the divider to 1 */
     s->t0.config = 1 << R_TIMG_T0CONFIG_DIVIDER_SHIFT;
 }
 
@@ -697,17 +710,13 @@ static void esp32c3_timg_init(Object *obj)
     qdev_init_gpio_out_named(DEVICE(sbd), &s->wdt.reset_irq, ESP32C3_WDT_IRQ_RESET, 1);
     qdev_init_gpio_out_named(DEVICE(sbd), &s->wdt.interrupt_irq, ESP32C3_WDT_IRQ_INTERRUPT, 1);
     timer_init_ns(esp32c3_virtual_counter_get_timer(&s->wdt.counter), QEMU_CLOCK_VIRTUAL, esp32c3_wdt_cb, &s->wdt);
-    s->wdt.stage[0] = 0x26000000;
-    s->wdt.stage[1] = 0x7FFFFFFF;
-    s->wdt.stage[2] = 0x0FFFFFFF;
-    s->wdt.stage[3] = 0x0FFFFFFF;
-    s->wdt.prescaler = 0x100;
-
 
     /* Timer T0 initialization */
-    s->t0.config = 1 << R_TIMG_T0CONFIG_DIVIDER_SHIFT;
     qdev_init_gpio_out_named(DEVICE(sbd), &s->t0.interrupt_irq, ESP32C3_T0_IRQ_INTERRUPT, 1);
     timer_init_ns(esp32c3_virtual_counter_get_timer(&s->t0.counter), QEMU_CLOCK_VIRTUAL, esp32c3_t0_cb, &s->t0);
+
+    /* Set the initial values for the internal fields */
+    esp32c3_timg_reset((DeviceState*) s);
 }
 
 static Property esp32c3_timg_properties[] = {

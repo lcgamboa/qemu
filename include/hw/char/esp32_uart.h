@@ -64,7 +64,7 @@ REG32(UART_CONF1, 0x24)
     FIELD(UART_CONF1, TOUT_THRD, 24, 7)
     FIELD(UART_CONF1, TXFIFO_EMPTY_THRD, 8, 7)
     FIELD(UART_CONF1, RXFIFO_FULL_THRD, 0, 7)
-    
+
 REG32(UART_MEM_CONF, 0x58);
     FIELD(UART_MEM_CONF, RX_SIZE, 3, 4);
     FIELD(UART_MEM_CONF, TX_SIZE, 7, 4);
@@ -96,6 +96,14 @@ typedef struct ESPUARTState {
     uint32_t reg[UART_REG_CNT];
     uint32_t id;
     MemoryRegionOps uart_ops;
+
+    /* Protected: fields can be modified by the child class  */
+    bool rx_tout_ena;
+    /* Threshold, in bits, before triggering an RX timeout interrupt  */
+    uint32_t rx_tout_thres;
+    /* Threshold, in bytes, for a full RX FIFO and an empty TX FIFO respectively */
+    uint32_t tx_empty_threshold;
+    uint32_t rx_full_threshold;
 } ESP32UARTState;
 
 typedef struct ESPUARTClass {
@@ -105,3 +113,17 @@ typedef struct ESPUARTClass {
     void (*uart_write)(void *opaque, hwaddr addr, uint64_t value, unsigned int size);
     uint64_t (*uart_read)(void *opaque, hwaddr addr, unsigned int size);
 } ESP32UARTClass;
+
+
+/**
+ * @brief Enable the RX timeout according to the protected members of ESP32UARTState, as such, their
+ * values must be set and valid when calling this function.
+ */
+void esp32_uart_set_rx_timeout(ESP32UARTState *s);
+
+
+/**
+ * @brief Check the current state of the UART FIFOs and trigger an interrupt if enabled and if any reached
+ * the configured threshold.
+ */
+void esp32_uart_update_irq(ESP32UARTState *s);

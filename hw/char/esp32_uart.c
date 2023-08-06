@@ -29,25 +29,14 @@
 static gboolean uart_transmit(void *do_not_use, GIOCondition cond, void *opaque);
 void uart_receive(void *opaque, const uint8_t *buf, int size);
 int uart_can_receive(void *opaque);
-static void uart_set_rx_timeout(ESP32UARTState *s);
 
-static uint8_t fifo8_peek(Fifo8 *fifo)
-{
-    if (fifo->num == 0) {
-        abort();
-    }
-    return fifo->data[fifo->head];
-}
 
-static void uart_update_irq(ESP32UARTState *s)
+void esp32_uart_update_irq(ESP32UARTState *s)
 {
     bool irq = false;
 
-    uint32_t tx_empty_threshold = FIELD_EX32(s->reg[R_UART_CONF1], UART_CONF1, TXFIFO_EMPTY_THRD);
-    uint32_t rx_full_threshold = FIELD_EX32(s->reg[R_UART_CONF1], UART_CONF1, RXFIFO_FULL_THRD);
-
-    uint32_t tx_empty_raw = (fifo8_num_used(&s->tx_fifo) <= tx_empty_threshold);
-    uint32_t rx_full_raw = (fifo8_num_used(&s->rx_fifo) >= rx_full_threshold);
+    uint32_t tx_empty_raw = (fifo8_num_used(&s->tx_fifo) <= s->tx_empty_threshold);
+    uint32_t rx_full_raw = (fifo8_num_used(&s->rx_fifo) >= s->rx_full_threshold);
     uint32_t tx_done_raw = (fifo8_num_used(&s->tx_fifo) != 0);
     uint32_t rxfifo_tout_raw = (s->rxfifo_tout) ? 1 : 0;
 
@@ -65,6 +54,35 @@ static void uart_update_irq(ESP32UARTState *s)
     qemu_set_irq(s->irq, irq);
 }
 
+
+void esp32_uart_set_rx_timeout(ESP32UARTState *s)
+{
+    if (s->rx_tout_ena) {
+        int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+        int64_t rx_timeout_ns = now + s->rx_tout_thres * NANOSECONDS_PER_SECOND / s->baud_rate;
+        /* If throttling is done, make sure timeout doesn't happen before more data
+         * is allowed to come. Offset it by 1ms.
+         */
+        if (rx_timeout_ns <= s->throttle_timer.expire_time) {
+            rx_timeout_ns = s->throttle_timer.expire_time + 10000000;
+        }
+        timer_mod_ns(&s->rx_timeout_timer, rx_timeout_ns);
+    } else {
+        timer_del(&s->rx_timeout_timer);
+        s->rxfifo_tout = false;
+    }
+}
+
+
+static uint8_t fifo8_peek(Fifo8 *fifo)
+{
+    if (fifo->num == 0) {
+        abort();
+    }
+    return fifo->data[fifo->head];
+}
+
+
 static uint64_t uart_read(void *opaque, hwaddr addr, unsigned int size)
 {
     ESP32UARTState *s = ESP32_UART(opaque);
@@ -77,7 +95,7 @@ static uint64_t uart_read(void *opaque, hwaddr addr, unsigned int size)
             error_report("esp_uart: read UART FIFO while it is empty");
         } else {
             r = fifo8_pop(&s->rx_fifo);
-            uart_update_irq(s);
+            esp32_uart_update_irq(s);
             qemu_chr_fe_accept_input(&s->chr);
         }
         break;
@@ -178,8 +196,15 @@ static void uart_write(void *opaque, hwaddr addr,
 
     case A_UART_CONF1:
         s->reg[addr / 4] = value;
-        uart_set_rx_timeout(s);
-        uart_update_irq(s);
+        s->tx_empty_threshold = FIELD_EX32(s->reg[R_UART_CONF1], UART_CONF1, TXFIFO_EMPTY_THRD);
+        s->rx_full_threshold = FIELD_EX32(s->reg[R_UART_CONF1], UART_CONF1, RXFIFO_FULL_THRD);
+        /* On the ESP32, rx_tout_thres is in units of (bit_time * 8).
+         * Note this is different on later chips.
+         */
+        s->rx_tout_thres = 8 * FIELD_EX32(s->reg[R_UART_CONF1], UART_CONF1, TOUT_THRD);
+        s->rx_tout_ena = FIELD_EX32(s->reg[R_UART_CONF1], UART_CONF1, TOUT_EN) != 0;
+        esp32_uart_set_rx_timeout(s);
+        esp32_uart_update_irq(s);
         break;
 
     default:
@@ -191,7 +216,7 @@ static void uart_write(void *opaque, hwaddr addr,
         break;
 
     }
-    uart_update_irq(s);
+    esp32_uart_update_irq(s);
 }
 
 extern void (*picsimlab_uart_tx_event)(const uint8_t id, const uint8_t val);
@@ -224,7 +249,7 @@ static gboolean uart_transmit(void *do_not_use, GIOCondition cond, void *opaque)
 */
     }
 
-    uart_update_irq(s);
+    esp32_uart_update_irq(s);
 
     return FALSE;
 }
@@ -266,30 +291,8 @@ void uart_receive(void *opaque, const uint8_t *buf, int size)
                      throttle_time_ns);
     }
 
-    uart_set_rx_timeout(s);
-    uart_update_irq(s);
-}
-
-static void uart_set_rx_timeout(ESP32UARTState *s)
-{
-    if (FIELD_EX32(s->reg[R_UART_CONF1], UART_CONF1, TOUT_EN)) {
-        unsigned threshold_reg = FIELD_EX32(s->reg[R_UART_CONF1], UART_CONF1, TOUT_THRD);
-        /* On the ESP32, threshold_reg is in units of (bit_time * 8).
-         * Note this is different on later chips.
-         */
-        int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
-        int64_t rx_timeout_ns = now + threshold_reg * 8 * NANOSECONDS_PER_SECOND / s->baud_rate;
-        /* If throttling is done, make sure timeout doesn't happen before more data
-         * is allowed to come. Offset it by 1ms.
-         */
-        if (rx_timeout_ns <= s->throttle_timer.expire_time) {
-            rx_timeout_ns = s->throttle_timer.expire_time + 10000000;
-        }
-        timer_mod_ns(&s->rx_timeout_timer, rx_timeout_ns);
-    } else {
-        timer_del(&s->rx_timeout_timer);
-        s->rxfifo_tout = false;
-    }
+    esp32_uart_set_rx_timeout(s);
+    esp32_uart_update_irq(s);
 }
 
 int uart_can_receive(void *opaque)
@@ -318,7 +321,7 @@ static void uart_rx_timeout_timer_cb(void* opaque)
 {
     ESP32UARTState *s = ESP32_UART(opaque);
     s->rxfifo_tout = true;
-    uart_update_irq(s);
+    esp32_uart_update_irq(s);
 }
 
 static void esp32_uart_reset(DeviceState *dev)
@@ -342,6 +345,10 @@ static void esp32_uart_reset(DeviceState *dev)
     }
     timer_del(&s->throttle_timer);
     s->throttle_rx = false;
+    s->rx_tout_ena = false;
+    s->tx_empty_threshold = 0;
+    s->rx_full_threshold = 0;
+    s->rx_tout_thres = 0;
     qemu_irq_lower(s->irq);
 }
 
