@@ -147,6 +147,7 @@ typedef struct {
     int (*picsimlab_i2c_event)(const uint8_t id, const uint8_t addr, const uint16_t event);
     uint8_t (*picsimlab_spi_event)(const uint8_t id, const uint16_t event);
     void (*picsimlab_uart_tx_event)(const uint8_t id, const uint8_t value);
+    const short int * pinmap;    
 } callbacks_t;
 
 //prototypes
@@ -224,6 +225,7 @@ void (*picsimlab_dir_pin)(int pin,int value) = place_holder;
 int (*picsimlab_i2c_event)(const uint8_t id, const uint8_t addr, const uint16_t event) = place_holder2;
 uint8_t (*picsimlab_spi_event)(const uint8_t id, const uint16_t event) = place_holder3;
 void (*picsimlab_uart_tx_event)(const uint8_t id, const uint8_t value) = place_holder4;
+static const short int * pinmap = NULL;
 
 void qemu_picsimlab_register_callbacks(void * arg)
 {
@@ -234,6 +236,7 @@ void qemu_picsimlab_register_callbacks(void * arg)
   picsimlab_i2c_event = callbacks->picsimlab_i2c_event;
   picsimlab_spi_event = callbacks->picsimlab_spi_event;
   picsimlab_uart_tx_event = callbacks->picsimlab_uart_tx_event;
+  pinmap = callbacks->pinmap;
 }
 
 void qemu_picsimlab_set_pin(int pin,int value)
@@ -738,82 +741,16 @@ static void esp32c3_machine_init(MachineState *machine)
     qdev_connect_gpio_out_named(DEVICE(&ms->spi[3]), SSI_GPIO_CS, 1 , spi_cs_irq[5]);
     qdev_connect_gpio_out_named(DEVICE(&ms->spi[3]), SSI_GPIO_CS, 2 , spi_cs_irq[6]);
 */
-//1-GND 
-//2-3V3
-//3-3V3
-//4-EN
-//5-GND
-//6-GPIO4
-    pin_irq[6]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, 4);
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, 4 , pdir_irq[6]);
-    pin_irq[6]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, 4);
-//7-GPIO5
-    pin_irq[7]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, 5);
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, 5 , pdir_irq[7]);
-    pin_irq[7]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, 5);
-//8-GPIO6
-    pin_irq[8]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, 6);
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, 6 , pdir_irq[8]);
-    pin_irq[8]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, 6);
-//9-GPIO7
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS, 7, pout_irq[9]);
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, 7 , pdir_irq[9]);
-    pin_irq[9]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, 7);
-//10-GND
-//11-GPIO8
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS, 8, pout_irq[11]);
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, 8 , pdir_irq[11]);
-    pin_irq[11]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, 8);
-//12-GPIO9
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS, 9, pout_irq[12]);
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, 9 , pdir_irq[12]);
-    pin_irq[12]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, 9);
-//13-5V
-//14-5V
-//15-GND
-//16-GND
-//17-GND
-//18-GPIO19
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS, 19, pout_irq[18]);
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, 19 , pdir_irq[18]);
-    pin_irq[18]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, 19);
-//19-GPIO18
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS, 18, pout_irq[19]);
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, 18 , pdir_irq[19]);
-    pin_irq[19]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, 18);
-//20-GND
-//21-GPI21
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS, 21, pout_irq[21]);
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, 21 , pdir_irq[21]);
-    pin_irq[21]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, 21);
-//22-GPI20
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS, 20, pout_irq[22]);
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, 20 , pdir_irq[22]);
-    pin_irq[22]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, 20);
-//23-GND
-//24-GPIO10
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS, 10, pout_irq[24]);
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, 10 , pdir_irq[24]);
-    pin_irq[24]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, 10);
-//25-GND
-//26-GPIO3
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS, 3, pout_irq[26]);
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, 3 , pdir_irq[26]);
-    pin_irq[26]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, 3);
-//27-GPIO2
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS, 2, pout_irq[27]);
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, 2 , pdir_irq[27]);
-    pin_irq[27]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, 2);
-//28-GPIO1
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS, 1, pout_irq[28]);
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, 1 , pdir_irq[28]);
-    pin_irq[28]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, 1);
-//29-GPIO0
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS, 0, pout_irq[29]);
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, 0 , pdir_irq[29]);
-    pin_irq[29]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, 0);
-//30-GND
 
+    if(pinmap){
+      for(int pin = 1; pin < 30; pin++){
+        if(pinmap[pin-1] >= 0){
+            qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS, pinmap[pin-1], pout_irq[pin]);
+            qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, pinmap[pin-1] , pdir_irq[pin]);
+            pin_irq[pin]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, pinmap[pin-1]);
+        }
+      } 
+    }
 }
 
 
