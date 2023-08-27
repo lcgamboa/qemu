@@ -745,8 +745,8 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     psync_irq = qemu_allocate_irqs (psync_irq_handler, NULL, 1);
     qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_SYNC, 0 , psync_irq[0]);
     qdev_connect_gpio_out_named(DEVICE(&s->iomux), ESP32_IOMUX_SYNC, 0 , psync_irq[0]);
-    pdir_irq = qemu_allocate_irqs (pdir_irq_handler, NULL, 38);
-    pout_irq = qemu_allocate_irqs (pout_irq_handler, NULL, 38);
+    pdir_irq = qemu_allocate_irqs (pdir_irq_handler, NULL, 39);
+    pout_irq = qemu_allocate_irqs (pout_irq_handler, NULL, 39);
     spi_cs_irq = qemu_allocate_irqs (spi_cs_irq_handler, NULL, 8);
 
     qdev_connect_gpio_out_named(DEVICE(&s->spi[2]), SSI_GPIO_CS, 0 , spi_cs_irq[0]);
@@ -758,7 +758,7 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     qdev_connect_gpio_out_named(DEVICE(&s->spi[3]), SSI_GPIO_CS, 2 , spi_cs_irq[6]);
 
     if(pinmap){
-      for(int pin = 1; pin < 38; pin++){
+      for(int pin = 1; pin < 39; pin++){
         if(pinmap[pin-1] >= 0 ){
            if(pinmap[pin-1]  < 32){
               qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS, pinmap[pin-1], pout_irq[pin]);
