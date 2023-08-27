@@ -48,7 +48,7 @@
 #define ESP32C3_IO_WARNING          0
 
 #define ESP32C3_RESET_ADDRESS       0x40000000
-
+#define ESP32C3_RESET_GPIO_NAME     "esp32c3.machine.reset_gpio"
 #define MB (1024*1024)
 
 
@@ -165,35 +165,10 @@ static const MemoryRegionOps esp32c3_io_ops = {
 };
 
 
-static void esp32c3_system_reset(void* opaque)
-{
-    Esp32C3MachineState *s = (Esp32C3MachineState *) opaque;
-
-    /* Reset the devices */
-    device_cold_reset(DEVICE(&s->intmatrix));
-    device_cold_reset(DEVICE(&s->gpio));
-    device_cold_reset(DEVICE(&s->cache));
-    device_cold_reset(DEVICE(&s->efuse));
-    device_cold_reset(DEVICE(&s->clock));
-    device_cold_reset(DEVICE(&s->gdma));
-    device_cold_reset(DEVICE(&s->aes));
-    device_cold_reset(DEVICE(&s->sha));
-    device_cold_reset(DEVICE(&s->rsa));
-    device_cold_reset(DEVICE(&s->systimer));
-    device_cold_reset(DEVICE(&s->spi1));
-    device_cold_reset(DEVICE(&s->rtccntl));
-    device_cold_reset(DEVICE(&s->jtag));
-
-    for (int i = 0; i < 2; i++) {
-        device_cold_reset(DEVICE(&s->timg[i]));
-    }
- 
-    for (int i = 0; i < ESP32C3_UART_COUNT; i++) {
-        device_cold_reset(DEVICE(&s->uart[i]));
-    }
-}
- 
-static void esp32c3_reset_from_rtc(void* opaque, int n, int level)
+/**
+ * @brief Callback invoked when SoC's ESP32C3_RESET_GPIO_NAME pin is toggled
+ */
+static void esp32c3_reset_request(void* opaque, int n, int level)
 {
     if (level) {
         ShutdownCause cause = SHUTDOWN_CAUSE_GUEST_RESET;
@@ -302,8 +277,8 @@ static void esp32c3_machine_init(MachineState *machine)
     memory_region_add_subregion(sys_mem, ESP32C3_IO_START_ADDR, &ms->iomem);
 
 
-    /* Initialize the I/O of the CPU */
-    qdev_init_gpio_in_named(DEVICE(&ms->soc), esp32c3_reset_from_rtc, ESP32C3_RTC_CPU_RESET_GPIO, 1);
+    /* Initialize the main I/O of the CPU that waits for "reset" requests */
+    qdev_init_gpio_in_named(DEVICE(&ms->soc), esp32c3_reset_request, ESP32C3_RESET_GPIO_NAME, 1);
 
     /* Initialize the I/O peripherals */
     for (int i = 0; i < ESP32C3_UART_COUNT; ++i) {
@@ -339,7 +314,7 @@ static void esp32c3_machine_init(MachineState *machine)
     {
         /* Store the current Machine CPU in the interrupt matrix */
         object_property_set_link(OBJECT(&ms->intmatrix), "cpu", OBJECT(&ms->soc), &error_abort);
-        qdev_realize(DEVICE(&ms->intmatrix), &ms->periph_bus, &error_fatal);
+        sysbus_realize(SYS_BUS_DEVICE(&ms->intmatrix), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->intmatrix), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_INTERRUPT_BASE, mr, 0);
 
@@ -356,23 +331,24 @@ static void esp32c3_machine_init(MachineState *machine)
 
     /* USB Serial JTAG realization */
     {
-        qdev_realize(DEVICE(&ms->jtag), &ms->periph_bus, &error_fatal);
+        sysbus_realize(SYS_BUS_DEVICE(&ms->jtag), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->jtag), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_USB_SERIAL_JTAG_BASE, mr, 0);
     }
 
     /* RTC CNTL realization */
     {
-        qdev_realize(DEVICE(&ms->rtccntl), &ms->periph_bus, &error_fatal);
+        sysbus_realize(SYS_BUS_DEVICE(&ms->rtccntl), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->rtccntl), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_RTCCNTL_BASE, mr, 0);
+        /* Connect CNTL's reset-request GPIO to the SoC's reset GPIO */
         qdev_connect_gpio_out_named(DEVICE(&ms->rtccntl), ESP32C3_RTC_CPU_RESET_GPIO, 0,
-            qdev_get_gpio_in_named(DEVICE(&ms->soc), ESP32C3_RTC_CPU_RESET_GPIO, 0));
+                                    qdev_get_gpio_in_named(DEVICE(&ms->soc), ESP32C3_RESET_GPIO_NAME, 0));
     }
 
     /* SPI1 controller (SPI Flash) */
     {
-        qdev_realize(DEVICE(&ms->spi1), &ms->periph_bus, &error_fatal);
+        sysbus_realize(SYS_BUS_DEVICE(&ms->spi1), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->spi1), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_SPI1_BASE, mr, 0);
         esp32c3_init_spi_flash(ms, blk);
@@ -380,7 +356,7 @@ static void esp32c3_machine_init(MachineState *machine)
 
     for (int i = 0; i < ESP32C3_UART_COUNT; ++i) {
         const hwaddr uart_base[] = { DR_REG_UART_BASE, DR_REG_UART1_BASE };
-        qdev_realize(DEVICE(&ms->uart[i]), &ms->periph_bus, &error_fatal);
+        sysbus_realize(SYS_BUS_DEVICE(&ms->uart[i]), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->uart[i]), 0);
         memory_region_add_subregion_overlap(sys_mem, uart_base[i], mr, 0);
         sysbus_connect_irq(SYS_BUS_DEVICE(&ms->uart[i]), 0,
@@ -389,7 +365,7 @@ static void esp32c3_machine_init(MachineState *machine)
 
     /* GPIO realization */
     {
-        qdev_realize(DEVICE(&ms->gpio), &ms->periph_bus, &error_fatal);
+        sysbus_realize(SYS_BUS_DEVICE(&ms->gpio), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->gpio), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_GPIO_BASE, mr, 0);
     }
@@ -399,7 +375,7 @@ static void esp32c3_machine_init(MachineState *machine)
         if (blk) {
             ms->cache.flash_blk = blk;
         }
-        qdev_realize(DEVICE(&ms->cache), &ms->periph_bus, &error_fatal);
+        sysbus_realize(SYS_BUS_DEVICE(&ms->cache), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->cache), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_EXTMEM_BASE, mr, 0);
 
@@ -409,7 +385,7 @@ static void esp32c3_machine_init(MachineState *machine)
 
     /* eFuses realization */
     {
-        qdev_realize(DEVICE(&ms->efuse), &ms->periph_bus, &error_fatal);
+        sysbus_realize(SYS_BUS_DEVICE(&ms->efuse), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->efuse), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_EFUSE_BASE, mr, 0);
         sysbus_connect_irq(SYS_BUS_DEVICE(&ms->efuse), 0,
@@ -418,7 +394,7 @@ static void esp32c3_machine_init(MachineState *machine)
 
     /* System clock realization */
     {
-        qdev_realize(DEVICE(&ms->clock), &ms->periph_bus, &error_fatal);
+        sysbus_realize(SYS_BUS_DEVICE(&ms->clock), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->clock), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_SYSTEM_BASE, mr, 0);
         /* Connect the IRQ lines to the interrupt matrix */
@@ -438,7 +414,7 @@ static void esp32c3_machine_init(MachineState *machine)
 
     /* Timer Groups realization */
     {
-        qdev_realize(DEVICE(&ms->timg[0]), &ms->periph_bus, &error_fatal);
+        sysbus_realize(SYS_BUS_DEVICE(&ms->timg[0]), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->timg[0]), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_TIMERGROUP0_BASE, mr, 0);
         /* Connect the T0 interrupt line to the interrupt matrix */
@@ -447,13 +423,13 @@ static void esp32c3_machine_init(MachineState *machine)
         /* Connect the Watchdog interrupt line to the interrupt matrix */
         qdev_connect_gpio_out_named(DEVICE(&ms->timg[0]), ESP32C3_WDT_IRQ_INTERRUPT, 0,
                                     qdev_get_gpio_in(intmatrix_dev, ETS_TG0_WDT_LEVEL_INTR_SOURCE));
-        /* Connect the Watchdog reset request */
+        /* Connect the Watchdog reset request to the CNTL's WDT0 line */
         qdev_connect_gpio_out_named(DEVICE(&ms->timg[0]), ESP32C3_WDT_IRQ_RESET, 0,
-                                    qdev_get_gpio_in_named(DEVICE(&ms->soc), ESP32C3_RTC_CPU_RESET_GPIO, 0));
+                                    qdev_get_gpio_in(DEVICE(&ms->rtccntl), ESP32C3_TG0WDT_SYS_RESET));
 
     }
     {
-        qdev_realize(DEVICE(&ms->timg[1]), &ms->periph_bus, &error_fatal);
+        sysbus_realize(SYS_BUS_DEVICE(&ms->timg[1]), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->timg[1]), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_TIMERGROUP1_BASE, mr, 0);
         /* Connect the T0 interrupt line to the interrupt matrix */
@@ -462,12 +438,12 @@ static void esp32c3_machine_init(MachineState *machine)
         qdev_connect_gpio_out_named(DEVICE(&ms->timg[1]), ESP32C3_WDT_IRQ_INTERRUPT, 0,
                                     qdev_get_gpio_in(intmatrix_dev, ETS_TG1_WDT_LEVEL_INTR_SOURCE));
         qdev_connect_gpio_out_named(DEVICE(&ms->timg[1]), ESP32C3_WDT_IRQ_RESET, 0,
-                            qdev_get_gpio_in_named(DEVICE(&ms->soc), ESP32C3_RTC_CPU_RESET_GPIO, 0));
+                                    qdev_get_gpio_in(DEVICE(&ms->rtccntl), ESP32C3_TG1WDT_SYS_RESET));
     }
 
     /* System timer */
     {
-        qdev_realize(DEVICE(&ms->systimer), &ms->periph_bus, &error_fatal);
+        sysbus_realize(SYS_BUS_DEVICE(&ms->systimer), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->systimer), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_SYSTIMER_BASE, mr, 0);
         for (int i = 0; i < ESP32C3_SYSTIMER_IRQ_COUNT; i++) {
@@ -479,7 +455,7 @@ static void esp32c3_machine_init(MachineState *machine)
     /* GDMA Realization */
     {
         object_property_set_link(OBJECT(&ms->gdma), "soc_mr", OBJECT(dram), &error_abort);
-        qdev_realize(DEVICE(&ms->gdma), &ms->periph_bus, &error_fatal);
+        sysbus_realize(SYS_BUS_DEVICE(&ms->gdma), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->gdma), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_GDMA_BASE, mr, 0);
         /* Connect the IRQs to the Interrupt Matrix */
@@ -493,7 +469,7 @@ static void esp32c3_machine_init(MachineState *machine)
     /* SHA realization */
     {
         ms->sha.gdma = &ms->gdma;
-        qdev_realize(DEVICE(&ms->sha), &ms->periph_bus, &error_fatal);
+        sysbus_realize(SYS_BUS_DEVICE(&ms->sha), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->sha), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_SHA_BASE, mr, 0);
         sysbus_connect_irq(SYS_BUS_DEVICE(&ms->sha), 0,
@@ -503,7 +479,7 @@ static void esp32c3_machine_init(MachineState *machine)
     /* AES realization */
     {
         ms->aes.gdma = &ms->gdma;
-        qdev_realize(DEVICE(&ms->aes), &ms->periph_bus, &error_fatal);
+        sysbus_realize(SYS_BUS_DEVICE(&ms->aes), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->aes), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_AES_BASE, mr, 0);
         sysbus_connect_irq(SYS_BUS_DEVICE(&ms->aes), 0,
@@ -512,15 +488,12 @@ static void esp32c3_machine_init(MachineState *machine)
 
     /* RSA realization */
     {
-        qdev_realize(DEVICE(&ms->rsa), &ms->periph_bus, &error_fatal);
+        sysbus_realize(SYS_BUS_DEVICE(&ms->rsa), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->rsa), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_RSA_BASE, mr, 0);
         sysbus_connect_irq(SYS_BUS_DEVICE(&ms->rsa), 0,
                            qdev_get_gpio_in(intmatrix_dev, ETS_RSA_INTR_SOURCE));
     }
-
-    /* Register reset function so that it is called when `system_reset` is invoked in QEMU monitor */
-    qemu_register_reset(esp32c3_system_reset, ms);
 
     /* Open and load the "bios", which is the ROM binary, also named "first stage bootloader" */
     char *rom_binary = qemu_find_file(QEMU_FILE_TYPE_BIOS, "esp32c3-rom.bin");

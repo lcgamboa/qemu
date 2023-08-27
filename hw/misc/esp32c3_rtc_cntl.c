@@ -23,6 +23,19 @@
 #define RTCCNTL_WARNING   0
 
 
+static void esp32c3_reset_request(void *opaque, int n, int level)
+{
+    ESP32C3RtcCntlState *s = ESP32C3_RTC_CNTL(opaque);
+    /* Make sure the "reset reason" is correct */
+    assert(n < ESP32C3_COUNT_RESET);
+
+    if (level) {
+        s->reason = n;
+        qemu_irq_raise(s->cpu_reset);
+    }
+}
+
+
 static uint64_t esp32c3_rtc_cntl_read(void* opaque, hwaddr addr, unsigned int size)
 {
     ESP32C3RtcCntlState *s = ESP32C3_RTC_CNTL(opaque);
@@ -33,7 +46,7 @@ static uint64_t esp32c3_rtc_cntl_read(void* opaque, hwaddr addr, unsigned int si
             r = s->options0;
             break;
         case A_RTC_CNTL_RTC_RESET_STATE:
-            r = ESP32C3_POWERON_RESET;
+            r = s->reason;
             break;
         case A_RTC_CNTL_RTC_STORE4:
             /* XTAL frequency: 40MHz, must be in both upper and lower half-word */
@@ -62,9 +75,10 @@ static void esp32c3_rtc_cntl_write(void* opaque, hwaddr addr, uint64_t value, un
             CLEAR_BIT(value, R_RTC_CNTL_RTC_OPTIONS0_SW_PROCPU_RST_SHIFT);
             s->options0 = value;
             /* Check if we have to reset the CPU/machine */
-            if (FIELD_EX32(c_value, RTC_CNTL_RTC_OPTIONS0, SW_SYS_RST) ||
-                FIELD_EX32(c_value, RTC_CNTL_RTC_OPTIONS0, SW_PROCPU_RST)) {
-                qemu_irq_raise(s->cpu_reset);
+            if (FIELD_EX32(c_value, RTC_CNTL_RTC_OPTIONS0, SW_SYS_RST)) {
+                esp32c3_reset_request(opaque, ESP32C3_RTC_SW_SYS_RESET, 1);
+            } else if (FIELD_EX32(c_value, RTC_CNTL_RTC_OPTIONS0, SW_PROCPU_RST)) {
+                esp32c3_reset_request(opaque, ESP32C3_RTC_SW_CPU_RESET, 1);
             }
             break;
         default:
@@ -86,8 +100,15 @@ static const MemoryRegionOps esp_rtc_cntl_ops = {
 
 static void esp32c3_rtc_cntl_reset(DeviceState *dev)
 {
+    static bool first_boot = true;
     ESP32C3RtcCntlState *s = ESP32C3_RTC_CNTL(dev);
     s->options0 = 0;
+
+    if (first_boot) {
+        s->reason = ESP32C3_POWERON_RESET;
+        first_boot = false;
+    }
+
     qemu_irq_lower(s->cpu_reset);
 }
 
@@ -109,6 +130,8 @@ static void esp32c3_rtc_cntl_init(Object *obj)
                           TYPE_ESP32C3_RTC_CNTL, ESP32C3_RTC_CNTL_IO_SIZE);
     sysbus_init_mmio(sbd, &s->iomem);
 
+    /* Initialize ESP32C3_COUNT_RESET input lines, each representing a reset source (reason) */
+    qdev_init_gpio_in(DEVICE(s), esp32c3_reset_request, ESP32C3_COUNT_RESET);
     /* Initialize the GPIO that will notify the CPU to reset itself */
     qdev_init_gpio_out_named(DEVICE(s), &s->cpu_reset, ESP32C3_RTC_CPU_RESET_GPIO, 1);
 }

@@ -20,17 +20,6 @@
  */
 #define ESP32C3_RTC_CNTL_IO_SIZE    (A_RTC_CNTL_DATE + 4)
 
-
-typedef struct ESP32C3RtcCntlState {
-    SysBusDevice parent_obj;
-    MemoryRegion iomem;
-
-    uint32_t options0;
-    qemu_irq cpu_reset;
-
-} ESP32C3RtcCntlState;
-
-
 typedef enum ESP32C3ResetReason {
     ESP32C3_NO_MEAN                =  0,
     ESP32C3_POWERON_RESET          =  1,    /**<1, Vbat power on reset*/
@@ -52,7 +41,21 @@ typedef enum ESP32C3ResetReason {
     ESP32C3_USB_UART_CHIP_RESET    = 21,    /**<21, usb uart reset digital core and rtc module */
     ESP32C3_USB_JTAG_CHIP_RESET    = 22,    /**<22, usb jtag reset digital core and rtc module*/
     ESP32C3_POWER_GLITCH_RESET     = 23,    /**<23, power glitch reset digital core and rtc module*/
+    ESP32C3_COUNT_RESET            = 24
 } ESP32C3ResetReason;
+
+
+typedef struct ESP32C3RtcCntlState {
+    SysBusDevice parent_obj;
+    MemoryRegion iomem;
+
+    uint32_t options0;
+    ESP32C3ResetReason reason;
+    /* IRQ used to notify the machine that we need a reset */
+    qemu_irq cpu_reset;
+
+} ESP32C3RtcCntlState;
+
 
 REG32(RTC_CNTL_RTC_OPTIONS0, 0x0000)
     FIELD(RTC_CNTL_RTC_OPTIONS0, SW_SYS_RST, 31, 1)
