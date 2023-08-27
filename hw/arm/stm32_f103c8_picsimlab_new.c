@@ -115,6 +115,7 @@ typedef struct
    int (*picsimlab_i2c_event)(const uint8_t id, const uint8_t addr, const uint16_t event);
    uint8_t (*picsimlab_spi_event)(const uint8_t id, const uint16_t event);
    void (*picsimlab_uart_tx_event)(const uint8_t id, const uint8_t val);
+   const short int * pinmap;   
 } callbacks_t;
 
 void (*picsimlab_write_pin)(int pin, int value) = NULL;
@@ -122,6 +123,7 @@ void (*picsimlab_dir_pin)(int pin, int value) = NULL;
 int (*picsimlab_i2c_event)(const uint8_t id, const uint8_t addr, const uint16_t event) = NULL;
 uint8_t (*picsimlab_spi_event)(const uint8_t id, const uint16_t event) = NULL;
 void (*picsimlab_uart_tx_event)(const uint8_t id, const uint8_t val) = NULL;
+const short int * pinmap = NULL;
 
 void qemu_picsimlab_register_callbacks(void *arg)
 {
@@ -132,6 +134,7 @@ void qemu_picsimlab_register_callbacks(void *arg)
    picsimlab_i2c_event = callbacks->picsimlab_i2c_event;
    picsimlab_spi_event = callbacks->picsimlab_spi_event;
    picsimlab_uart_tx_event = callbacks->picsimlab_uart_tx_event;
+   pinmap = callbacks->pinmap;   
 }
 
 void qemu_picsimlab_set_pin(int pin, int value)
@@ -234,132 +237,35 @@ stm32_f103c8_picsimlab_init(MachineState *machine)
    s->pdir_irq = qemu_allocate_irqs(pdir_irq_handler, NULL, 49);
    s->pout_irq = qemu_allocate_irqs(pout_irq_handler, NULL, 49);
 
-   // 0
-   // VBAT
-   qdev_connect_gpio_out(s->gpio_c, 13, s->pout_irq[2]);
-   qdev_connect_gpio_out_named(s->gpio_c, STM32_GPIOS_DIR, 13, s->pdir_irq[2]);
-   s->pin_irq[2] = qdev_get_gpio_in(s->gpio_c, 13);
-   qdev_connect_gpio_out(s->gpio_c, 14, s->pout_irq[3]);
-   qdev_connect_gpio_out_named(s->gpio_c, STM32_GPIOS_DIR, 14, s->pdir_irq[3]);
-   s->pin_irq[3] = qdev_get_gpio_in(s->gpio_c, 14);
-   qdev_connect_gpio_out(s->gpio_c, 15, s->pout_irq[4]);
-   qdev_connect_gpio_out_named(s->gpio_c, STM32_GPIOS_DIR, 15, s->pdir_irq[4]);
-   s->pin_irq[4] = qdev_get_gpio_in(s->gpio_c, 15);
-   qdev_connect_gpio_out(s->gpio_d, 0, s->pout_irq[5]);
-   qdev_connect_gpio_out_named(s->gpio_d, STM32_GPIOS_DIR, 0, s->pdir_irq[15]);
-   s->pin_irq[5] = qdev_get_gpio_in(s->gpio_d, 0);
-   qdev_connect_gpio_out(s->gpio_d, 1, s->pout_irq[6]);
-   qdev_connect_gpio_out_named(s->gpio_d, STM32_GPIOS_DIR, 1, s->pdir_irq[6]);
-   s->pin_irq[6] = qdev_get_gpio_in(s->gpio_d, 1);
-   // 7 NRST
-   // 8 VSSA
-   // 9 VDDA
-   qdev_connect_gpio_out(s->gpio_a, 0, s->pout_irq[10]);
-   qdev_connect_gpio_out_named(s->gpio_a, STM32_GPIOS_DIR, 0, s->pdir_irq[10]);
-   s->pin_irq[10] = qdev_get_gpio_in(s->gpio_a, 0);
-   qdev_connect_gpio_out(s->gpio_a, 1, s->pout_irq[11]);
-   qdev_connect_gpio_out_named(s->gpio_a, STM32_GPIOS_DIR, 1, s->pdir_irq[11]);
-   s->pin_irq[11] = qdev_get_gpio_in(s->gpio_a, 1);
-   qdev_connect_gpio_out(s->gpio_a, 2, s->pout_irq[12]);
-   qdev_connect_gpio_out_named(s->gpio_a, STM32_GPIOS_DIR, 2, s->pdir_irq[12]);
-   s->pin_irq[12] = qdev_get_gpio_in(s->gpio_a, 2);
+   if(pinmap){
+      for(int pin = 1; pin < 49; pin++){
+        if(pinmap[pin-1] >= 0 ){
+           DeviceState * gport = NULL;
 
-   qdev_connect_gpio_out(s->gpio_a, 3, s->pout_irq[13]);
-   qdev_connect_gpio_out_named(s->gpio_a, STM32_GPIOS_DIR, 3, s->pdir_irq[13]);
-   s->pin_irq[13] = qdev_get_gpio_in(s->gpio_a, 3);
-   qdev_connect_gpio_out(s->gpio_a, 4, s->pout_irq[14]);
-   qdev_connect_gpio_out_named(s->gpio_a, STM32_GPIOS_DIR, 4, s->pdir_irq[14]);
-   s->pin_irq[14] = qdev_get_gpio_in(s->gpio_a, 4);
-   qdev_connect_gpio_out(s->gpio_a, 5, s->pout_irq[15]);
-   qdev_connect_gpio_out_named(s->gpio_a, STM32_GPIOS_DIR, 5, s->pdir_irq[15]);
-   s->pin_irq[15] = qdev_get_gpio_in(s->gpio_a, 5);
-   qdev_connect_gpio_out(s->gpio_a, 6, s->pout_irq[16]);
-   qdev_connect_gpio_out_named(s->gpio_a, STM32_GPIOS_DIR, 6, s->pdir_irq[16]);
-   s->pin_irq[16] = qdev_get_gpio_in(s->gpio_a, 6);
-   qdev_connect_gpio_out(s->gpio_a, 7, s->pout_irq[17]);
-   qdev_connect_gpio_out_named(s->gpio_a, STM32_GPIOS_DIR, 7, s->pdir_irq[17]);
-   s->pin_irq[17] = qdev_get_gpio_in(s->gpio_a, 7);
-   qdev_connect_gpio_out(s->gpio_b, 0, s->pout_irq[18]);
-   qdev_connect_gpio_out_named(s->gpio_b, STM32_GPIOS_DIR, 0, s->pdir_irq[18]);
-   s->pin_irq[18] = qdev_get_gpio_in(s->gpio_b, 0);
-   qdev_connect_gpio_out(s->gpio_b, 1, s->pout_irq[19]);
-   qdev_connect_gpio_out_named(s->gpio_b, STM32_GPIOS_DIR, 1, s->pdir_irq[19]);
-   s->pin_irq[19] = qdev_get_gpio_in(s->gpio_b, 1);
-   qdev_connect_gpio_out(s->gpio_b, 2, s->pout_irq[20]);
-   qdev_connect_gpio_out_named(s->gpio_b, STM32_GPIOS_DIR, 2, s->pdir_irq[20]);
-   s->pin_irq[20] = qdev_get_gpio_in(s->gpio_b, 2);
-   qdev_connect_gpio_out(s->gpio_b, 10, s->pout_irq[21]);
-   qdev_connect_gpio_out_named(s->gpio_b, STM32_GPIOS_DIR, 10, s->pdir_irq[21]);
-   s->pin_irq[21] = qdev_get_gpio_in(s->gpio_b, 10);
-   qdev_connect_gpio_out(s->gpio_b, 11, s->pout_irq[22]);
-   qdev_connect_gpio_out_named(s->gpio_b, STM32_GPIOS_DIR, 11, s->pdir_irq[22]);
-   s->pin_irq[22] = qdev_get_gpio_in(s->gpio_b, 11);
-   // 23 VSS
-   // 24 VDD
+           switch ((pinmap[pin-1] & 0xF000) >> 12)
+           {
+           case 1:
+             gport = s->gpio_a;
+            break;
+           case 2:
+             gport = s->gpio_b;
+            break;
+           case 3:
+             gport = s->gpio_c;
+            break;
+           case 4:
+             gport = s->gpio_d;
+            break;                                 
+           } 
 
-   qdev_connect_gpio_out(s->gpio_b, 12, s->pout_irq[25]);
-   qdev_connect_gpio_out_named(s->gpio_b, STM32_GPIOS_DIR, 12, s->pdir_irq[25]);
-   s->pin_irq[25] = qdev_get_gpio_in(s->gpio_b, 12);
-   qdev_connect_gpio_out(s->gpio_b, 13, s->pout_irq[26]);
-   qdev_connect_gpio_out_named(s->gpio_b, STM32_GPIOS_DIR, 13, s->pdir_irq[26]);
-   s->pin_irq[26] = qdev_get_gpio_in(s->gpio_b, 13);
-   qdev_connect_gpio_out(s->gpio_b, 14, s->pout_irq[27]);
-   qdev_connect_gpio_out_named(s->gpio_b, STM32_GPIOS_DIR, 14, s->pdir_irq[27]);
-   s->pin_irq[27] = qdev_get_gpio_in(s->gpio_b, 14);
-   qdev_connect_gpio_out(s->gpio_b, 15, s->pout_irq[28]);
-   qdev_connect_gpio_out_named(s->gpio_b, STM32_GPIOS_DIR, 15, s->pdir_irq[28]);
-   s->pin_irq[28] = qdev_get_gpio_in(s->gpio_b, 15);
-   qdev_connect_gpio_out(s->gpio_a, 8, s->pout_irq[29]);
-   qdev_connect_gpio_out_named(s->gpio_a, STM32_GPIOS_DIR, 8, s->pdir_irq[29]);
-   s->pin_irq[29] = qdev_get_gpio_in(s->gpio_a, 8);
-   qdev_connect_gpio_out(s->gpio_a, 9, s->pout_irq[30]);
-   qdev_connect_gpio_out_named(s->gpio_a, STM32_GPIOS_DIR, 9, s->pdir_irq[30]);
-   s->pin_irq[30] = qdev_get_gpio_in(s->gpio_a, 9);
-   qdev_connect_gpio_out(s->gpio_a, 10, s->pout_irq[31]);
-   qdev_connect_gpio_out_named(s->gpio_a, STM32_GPIOS_DIR, 10, s->pdir_irq[31]);
-   s->pin_irq[31] = qdev_get_gpio_in(s->gpio_a, 10);
-   qdev_connect_gpio_out(s->gpio_a, 11, s->pout_irq[32]);
-   qdev_connect_gpio_out_named(s->gpio_a, STM32_GPIOS_DIR, 11, s->pdir_irq[32]);
-   s->pin_irq[32] = qdev_get_gpio_in(s->gpio_a, 11);
-   qdev_connect_gpio_out(s->gpio_a, 12, s->pout_irq[33]);
-   qdev_connect_gpio_out_named(s->gpio_a, STM32_GPIOS_DIR, 12, s->pdir_irq[33]);
-   s->pin_irq[33] = qdev_get_gpio_in(s->gpio_a, 12);
-   qdev_connect_gpio_out(s->gpio_a, 13, s->pout_irq[34]);
-   qdev_connect_gpio_out_named(s->gpio_a, STM32_GPIOS_DIR, 13, s->pdir_irq[34]);
-   s->pin_irq[34] = qdev_get_gpio_in(s->gpio_a, 13);
-   // 35 VSS
-   // 36 VDD
-
-   qdev_connect_gpio_out(s->gpio_a, 14, s->pout_irq[37]);
-   qdev_connect_gpio_out_named(s->gpio_a, STM32_GPIOS_DIR, 14, s->pdir_irq[37]);
-   s->pin_irq[37] = qdev_get_gpio_in(s->gpio_a, 14);
-   qdev_connect_gpio_out(s->gpio_a, 15, s->pout_irq[38]);
-   qdev_connect_gpio_out_named(s->gpio_a, STM32_GPIOS_DIR, 15, s->pdir_irq[38]);
-   s->pin_irq[38] = qdev_get_gpio_in(s->gpio_a, 15);
-   qdev_connect_gpio_out(s->gpio_b, 3, s->pout_irq[39]);
-   qdev_connect_gpio_out_named(s->gpio_b, STM32_GPIOS_DIR, 3, s->pdir_irq[39]);
-   s->pin_irq[39] = qdev_get_gpio_in(s->gpio_b, 3);
-   qdev_connect_gpio_out(s->gpio_b, 4, s->pout_irq[40]);
-   qdev_connect_gpio_out_named(s->gpio_b, STM32_GPIOS_DIR, 4, s->pdir_irq[40]);
-   s->pin_irq[40] = qdev_get_gpio_in(s->gpio_b, 4);
-   qdev_connect_gpio_out(s->gpio_b, 5, s->pout_irq[41]);
-   qdev_connect_gpio_out_named(s->gpio_b, STM32_GPIOS_DIR, 5, s->pdir_irq[41]);
-   s->pin_irq[41] = qdev_get_gpio_in(s->gpio_b, 5);
-   qdev_connect_gpio_out(s->gpio_b, 6, s->pout_irq[42]);
-   qdev_connect_gpio_out_named(s->gpio_b, STM32_GPIOS_DIR, 6, s->pdir_irq[42]);
-   s->pin_irq[42] = qdev_get_gpio_in(s->gpio_b, 6);
-   qdev_connect_gpio_out(s->gpio_b, 7, s->pout_irq[43]);
-   qdev_connect_gpio_out_named(s->gpio_b, STM32_GPIOS_DIR, 7, s->pdir_irq[43]);
-   s->pin_irq[43] = qdev_get_gpio_in(s->gpio_b, 7);
-   // 44 BOOT0
-   qdev_connect_gpio_out(s->gpio_b, 8, s->pout_irq[45]);
-   qdev_connect_gpio_out_named(s->gpio_b, STM32_GPIOS_DIR, 8, s->pdir_irq[45]);
-   s->pin_irq[45] = qdev_get_gpio_in(s->gpio_b, 8);
-   qdev_connect_gpio_out(s->gpio_b, 9, s->pout_irq[46]);
-   qdev_connect_gpio_out_named(s->gpio_b, STM32_GPIOS_DIR, 9, s->pdir_irq[46]);
-   s->pin_irq[46] = qdev_get_gpio_in(s->gpio_b, 9);
-   // 47 VSS
-   // 48 VDD
+           if(gport){
+             qdev_connect_gpio_out(gport, pinmap[pin-1] & 0x0FFF, s->pout_irq[pin]);
+             qdev_connect_gpio_out_named(gport, STM32_GPIOS_DIR, pinmap[pin-1] & 0x0FFF, s->pdir_irq[pin]);
+             s->pin_irq[pin] = qdev_get_gpio_in(gport, pinmap[pin-1] & 0x0FFF);
+           }
+        }
+      } 
+    }
 
    /* Connect RS232 to UART 1 */
    stm32_uart_connect(
