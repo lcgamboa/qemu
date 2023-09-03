@@ -728,8 +728,7 @@ static void esp32c3_machine_init(MachineState *machine)
     psync_irq = qemu_allocate_irqs (psync_irq_handler, NULL, 1);
     qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_SYNC, 0 , psync_irq[0]);
     qdev_connect_gpio_out_named(DEVICE(&ms->iomux), ESP32_IOMUX_SYNC, 0 , psync_irq[0]);
-    pdir_irq = qemu_allocate_irqs (pdir_irq_handler, NULL, 31);
-    pout_irq = qemu_allocate_irqs (pout_irq_handler, NULL, 31);
+
 /*
     spi_cs_irq = qemu_allocate_irqs (spi_cs_irq_handler, NULL, 8);
 
@@ -743,11 +742,13 @@ static void esp32c3_machine_init(MachineState *machine)
 */
 
     if(pinmap){
-      for(int pin = 1; pin < 31; pin++){
-        if(pinmap[pin-1] >= 0){
-            qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS, pinmap[pin-1], pout_irq[pin]);
-            qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, pinmap[pin-1] , pdir_irq[pin]);
-            pin_irq[pin]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, pinmap[pin-1]);
+      pdir_irq = qemu_allocate_irqs (pdir_irq_handler, NULL, pinmap[0]+1 );
+      pout_irq = qemu_allocate_irqs (pout_irq_handler, NULL, pinmap[0]+1);
+      for(int pin = 1; pin < (pinmap[0]+1); pin++){
+        if(pinmap[pin] >= 0){
+            qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS, pinmap[pin], pout_irq[pin]);
+            qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, pinmap[pin] , pdir_irq[pin]);
+            pin_irq[pin]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, pinmap[pin]);
         }
       } 
     }
