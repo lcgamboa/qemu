@@ -24,7 +24,7 @@
 #include "hw/arm/stm32.h"
 #include "hw/sysbus.h"
 #include "hw/arm/armv7m.h"
-// #include "hw/devices.h"
+//#include "hw/devices.h"
 #include "ui/console.h"
 #include "sysemu/sysemu.h"
 #include "hw/boards.h"
@@ -234,15 +234,14 @@ stm32_f103c8_picsimlab_init(MachineState *machine)
    qdev_connect_gpio_out_named(s->gpio_c, STM32_GPIOS_SYNC, 0, s->psync_irq[2]);
    qdev_connect_gpio_out_named(s->gpio_d, STM32_GPIOS_SYNC, 0, s->psync_irq[3]);
 
-   s->pdir_irq = qemu_allocate_irqs(pdir_irq_handler, NULL, 49);
-   s->pout_irq = qemu_allocate_irqs(pout_irq_handler, NULL, 49);
-
    if(pinmap){
-      for(int pin = 1; pin < 49; pin++){
-        if(pinmap[pin-1] >= 0 ){
+      s->pdir_irq = qemu_allocate_irqs(pdir_irq_handler, NULL, pinmap[0]+1);
+      s->pout_irq = qemu_allocate_irqs(pout_irq_handler, NULL, pinmap[0]+1);
+      for(int pin = 1; pin < (pinmap[0]+1); pin++){
+        if(pinmap[pin] >= 0 ){
            DeviceState * gport = NULL;
 
-           switch ((pinmap[pin-1] & 0xF000) >> 12)
+           switch ((pinmap[pin] & 0xF000) >> 12)
            {
            case 1:
              gport = s->gpio_a;
@@ -259,9 +258,9 @@ stm32_f103c8_picsimlab_init(MachineState *machine)
            } 
 
            if(gport){
-             qdev_connect_gpio_out(gport, pinmap[pin-1] & 0x0FFF, s->pout_irq[pin]);
-             qdev_connect_gpio_out_named(gport, STM32_GPIOS_DIR, pinmap[pin-1] & 0x0FFF, s->pdir_irq[pin]);
-             s->pin_irq[pin] = qdev_get_gpio_in(gport, pinmap[pin-1] & 0x0FFF);
+             qdev_connect_gpio_out(gport, pinmap[pin] & 0x0FFF, s->pout_irq[pin]);
+             qdev_connect_gpio_out_named(gport, STM32_GPIOS_DIR, pinmap[pin] & 0x0FFF, s->pdir_irq[pin]);
+             s->pin_irq[pin] = qdev_get_gpio_in(gport, pinmap[pin] & 0x0FFF);
            }
         }
       } 
