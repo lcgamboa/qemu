@@ -211,9 +211,6 @@ stm32_i2c_read(void *arg, hwaddr offset, unsigned size)
               stm32_i2c_update_irq(s);
               s->clrseq = 0;
            }
-           if(s->needstop){
-              stm32_i2c_stop(s);
-           }
        break;
        case R_I2C_DR:
            if(s->regs[R_I2C_SR1] & R_I2C_SR1_BTF_BIT){
@@ -231,16 +228,16 @@ stm32_i2c_read(void *arg, hwaddr offset, unsigned size)
              } 
            }
            
-           if(s->needstop){ 
-              stm32_i2c_stop(s);
-           }
-           else{
+           if(!s->needstop){ 
               stm32_i2c_update_irq(s); 
            }
        break;
        default:
            s->clrseq = 0;
        break;
+    }
+    if(s->needstop){ 
+        stm32_i2c_stop(s);
     }
     return r;
 }
