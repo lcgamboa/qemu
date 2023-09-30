@@ -100,8 +100,9 @@ static void esp32_ledc_write(void *opaque, hwaddr addr,
     case A_LEDC_LSCH5_DUTY_REG:
     case A_LEDC_LSCH6_DUTY_REG:
     case A_LEDC_LSCH7_DUTY_REG:
-        led_set_intensity(&s->led[(addr - A_LEDC_HSCH0_DUTY_REG) / 0x14], esp32_ledc_get_percent(s, value, addr));
-        qemu_set_irq(s->ledc_sync[0], (0x5000 | led_get_intensity(&s->led[(addr - A_LEDC_HSCH0_DUTY_REG) / 0x14])));
+        int ledn = (addr - A_LEDC_HSCH0_DUTY_REG) / 0x14;
+        led_set_intensity(&s->led[ledn], esp32_ledc_get_percent(s, value, addr));
+        qemu_set_irq(s->ledc_sync[0], (0x5000 | (ledn << 8) | led_get_intensity(&s->led[ledn])));
         break;
     }
 
@@ -125,6 +126,7 @@ static void esp32_ledc_init(Object *obj)
 {
     Esp32LEDCState *s = ESP32_LEDC(obj);
     SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
+    qdev_init_gpio_out_named(DEVICE(s), s->ledc_sync, ESP32_LEDC_SYNC, 1);
     memory_region_init_io(&s->iomem, obj, &esp32_ledc_ops, s,
                           TYPE_ESP32_LEDC, ESP32_LEDC_REGS_SIZE);
     sysbus_init_mmio(sbd, &s->iomem);
