@@ -2,6 +2,7 @@
 #include "hw/sysbus.h"
 #include "qemu/log.h"
 #include "qapi/error.h"
+#include "hw/irq.h"
 #include "hw/misc/esp32_ledc.h"
 
 #define ESP32_LEDC_REGS_SIZE (A_LEDC_CONF_REG + 4)
@@ -100,6 +101,7 @@ static void esp32_ledc_write(void *opaque, hwaddr addr,
     case A_LEDC_LSCH6_DUTY_REG:
     case A_LEDC_LSCH7_DUTY_REG:
         led_set_intensity(&s->led[(addr - A_LEDC_HSCH0_DUTY_REG) / 0x14], esp32_ledc_get_percent(s, value, addr));
+        qemu_set_irq(s->ledc_sync[0], (0x5000 | led_get_intensity(&s->led[(addr - A_LEDC_HSCH0_DUTY_REG) / 0x14])));
         break;
     }
 

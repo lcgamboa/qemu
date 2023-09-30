@@ -115,19 +115,24 @@ uint32_t  qemu_picsimlab_get_TIOCM(void);
 int qemu_picsimlab_flash_dump( int64_t offset, void *buf, int bytes);
 void qemu_picsimlab_uart_receive(const int id, const uint8_t *buf, int size);
 
+#define QEMU_INTERNAL_STRAP 0
+#define QEMU_INTERNAL_GPIO_IN_SEL 1
+#define QEMU_INTERNAL_GPIO_OUT_SEL 2
+#define QEMU_INTERNAL_IOMUX_GPIOS 3
+
 
 uint32_t *qemu_picsimlab_get_internals(int cfg) {
   switch (cfg) {
-  case 0:
+  case QEMU_INTERNAL_STRAP:
     return &global_s->gpio.strap_mode;
     break;
-  case 1:
+  case QEMU_INTERNAL_GPIO_IN_SEL:
     return global_s->gpio.gpio_in_sel;
     break;
-  case 2:
+  case QEMU_INTERNAL_GPIO_OUT_SEL:
     return global_s->gpio.gpio_out_sel;
     break;
-  case 3:
+  case QEMU_INTERNAL_IOMUX_GPIOS:
     return global_s->iomux.muxgpios;
     break;
   default:
@@ -745,6 +750,7 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     psync_irq = qemu_allocate_irqs (psync_irq_handler, NULL, 1);
     qdev_connect_gpio_out_named(DEVICE(&s->gpio), ESP32_GPIOS_SYNC, 0 , psync_irq[0]);
     qdev_connect_gpio_out_named(DEVICE(&s->iomux), ESP32_IOMUX_SYNC, 0 , psync_irq[0]);
+    qdev_connect_gpio_out_named(DEVICE(&s->ledc), ESP32_LEDC_SYNC, 0 , psync_irq[0]);
     spi_cs_irq = qemu_allocate_irqs (spi_cs_irq_handler, NULL, 8);
 
     qdev_connect_gpio_out_named(DEVICE(&s->spi[2]), SSI_GPIO_CS, 0 , spi_cs_irq[0]);

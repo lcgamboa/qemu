@@ -18,9 +18,12 @@ typedef struct Esp32LEDCState {
     uint32_t timer_conf_reg[ESP32_LEDC_TIMER_CNT];
     uint32_t channel_conf0_reg[ESP32_LEDC_CHANNEL_CNT];
     LEDState led[ESP32_LEDC_CHANNEL_CNT];
+    qemu_irq ledc_sync[1];
 } Esp32LEDCState;
 
 REG32(LEDC_CONF_REG, 0x190)
+
+#define ESP32_LEDC_SYNC "esp32_ledc_sync"
 
 #define LEDC_REG_GROUP(name, base) \
     REG32(name ## _CONF0_REG, (base)) \

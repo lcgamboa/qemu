@@ -162,115 +162,115 @@ static void esp32_iomux_write(void *opaque, hwaddr addr, uint64_t value,
     switch (addr) {
         case 0x44: 
             s->muxgpios[0]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000));
+            qemu_set_irq(s->iomux_sync[0], (0x4000));
             break;
         case 0x88: 
             s->muxgpios[1]= value;//U0TXD
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 1));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 1));
             break;
         case 0x40: 
             s->muxgpios[2]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 2));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 2));
             break;
         case 0x84: 
             s->muxgpios[3]= value;//U0RXD
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 3));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 3));
             break;
         case 0x48: 
             s->muxgpios[4]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 4));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 4));
             break;
         case 0x6C: 
             s->muxgpios[5]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 5));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 5));
             break;
         case 0x60: 
             s->muxgpios[6]= value;//SD_CLK
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 6));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 6));
             break;
         case 0x64: 
             s->muxgpios[7]= value;//SD_DATA0
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 7));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 7));
             break;
         case 0x68: 
             s->muxgpios[8]= value;//SD_DATA1
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 8));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 8));
             break;
         case 0x54: 
             s->muxgpios[9]= value;//SD_DATA2
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 9));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 9));
             break;
         case 0x58: 
             s->muxgpios[10]= value;//SD_DATA3
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 10));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 10));
             break;
         case 0x5C: 
             s->muxgpios[11]= value;//SD_CMD
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 11));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 11));
             break;
         case 0x34: 
             s->muxgpios[12]= value;//MTDI
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 12));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 12));
             break;
         case 0x38: 
             s->muxgpios[13]= value;//MTCK
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 13));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 13));
             break;
         case 0x30: 
             s->muxgpios[14]= value;//MTMS
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 14));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 14));
             break;
         case 0x3C: 
             s->muxgpios[15]= value;//MTDO
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 15));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 15));
             break;
         case 0x4C: 
             s->muxgpios[16]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 16));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 16));
             break;
         case 0x50: 
             s->muxgpios[17]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 17));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 17));
             break;
         case 0x70: 
             s->muxgpios[18]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 18));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 18));
             break;
         case 0x74: 
             s->muxgpios[19]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 19));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 19));
             break;
         case 0x78: 
             s->muxgpios[20]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 20));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 20));
             break;
         case 0x7C: 
             s->muxgpios[21]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 21));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 21));
             break;
         case 0x80: 
             s->muxgpios[22]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 |22));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 |22));
             break;
         case 0x8C: 
             s->muxgpios[23]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 23));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 23));
             break;
         case 0x90: 
             s->muxgpios[24]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 24));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 24));
             break;
         case 0x24: 
             s->muxgpios[25]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 25));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 25));
             break;
         case 0x28: 
             s->muxgpios[26]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 26));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 26));
             break;
         case 0x2C: 
             s->muxgpios[27]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 27));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 27));
             break;
             /*
             //Not documented
@@ -289,35 +289,35 @@ static void esp32_iomux_write(void *opaque, hwaddr addr, uint64_t value,
             */
         case 0x1C: 
             s->muxgpios[32]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 32));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 32));
             break;
         case 0x20: 
             s->muxgpios[33]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 33));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 33));
             break;
         case 0x14: 
             s->muxgpios[34]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 34));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 34));
             break;
         case 0x18: 
             s->muxgpios[35]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 35));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 35));
             break;
         case 0x04: 
             s->muxgpios[36]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 36));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 36));
             break;
         case 0x08: 
             s->muxgpios[37]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 37));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 37));
             break;
         case 0x0C: 
             s->muxgpios[38]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 38));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 38));
             break;
         case 0x10: 
             s->muxgpios[39]= value;
-            qemu_set_irq(s->iomux_sync[0], -(0x4000 | 39));
+            qemu_set_irq(s->iomux_sync[0], (0x4000 | 39));
             break;
     } 
 }

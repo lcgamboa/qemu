@@ -123,12 +123,12 @@ static void esp32c3_gpio_write(void *opaque, hwaddr addr, uint64_t value,
     else if (addr >= 0x154 && addr < 0x354) { //GPIO_FUNCY_IN_SEL_CFG_REG
         int n = (addr - 0x154) / 4;
         s->gpio_in_sel[n] = value;
-        qemu_set_irq(s->gpios_sync[0], -(0x1000 | n)); //report in sel cfg change
+        qemu_set_irq(s->gpios_sync[0], (0x1000 | n)); //report in sel cfg change
     }
     else if (addr >= 0x554 && addr < 0x5AC) { //GPIO_FUNCX_OUT_SEL_CFG_REG 
         int n = (addr - 0x554) / 4;
         s->gpio_out_sel[n] = value;
-        qemu_set_irq(s->gpios_sync[0], -(0x2000 | n)); ////report out sel cfg change
+        qemu_set_irq(s->gpios_sync[0], (0x2000 | n)); ////report out sel cfg change
     }
 
     //printf("out 0x%04X in 0x%04X enable 0x%04X \n"  ,s->gpio_out, s->gpio_in, s->gpio_enable);

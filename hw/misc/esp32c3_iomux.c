@@ -44,7 +44,7 @@ static void esp32c3_iomux_write(void *opaque, hwaddr addr, uint64_t value,
 
     if(n <= 21 ){
         s->muxgpios[n]= value;
-        qemu_set_irq(s->iomux_sync[0], -(0x4000 | n));
+        qemu_set_irq(s->iomux_sync[0], (0x4000 | n));
     }
 }
 

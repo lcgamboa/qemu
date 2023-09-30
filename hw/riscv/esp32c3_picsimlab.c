@@ -159,19 +159,23 @@ uint32_t  qemu_picsimlab_get_TIOCM(void);
 int qemu_picsimlab_flash_dump( int64_t offset, void *buf, int bytes);
 void qemu_picsimlab_uart_receive(const int id, const uint8_t *buf, int size);
 
+#define QEMU_INTERNAL_STRAP 0
+#define QEMU_INTERNAL_GPIO_IN_SEL 1
+#define QEMU_INTERNAL_GPIO_OUT_SEL 2
+#define QEMU_INTERNAL_IOMUX_GPIOS 3
 
 uint32_t *qemu_picsimlab_get_internals(int cfg) {
   switch (cfg) {
-  case 0:
+  case QEMU_INTERNAL_STRAP:
     return &global_s->gpio.parent.strap_mode;
     break;
-  case 1:
+  case QEMU_INTERNAL_GPIO_IN_SEL:
     return global_s->gpio.parent.gpio_in_sel;
     break;
-  case 2:
+  case QEMU_INTERNAL_GPIO_OUT_SEL:
     return global_s->gpio.parent.gpio_out_sel;
     break;
-  case 3:
+  case QEMU_INTERNAL_IOMUX_GPIOS:
     return global_s->iomux.parent.muxgpios;
     break;
   default:
