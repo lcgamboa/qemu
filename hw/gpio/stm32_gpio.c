@@ -135,7 +135,7 @@ static void stm32_gpio_update_dir(Stm32Gpio *s, int cr_index)
         s->dir_mask |= (pin_dir ? 1 : 0) << pin;
         if(pin_dir){//output
 			if(stm32_gpio_get_config_bits(s,pin) & 0x2 ){//alternate function
-		       qemu_set_irq( s->sync_irq[0], -(0x8000| pin << 4| stm32_gpio_get_config_bits(s,pin) << 2));
+		       qemu_set_irq( s->sync_irq[0], (0x8000| pin << 4| stm32_gpio_get_config_bits(s,pin) << 2));
 		    }
 		}
     }

@@ -177,7 +177,7 @@ pdir_irq_handler(void *opaque, int n, int dir)
 static void
 psync_irq_handler(void *opaque, int n, int dir)
 {
-   (*picsimlab_dir_pin)(-1, -(-dir | n));
+   (*picsimlab_dir_pin)(-1, (dir | n));
 }
 
 #define FLASH_SIZE 0x00020000
