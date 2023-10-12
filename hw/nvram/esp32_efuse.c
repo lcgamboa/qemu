@@ -164,8 +164,8 @@ static void esp32_efuse_read_op(Esp32EfuseState *s)
     }
     //if mac address not defined in efuse file, use this default mac address
      if((!s->efuse_rd.blk0[1])&&(!s->efuse_rd.blk0[2])){
-        s->efuse_rd.blk0[1] = 0x00c40a24;//0xC4000110;
-        s->efuse_rd.blk0[2] = 0xfe1001;//0xfe240A;
+        s->efuse_rd.blk0[1] = 0x00c40a24;
+        s->efuse_rd.blk0[2] = 0xfe1001;
     }
 
     memset(&s->efuse_rd_dis, 0, sizeof(s->efuse_rd_dis));

@@ -36,18 +36,16 @@
 #include "esp32_wlan_packet.h"
 
 // 50ms between beacons
-#define BEACON_TIME 50000000
+#define BEACON_TIME 500000000
 #define INTER_FRAME_TIME 5000000
 #define DEBUG 0
 #define DEBUG_DUMPFRAMES 0
+#define DEBUG_WIRESHARK_IMPORT 0
 
 access_point_info access_points[]={
-    {"Open Wifi",4,-40,{0x10,0x01,0x00,0xc4,0x0a,0x51}},
-    {"MasseyWifi",6,-30,{0x10,0x01,0x00,0xc4,0x0a,0x52}},
-    {"Home Wifi",7,-70,{0x10,0x01,0x00,0xc4,0x0a,0x53}},
-    {"My Wifi",8,-75,{0x10,0x01,0x00,0xc4,0x0a,0x54}},
-    {"MartinsWifi",10,-90,{0x10,0x01,0x00,0xc4,0x0a,0x55}},
-    {"PICSimLabWifi",12,-25,{0x10,0x01,0x00,0xc4,0x0a,0x56}}
+    {"PICSimLabWifi",1,-25,{0x10,0x01,0x00,0xc4,0x0a,0x56}},
+    {"Espressif",5,-30,{0x10,0x01,0x00,0xc4,0x0a,0x51}},
+    {"MasseyWifi",10,-40,{0x10,0x01,0x00,0xc4,0x0a,0x52}}
 };
 
 int nb_aps=sizeof(access_points)/sizeof(access_point_info);
@@ -56,14 +54,17 @@ static void Esp32_WLAN_beacon_timer(void *opaque)
 {
     struct mac80211_frame *frame;
     Esp32WifiState *s = (Esp32WifiState *)opaque;
-
     // only send a beacon if we are an access point
     if(s->ap_state!=Esp32_WLAN__STATE_STA_ASSOCIATED) {
-        if (access_points[s->beacon_ap].channel==esp32_wifi_channel) {
-            memcpy(s->ap_macaddr,access_points[s->beacon_ap].mac_address,6);
-            frame = Esp32_WLAN_create_beacon_frame(&access_points[s->beacon_ap]);
-            Esp32_WLAN_init_ap_frame(s, frame);
-            Esp32_WLAN_insert_frame(s, frame);
+        for(int i=0;i<nb_aps;i++){
+          int ap = (i + s->beacon_ap)%nb_aps;
+          if (access_points[ap].channel==esp32_wifi_channel) {
+              memcpy(s->ap_macaddr,access_points[ap].mac_address,6);
+              frame = Esp32_WLAN_create_beacon_frame(&access_points[ap]);
+              Esp32_WLAN_init_ap_frame(s, frame);
+              Esp32_WLAN_insert_frame(s, frame);
+              break;
+          }
         }
         s->beacon_ap=(s->beacon_ap+1)%nb_aps;
     }
@@ -96,15 +97,17 @@ static void Esp32_WLAN_inject_timer(void *opaque)
 }
 
 static void macprint(uint8_t *p, const char * name) {
-    printf("%s: %2x:%2x:%2x:%2x:%2x:%2x\n",name, p[0],p[1],p[2],p[3],p[4],p[5]);
+    printf("%s: %02x:%02x:%02x:%02x:%02x:%02x\n",name, p[0],p[1],p[2],p[3],p[4],p[5]);
 }
 
 static void infoprint(struct mac80211_frame *frame) {
     if(DEBUG_DUMPFRAMES) {
-        printf("Frame Info %d %d %d %d %d\n",frame->frame_control.type,frame->frame_control.sub_type,frame->frame_control.flags,frame->duration_id, frame->frame_length);
+#if  (DEBUG_WIRESHARK_IMPORT == 0 )
+        printf("\nFrame Info type:%d subtype:%d flags:%d duration:%d length:%d\n",frame->frame_control.type,frame->frame_control.sub_type,frame->frame_control.flags,frame->duration_id, frame->frame_length);
         macprint(frame->destination_address,"destination");
         macprint(frame->source_address,"source");
         macprint(frame->bssid_address,"bssid");
+#endif        
         uint8_t *b=(uint8_t *)frame;
         for(int i=0;i<frame->frame_length;i++) {
             if((i%16)==0) printf("\n%04x: ",i);
@@ -247,7 +250,7 @@ void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame)
     unsigned long ethernet_frame_size;
     unsigned char ethernet_frame[1518];
     if(DEBUG) 
-        printf("-------------------------\nHandle Frame %d %d %d %d\n",frame->frame_control.type,frame->frame_control.sub_type,esp32_wifi_channel,s->ap_state);
+        printf("-------------------------\nHandle Frame type:%d subtype:%d channel:%d ap_state:%d\n",frame->frame_control.type,frame->frame_control.sub_type,esp32_wifi_channel,s->ap_state);
     infoprint(frame);
     access_point_info *ap_info=0;
     for(int i=0;i<nb_aps;i++)

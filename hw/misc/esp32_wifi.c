@@ -68,7 +68,7 @@ static void esp32_wifi_write(void *opaque, hwaddr addr, uint64_t value,
                 address_space_read(&address_space_memory, item.address,
                             MEMTXATTRS_UNSPECIFIED, &frame, item.length);
                 // frame from esp32 to ap
-                frame.frame_length=item.length;
+                frame.frame_length=item.length-4;
                 frame.next_frame=0;
                 Esp32_WLAN_handle_frame(s, &frame);
                 set_interrupt(s,0x80);
