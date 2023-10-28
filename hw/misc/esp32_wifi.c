@@ -31,10 +31,10 @@ static uint64_t esp32_wifi_read(void *opaque, hwaddr addr, unsigned int size)
         case A_WIFI_STATUS:
         case A_WIFI_DMA_OUT_STATUS:
             r=1;
-            break;
+            break;           
     }
 
-    if(DEBUG) printf("esp32_wifi_read %lx=%x\n",addr,r);
+    if(DEBUG) printf("esp32_wifi_read  0x%04lx= 0x%08x\n",addr,r);
 
     return r;
 }
@@ -46,7 +46,7 @@ static void set_interrupt(Esp32WifiState *s,int e) {
 static void esp32_wifi_write(void *opaque, hwaddr addr, uint64_t value,
                                  unsigned int size) {
     Esp32WifiState *s = ESP32_WIFI(opaque);
-    if(DEBUG) printf("esp32_wifi_write %lx=%lx\n",addr, value);
+    if(DEBUG) printf("esp32_wifi_write 0x%04lx= 0x%08lx\n",addr, value);
 
     switch (addr) {
         case A_WIFI_DMA_INLINK:
@@ -68,7 +68,7 @@ static void esp32_wifi_write(void *opaque, hwaddr addr, uint64_t value,
                 address_space_read(&address_space_memory, item.address,
                             MEMTXATTRS_UNSPECIFIED, &frame, item.length);
                 // frame from esp32 to ap
-                frame.frame_length=item.length-4;
+                frame.frame_length=item.length;
                 frame.next_frame=0;
                 Esp32_WLAN_handle_frame(s, &frame);
                 set_interrupt(s,0x80);

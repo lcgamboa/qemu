@@ -7,6 +7,8 @@
 #include "hw/sysbus.h"
 #include "hw/misc/esp32_ana.h"
 
+#define DEBUG 0
+
 int esp32_wifi_channel=0;
 
 static uint64_t esp32_ana_read(void *opaque, hwaddr addr, unsigned int size)
@@ -21,12 +23,17 @@ static uint64_t esp32_ana_read(void *opaque, hwaddr addr, unsigned int size)
         case 196: r=0xFFFFFFFF;
         break;
     }
+    if(DEBUG) printf("esp32_ana_read  0x%04lx= 0x%08x\n",addr,r);
+
     return r;
 }
 
 static void esp32_ana_write(void *opaque, hwaddr addr, uint64_t value,
                                  unsigned int size) {
     Esp32AnaState *s = ESP32_ANA(opaque);
+
+    if(DEBUG) printf("esp32_ana_write 0x%04lx= 0x%08lx\n",addr, value);
+
     if(addr==196) {
         //printf("wifi channel:%x %x\n",(int)value, (int)~value);
         int v=value&255;

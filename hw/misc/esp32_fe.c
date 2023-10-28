@@ -8,6 +8,8 @@
 #include "hw/sysbus.h"
 #include "hw/misc/esp32_fe.h"
 
+#define DEBUG 0
+
 static uint64_t esp32_fe_read(void *opaque, hwaddr addr, unsigned int size)
 {
     uint32_t r = 0;
@@ -15,12 +17,17 @@ static uint64_t esp32_fe_read(void *opaque, hwaddr addr, unsigned int size)
     r=s->mem[addr/4];
     if(addr==124)
         r=0xffffffff;
+
+    if(DEBUG) printf("esp32_fe_read  0x%04lx= 0x%08x\n",addr,r);
+    
     return r;
 }
 
 static void esp32_fe_write(void *opaque, hwaddr addr, uint64_t value,
                                  unsigned int size) {
   Esp32FeState *s = ESP32_FE(opaque);
+  if(DEBUG) printf("esp32_fe_write 0x%04lx= 0x%08lx\n",addr, value);
+
   s->mem[addr/4]=(uint32_t)value;
 }
 

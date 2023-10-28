@@ -7,17 +7,29 @@
 #include "hw/sysbus.h"
 #include "hw/misc/esp32_ramdev.h"
 
+#define DEBUG 0
+
 static uint64_t esp32_ramdev_read(void *opaque, hwaddr addr, unsigned int size)
 {
     uint32_t r = 0;
     Esp32RamdevState *s = ESP32_RAMDEV(opaque);
     r=s->mem[addr/4];
+    /* 
+    if(addr == 0x270){ //failed ACK
+       r = 0x00002300;   
+    }
+    */
+    if(DEBUG) printf("esp32_ramdev_read  0x%04lx= 0x%08x\n",addr,r);
+
     return r;
 }
 
 static void esp32_ramdev_write(void *opaque, hwaddr addr, uint64_t value,
                                  unsigned int size) {
   Esp32RamdevState *s = ESP32_RAMDEV(opaque);
+  
+  if(DEBUG) printf("esp32_ramdev_write 0x%04lx= 0x%08lx\n",addr, value);
+
   s->mem[addr/4]=(uint32_t)value;
 }
 

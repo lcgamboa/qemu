@@ -51,10 +51,11 @@ access_point_info access_points[]={
 int nb_aps=sizeof(access_points)/sizeof(access_point_info);
 
 static void Esp32_WLAN_beacon_timer(void *opaque)
-{
+{ 
     struct mac80211_frame *frame;
     Esp32WifiState *s = (Esp32WifiState *)opaque;
     // only send a beacon if we are an access point
+    
     if(s->ap_state!=Esp32_WLAN__STATE_STA_ASSOCIATED) {
         for(int i=0;i<nb_aps;i++){
           int ap = (i + s->beacon_ap)%nb_aps;
@@ -67,7 +68,8 @@ static void Esp32_WLAN_beacon_timer(void *opaque)
           }
         }
         s->beacon_ap=(s->beacon_ap+1)%nb_aps;
-    }
+    } 
+    
     timer_mod(s->beacon_timer, qemu_clock_get_ns(QEMU_CLOCK_REALTIME) + BEACON_TIME);
 }
 
@@ -100,20 +102,145 @@ static void macprint(uint8_t *p, const char * name) {
     printf("%s: %02x:%02x:%02x:%02x:%02x:%02x\n",name, p[0],p[1],p[2],p[3],p[4],p[5]);
 }
 
+static void buffer_print(uint8_t * b, unsigned size){
+    for(int i=0;i < size ;i++) {
+        if((i%16)==0) printf("%04x: ",i);
+        printf("%02x ",b[i]);
+        if((i%16)==15) printf("\n");
+    }
+    if((size%16)!=0)printf("\n");
+}
+
 static void infoprint(struct mac80211_frame *frame) {
     if(DEBUG_DUMPFRAMES) {
 #if  (DEBUG_WIRESHARK_IMPORT == 0 )
         printf("\nFrame Info type:%d subtype:%d flags:%d duration:%d length:%d\n",frame->frame_control.type,frame->frame_control.sub_type,frame->frame_control.flags,frame->duration_id, frame->frame_length);
+
+        printf("protocol_version: %i\n",frame->frame_control.protocol_version);    
+        printf("type: %i ",frame->frame_control.type );
+        switch (frame->frame_control.type)
+        {
+        case IEEE80211_TYPE_MGT:
+            printf("MGT\n"); 
+            break;
+        case IEEE80211_TYPE_CTL:
+            printf("CTL\n"); 
+            break;
+       case IEEE80211_TYPE_DATA:
+            printf("DATA\n"); 
+            break;
+        }    
+        printf("subtype: %i  ",frame->frame_control.sub_type);     
+        switch (frame->frame_control.type)
+        {
+        case IEEE80211_TYPE_MGT:
+            switch (frame->frame_control.sub_type)
+            {
+            case IEEE80211_TYPE_MGT_SUBTYPE_BEACON:
+                printf("BEACON\n");
+                break;
+            case IEEE80211_TYPE_MGT_SUBTYPE_ACTION:
+                printf("ACTION\n");
+                break;                      
+            case IEEE80211_TYPE_MGT_SUBTYPE_PROBE_REQ:
+                printf("PROBE_REQ\n");
+                break;       
+            case IEEE80211_TYPE_MGT_SUBTYPE_PROBE_RESP:  
+                printf("PROBE_RESP\n");
+                break;     
+            case IEEE80211_TYPE_MGT_SUBTYPE_AUTHENTICATION:
+                printf("AUTHENTICATION\n");
+                break;
+            case IEEE80211_TYPE_MGT_SUBTYPE_DEAUTHENTICATION:
+                printf("DEAUTHENTICATION\n");
+                break;
+            case IEEE80211_TYPE_MGT_SUBTYPE_ASSOCIATION_REQ:
+                printf("ASSOCIATION_REQ\n");
+                break;
+            case IEEE80211_TYPE_MGT_SUBTYPE_ASSOCIATION_RESP:
+                printf("ASSOCIATION_RESP\n");
+                break;
+            case IEEE80211_TYPE_MGT_SUBTYPE_DISASSOCIATION:
+                printf("DISASSOCIATION\n");
+                break;
+            default:
+                printf("---\n");
+                break;
+            }
+            break;
+        case IEEE80211_TYPE_CTL:
+           switch (frame->frame_control.sub_type)
+            {
+            case IEEE80211_TYPE_CTL_SUBTYPE_ACK:
+                printf("ACK\n");
+                break;
+            default:
+                printf("---\n");
+                break;
+            }
+            break;
+       case IEEE80211_TYPE_DATA:
+            switch (frame->frame_control.sub_type)
+            {
+            case IEEE80211_TYPE_DATA_SUBTYPE_DATA:
+                printf("DATA\n");
+                break;
+            default:
+                printf("---\n");
+                break;
+            }           
+            break;
+        }
+
+        printf("flags: %i\n",frame->frame_control.flags);
+        printf("duration_id: %i\n",frame->duration_id);
         macprint(frame->destination_address,"destination");
         macprint(frame->source_address,"source");
         macprint(frame->bssid_address,"bssid");
-#endif        
+        printf("fragment_number: %u\n",frame->sequence_control.fragment_number);     
+        printf("sequence_number : %u\n",frame->sequence_control.sequence_number);         
+        
+        switch (frame->frame_control.type)
+        {
+          case IEEE80211_TYPE_MGT:
+            switch (frame->frame_control.sub_type)
+            {        
+              case IEEE80211_TYPE_MGT_SUBTYPE_BEACON:
+                printf("beacon timestamp : %lu\n",frame->beacon_info.timestamp);
+                printf("beacon interval : %u\n",frame->beacon_info.interval);
+                printf("beacon capability : %u\n",frame->beacon_info.capability);
+                break;  
+              default:
+                buffer_print((uint8_t *)frame->data_and_fcs, frame->frame_length - IEEE80211_HEADER_SIZE);
+                break;
+            }
+            break; 
+          case IEEE80211_TYPE_CTL:
+            switch (frame->frame_control.sub_type)
+            {        
+              default:
+                buffer_print((uint8_t *)frame->data_and_fcs, frame->frame_length - IEEE80211_HEADER_SIZE);
+                break;
+            }
+            break; 
+            case IEEE80211_TYPE_DATA:
+            switch (frame->frame_control.sub_type)
+            {        
+              default:
+                buffer_print((uint8_t *)frame->data_and_fcs, frame->frame_length - IEEE80211_HEADER_SIZE);
+                break;
+            }
+            break;   
+        }
+        printf("frame_length : %u\n", frame->frame_length);
+#else       
         uint8_t *b=(uint8_t *)frame;
         for(int i=0;i<frame->frame_length;i++) {
             if((i%16)==0) printf("\n%04x: ",i);
             printf("%02x ",b[i]);
         }
         printf("\n");
+#endif        
     }
 }
 
@@ -122,7 +249,7 @@ void Esp32_WLAN_insert_frame(Esp32WifiState *s, struct mac80211_frame *frame)
     struct mac80211_frame *i_frame;
 
     insertCRC(frame);
-    if(DEBUG) printf("Send Frame %d %d\n",frame->frame_control.type,frame->frame_control.sub_type);
+    if(DEBUG) printf("---------------\nIN> Send Frame type=%d subtype=%d\n",frame->frame_control.type,frame->frame_control.sub_type);
     infoprint(frame);
     s->inject_queue_size++;
     i_frame = s->inject_queue;
@@ -148,12 +275,13 @@ void Esp32_WLAN_insert_frame(Esp32WifiState *s, struct mac80211_frame *frame)
 static _Bool Esp32_WLAN_can_receive(NetClientState *ncs)
 {
     Esp32WifiState *s = qemu_get_nic_opaque(ncs);
-
+    /*
     if (s->ap_state != Esp32_WLAN__STATE_ASSOCIATED  && s->ap_state != Esp32_WLAN__STATE_STA_ASSOCIATED) {
         // we are currently not connected
         // to the access point
         return 0;
     }
+    */
     if (s->inject_queue_size > Esp32_WLAN__MAX_INJECT_QUEUE_SIZE) {
         // overload, please give me some time...
         return 0;
@@ -191,6 +319,26 @@ static ssize_t Esp32_WLAN_receive(NetClientState *ncs,
             if( frame->data_and_fcs[6]==8 && frame->data_and_fcs[7]==6) {
                memcpy(frame->data_and_fcs+16,s->macaddr,6);
             }
+        }
+
+        if((buf[12] == 0xff)&&(buf[13] == 0x0d))
+        {
+
+          //discard packages originated from the same mac address
+          if(!memcmp(&buf[6],s->macaddr,6)) return -1;
+
+          //action frame  
+          Esp32_WLAN_init_ap_frame(s, frame);
+          memcpy(frame->data_and_fcs, buf+14, size-14);   
+          memcpy(frame->destination_address, &buf[0], 6);
+          memcpy(frame->source_address, &buf[6], 6);
+          memset(frame->bssid_address, 0xff, 6);
+          frame->frame_control.type= 0;
+          frame->frame_control.sub_type= IEEE80211_TYPE_MGT_SUBTYPE_ACTION;
+          frame->frame_control.flags= 0; 
+          frame->duration_id= 0 ;
+          Esp32_WLAN_insert_frame(s, frame);
+          return size; 
         }
         Esp32_WLAN_init_ap_frame(s, frame);
         Esp32_WLAN_insert_frame(s, frame);
@@ -250,12 +398,14 @@ void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame)
     unsigned long ethernet_frame_size;
     unsigned char ethernet_frame[1518];
     if(DEBUG) 
-        printf("-------------------------\nHandle Frame type:%d subtype:%d channel:%d ap_state:%d\n",frame->frame_control.type,frame->frame_control.sub_type,esp32_wifi_channel,s->ap_state);
+        printf("-------------------------\n<OUT Handle Frame type:%d subtype:%d channel:%d ap_state:%d\n",frame->frame_control.type,frame->frame_control.sub_type,esp32_wifi_channel,s->ap_state);
     infoprint(frame);
     access_point_info *ap_info=0;
     for(int i=0;i<nb_aps;i++)
-        if(access_points[i].channel==esp32_wifi_channel)
+        if(access_points[i].channel==esp32_wifi_channel){
             ap_info=&access_points[i];
+            break;
+        }
    
     if(frame->frame_control.type == IEEE80211_TYPE_MGT) {        
         switch(frame->frame_control.sub_type) {
@@ -267,6 +417,38 @@ void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame)
                     s->ap_state=Esp32_WLAN__STATE_STA_NOT_AUTHENTICATED;
                     send_single_frame(s,frame,Esp32_WLAN_create_probe_request(&dummy_ap));
                 }
+                break;
+            case IEEE80211_TYPE_MGT_SUBTYPE_ACTION:    
+                if(DEBUG) printf("action\n");
+               /*
+                * The access point uses the 802.11 frame
+                * and sends a 802.3 frame into the network...
+                * This packet is then understandable by
+                * qemu-slirp
+                *
+                * If we ever want the access point to offer
+                * some services, it can be added here!!
+                */
+                // ethernet header type
+                ethernet_frame[12] = 0xFF;
+                ethernet_frame[13] = 0x0D;
+
+                memcpy(&ethernet_frame[0], frame->destination_address, 6);
+                memcpy(&ethernet_frame[6], s->macaddr, 6);
+
+                // add packet content
+                ethernet_frame_size = frame->frame_length -IEEE80211_HEADER_SIZE;
+
+                if (ethernet_frame_size > sizeof(ethernet_frame)) {
+                    ethernet_frame_size = sizeof(ethernet_frame);
+                }
+                memcpy(&ethernet_frame[14], &frame->data_and_fcs[0], ethernet_frame_size);
+                // add size of ethernet header
+                ethernet_frame_size += 14;
+                /*
+                * Send 802.3 frame
+                */
+                qemu_send_packet(qemu_get_queue(s->nic), ethernet_frame, ethernet_frame_size);
                 break;
             case IEEE80211_TYPE_MGT_SUBTYPE_PROBE_RESP:
                 ap_info=&dummy_ap;
@@ -386,7 +568,7 @@ void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame)
             }
 
             // add packet content
-            ethernet_frame_size = frame->frame_length - 24 - 4 - 8;
+            ethernet_frame_size = frame->frame_length - IEEE80211_HEADER_SIZE - 4 - 8;
 
             // for some reason, the packet is 22 bytes too small (??)
             ethernet_frame_size += 22;
