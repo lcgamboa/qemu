@@ -31,12 +31,11 @@
 #include "hw/irq.h"
 #include "hw/pci/pci.h"
 #include "hw/pci/pci_bridge.h"
-#include "hw/pci/pci_bus.h"
 #include "hw/pci/pci_host.h"
 #include "hw/qdev-properties.h"
 #include "hw/pci-host/sabre.h"
 #include "hw/char/serial.h"
-#include "hw/char/parallel.h"
+#include "hw/char/parallel-isa.h"
 #include "hw/rtc/m48t59.h"
 #include "migration/vmstate.h"
 #include "hw/input/i8042.h"
@@ -554,6 +553,7 @@ static void sun4uv_init(MemoryRegion *address_space_mem,
                         MachineState *machine,
                         const struct hwdef *hwdef)
 {
+    MachineClass *mc = MACHINE_GET_CLASS(machine);
     SPARCCPU *cpu;
     Nvram *nvram;
     unsigned int i;
@@ -608,11 +608,11 @@ static void sun4uv_init(MemoryRegion *address_space_mem,
     /* Only in-built Simba APBs can exist on the root bus, slot 0 on busA is
        reserved (leaving no slots free after on-board devices) however slots
        0-3 are free on busB */
-    pci_bus->slot_reserved_mask = 0xfffffffc;
-    pci_busA->slot_reserved_mask = 0xfffffff1;
-    pci_busB->slot_reserved_mask = 0xfffffff0;
+    pci_bus_set_slot_reserved_mask(pci_bus, 0xfffffffc);
+    pci_bus_set_slot_reserved_mask(pci_busA, 0xfffffff1);
+    pci_bus_set_slot_reserved_mask(pci_busB, 0xfffffff0);
 
-    ebus = pci_new_multifunction(PCI_DEVFN(1, 0), true, TYPE_EBUS);
+    ebus = pci_new_multifunction(PCI_DEVFN(1, 0), TYPE_EBUS);
     qdev_prop_set_uint64(DEVICE(ebus), "console-serial-base",
                          hwdef->console_serial_base);
     pci_realize_and_unref(ebus, pci_busA, &error_fatal);
@@ -646,15 +646,14 @@ static void sun4uv_init(MemoryRegion *address_space_mem,
         PCIBus *bus;
         nd = &nd_table[i];
 
-        if (!nd->model || strcmp(nd->model, "sunhme") == 0) {
+        if (!nd->model || strcmp(nd->model, mc->default_nic) == 0) {
             if (!onboard_nic) {
-                pci_dev = pci_new_multifunction(PCI_DEVFN(1, 1),
-                                                   true, "sunhme");
+                pci_dev = pci_new_multifunction(PCI_DEVFN(1, 1), mc->default_nic);
                 bus = pci_busA;
                 memcpy(&macaddr, &nd->macaddr.a, sizeof(MACAddr));
                 onboard_nic = true;
             } else {
-                pci_dev = pci_new(-1, "sunhme");
+                pci_dev = pci_new(-1, mc->default_nic);
                 bus = pci_busB;
             }
         } else {
@@ -817,6 +816,8 @@ static void sun4u_class_init(ObjectClass *oc, void *data)
     mc->default_cpu_type = SPARC_CPU_TYPE_NAME("TI-UltraSparc-IIi");
     mc->ignore_boot_device_suffixes = true;
     mc->default_display = "std";
+    mc->default_nic = "sunhme";
+    mc->no_parallel = !module_object_class_by_name(TYPE_ISA_PARALLEL);
     fwc->get_dev_path = sun4u_fw_dev_path;
 }
 
@@ -841,6 +842,8 @@ static void sun4v_class_init(ObjectClass *oc, void *data)
     mc->default_boot_order = "c";
     mc->default_cpu_type = SPARC_CPU_TYPE_NAME("Sun-UltraSparc-T1");
     mc->default_display = "std";
+    mc->default_nic = "sunhme";
+    mc->no_parallel = !module_object_class_by_name(TYPE_ISA_PARALLEL);
 }
 
 static const TypeInfo sun4v_type = {

@@ -259,6 +259,13 @@ ssize_t qemu_recv_wrap(int sockfd, void *buf, size_t len, int flags);
 ssize_t qemu_recvfrom_wrap(int sockfd, void *buf, size_t len, int flags,
                            struct sockaddr *addr, socklen_t *addrlen);
 
+EXCEPTION_DISPOSITION
+win32_close_exception_handler(struct _EXCEPTION_RECORD*, void*,
+                              struct _CONTEXT*, void*);
+
+void *qemu_win32_map_alloc(size_t size, HANDLE *h, Error **errp);
+void qemu_win32_map_free(void *ptr, HANDLE h, Error **errp);
+
 #ifdef __cplusplus
 }
 #endif

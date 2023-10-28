@@ -63,7 +63,6 @@ static inline void esp32c3_write_mmu_value(ESP32C3CacheState *s, hwaddr reg_addr
     /* Always keep reserved as 0 */
     e.reserved = 0;
     if (s->mmu[index].val != e.val) {
-        assert(s->flash_blk != NULL);
         /* Update the cache (MemoryRegion) */
         const uint32_t virtual_address = index * ESP32C3_PAGE_SIZE;
         /* The entry contains the index of the 64KB block from the flash memory */
@@ -77,9 +76,10 @@ static inline void esp32c3_write_mmu_value(ESP32C3CacheState *s, hwaddr reg_addr
                 cache_word_data[i] = invalid_value;
             }
         } else {
-            blk_pread(s->flash_blk, physical_address, ESP32C3_PAGE_SIZE, cache_data, 0);
+            if (s->flash_blk != NULL) {
+                blk_pread(s->flash_blk, physical_address, ESP32C3_PAGE_SIZE, cache_data, 0);
+            }
         }
-
         s->mmu[index].val = e.val;
     }
 }

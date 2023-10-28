@@ -91,7 +91,6 @@ static uint64_t esp32_efuse_read(void *opaque, hwaddr addr, unsigned int size)
     case A_EFUSE_DATE:
         r = 0x16042600;
     }
-
     return r;
 }
 
@@ -206,7 +205,7 @@ static void esp32_efuse_program_op(Esp32EfuseState *s)
 
     if (s->blk != NULL) {
         int ret = blk_pwrite(s->blk, 0, sizeof(result), &result, 0);
-        if (ret != sizeof(result)) {
+        if (ret < 0) {
             error_report("%s: failed to write to block device (%d)", __func__, ret);
         }
     }

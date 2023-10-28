@@ -50,7 +50,7 @@
 #include "exec/memattrs.h"
 #include "hw/s390x/s390-virtio-ccw.h"
 #include "hw/s390x/s390-virtio-hcall.h"
-#include "hw/s390x/pv.h"
+#include "target/s390x/kvm/pv.h"
 
 #ifndef DEBUG_KVM
 #define DEBUG_KVM  0
@@ -338,6 +338,11 @@ static void ccw_machine_class_foreach(ObjectClass *oc, void *opaque)
     MachineClass *mc = MACHINE_CLASS(oc);
 
     mc->default_cpu_type = S390_CPU_TYPE_NAME("host");
+}
+
+int kvm_arch_get_default_type(MachineState *ms)
+{
+    return 0;
 }
 
 int kvm_arch_init(MachineState *ms, KVMState *s)

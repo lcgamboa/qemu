@@ -284,7 +284,7 @@ const char *parse_cpu_option(const char *cpu_option)
     return cpu_type;
 }
 
-void list_cpus(const char *optarg)
+void list_cpus(void)
 {
     /* XXX: implement xxx_cpu_list for targets that still miss it */
 #if defined(cpu_list)
@@ -293,7 +293,7 @@ void list_cpus(const char *optarg)
 }
 
 #if defined(CONFIG_USER_ONLY)
-void tb_invalidate_phys_addr(target_ulong addr)
+void tb_invalidate_phys_addr(hwaddr addr)
 {
     mmap_lock();
     tb_invalidate_phys_page(addr);
@@ -425,6 +425,11 @@ bool target_words_bigendian(void)
 #else
     return false;
 #endif
+}
+
+const char *target_name(void)
+{
+    return TARGET_NAME;
 }
 
 void page_size_init(void)

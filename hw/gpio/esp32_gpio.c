@@ -298,7 +298,8 @@ static const TypeInfo esp32_gpio_info = {
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(Esp32GpioState),
     .instance_init = esp32_gpio_init,
-    .class_init = esp32_gpio_class_init};
+    .class_init = esp32_gpio_class_init,
+    .class_size = sizeof(Esp32GpioClass)};
 
 static void esp32_gpio_register_types(void) {
     type_register_static(&esp32_gpio_info);

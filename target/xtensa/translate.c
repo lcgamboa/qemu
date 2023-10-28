@@ -45,6 +45,10 @@
 
 #include "exec/log.h"
 
+#define HELPER_H "helper.h"
+#include "exec/helper-info.c.inc"
+#undef  HELPER_H
+
 
 struct DisasContext {
     DisasContextBase base;
@@ -89,8 +93,6 @@ static TCGv_i32 cpu_exclusive_addr;
 static TCGv_i32 cpu_exclusive_val;
 
 static GHashTable *xtensa_regfile_table;
-
-#include "exec/gen-icount.h"
 
 static char *sr_name[256];
 static char *ur_name[256];
@@ -573,9 +575,7 @@ static int gen_postprocess(DisasContext *dc, int slot)
 
 #ifndef CONFIG_USER_ONLY
     if (op_flags & XTENSA_OP_CHECK_INTERRUPTS) {
-        if (tb_cflags(dc->base.tb) & CF_USE_ICOUNT) {
-            gen_io_start();
-        }
+        translator_io_start(&dc->base);
         gen_helper_check_interrupts(cpu_env);
     }
 #endif
@@ -1549,7 +1549,7 @@ static void translate_dcache(DisasContext *dc, const OpcodeArg arg[],
     TCGv_i32 res = tcg_temp_new_i32();
 
     tcg_gen_addi_i32(addr, arg[0].in, arg[1].imm);
-    tcg_gen_qemu_ld8u(res, addr, dc->cring);
+    tcg_gen_qemu_ld_i32(res, addr, dc->cring, MO_UB);
 }
 
 static void translate_depbits(DisasContext *dc, const OpcodeArg arg[],
@@ -1726,7 +1726,7 @@ static void translate_l32r(DisasContext *dc, const OpcodeArg arg[],
     } else {
         tmp = tcg_constant_i32(arg[1].imm);
     }
-    tcg_gen_qemu_ld32u(arg[0].out, tmp, dc->cring);
+    tcg_gen_qemu_ld_i32(arg[0].out, tmp, dc->cring, MO_TEUL);
 }
 
 static void translate_loop(DisasContext *dc, const OpcodeArg arg[],
@@ -2125,9 +2125,7 @@ static void translate_rsr_ccount(DisasContext *dc, const OpcodeArg arg[],
                                  const uint32_t par[])
 {
 #ifndef CONFIG_USER_ONLY
-    if (tb_cflags(dc->base.tb) & CF_USE_ICOUNT) {
-        gen_io_start();
-    }
+    translator_io_start(&dc->base);
     gen_helper_update_ccount(cpu_env);
     tcg_gen_mov_i32(arg[0].out, cpu_SR[par[0]]);
 #endif
@@ -2443,9 +2441,7 @@ static void translate_waiti(DisasContext *dc, const OpcodeArg arg[],
 #ifndef CONFIG_USER_ONLY
     TCGv_i32 pc = tcg_constant_i32(dc->base.pc_next);
 
-    if (tb_cflags(dc->base.tb) & CF_USE_ICOUNT) {
-        gen_io_start();
-    }
+    translator_io_start(&dc->base);
     gen_helper_waiti(cpu_env, pc, tcg_constant_i32(arg[0].imm));
 #endif
 }
@@ -2510,9 +2506,7 @@ static void translate_wsr_ccompare(DisasContext *dc, const OpcodeArg arg[],
     uint32_t id = par[0] - CCOMPARE;
 
     assert(id < dc->config->nccompare);
-    if (tb_cflags(dc->base.tb) & CF_USE_ICOUNT) {
-        gen_io_start();
-    }
+    translator_io_start(&dc->base);
     tcg_gen_mov_i32(cpu_SR[par[0]], arg[0].in);
     gen_helper_update_ccompare(cpu_env, tcg_constant_i32(id));
 #endif
@@ -2522,9 +2516,7 @@ static void translate_wsr_ccount(DisasContext *dc, const OpcodeArg arg[],
                                  const uint32_t par[])
 {
 #ifndef CONFIG_USER_ONLY
-    if (tb_cflags(dc->base.tb) & CF_USE_ICOUNT) {
-        gen_io_start();
-    }
+    translator_io_start(&dc->base);
     gen_helper_wsr_ccount(cpu_env, arg[0].in);
 #endif
 }
@@ -2717,10 +2709,7 @@ static void translate_xsr_ccount(DisasContext *dc, const OpcodeArg arg[],
 #ifndef CONFIG_USER_ONLY
     TCGv_i32 tmp = tcg_temp_new_i32();
 
-    if (tb_cflags(dc->base.tb) & CF_USE_ICOUNT) {
-        gen_io_start();
-    }
-
+    translator_io_start(&dc->base);
     gen_helper_update_ccount(cpu_env);
     tcg_gen_mov_i32(tmp, cpu_SR[par[0]]);
     gen_helper_wsr_ccount(cpu_env, arg[0].in);

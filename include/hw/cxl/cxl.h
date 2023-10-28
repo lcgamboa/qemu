@@ -18,17 +18,18 @@
 #include "cxl_component.h"
 #include "cxl_device.h"
 
+#define CXL_CACHE_LINE_SIZE 64
 #define CXL_COMPONENT_REG_BAR_IDX 0
 #define CXL_DEVICE_REG_BAR_IDX 2
 
 #define CXL_WINDOW_MAX 10
 
-typedef struct PXBDev PXBDev;
+typedef struct PXBCXLDev PXBCXLDev;
 
 typedef struct CXLFixedWindow {
     uint64_t size;
     char **targets;
-    PXBDev *target_hbs[8];
+    PXBCXLDev *target_hbs[16];
     uint8_t num_targets;
     uint8_t enc_int_ways;
     uint8_t enc_int_gran;

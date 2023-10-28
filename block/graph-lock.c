@@ -106,10 +106,25 @@ static uint32_t reader_count(void)
     return rd;
 }
 
-void bdrv_graph_wrlock(void)
+void bdrv_graph_wrlock(BlockDriverState *bs)
 {
+    AioContext *ctx = NULL;
+
     GLOBAL_STATE_CODE();
     assert(!qatomic_read(&has_writer));
+
+    /*
+     * Release only non-mainloop AioContext. The mainloop often relies on the
+     * BQL and doesn't lock the main AioContext before doing things.
+     */
+    if (bs) {
+        ctx = bdrv_get_aio_context(bs);
+        if (ctx != qemu_get_aio_context()) {
+            aio_context_release(ctx);
+        } else {
+            ctx = NULL;
+        }
+    }
 
     /* Make sure that constantly arriving new I/O doesn't cause starvation */
     bdrv_drain_all_begin_nopoll();
@@ -127,7 +142,7 @@ void bdrv_graph_wrlock(void)
          * reader lock.
          */
         qatomic_set(&has_writer, 0);
-        AIO_WAIT_WHILE(qemu_get_aio_context(), reader_count() >= 1);
+        AIO_WAIT_WHILE_UNLOCKED(NULL, reader_count() >= 1);
         qatomic_set(&has_writer, 1);
 
         /*
@@ -139,6 +154,10 @@ void bdrv_graph_wrlock(void)
     } while (reader_count() >= 1);
 
     bdrv_drain_all_end();
+
+    if (ctx) {
+        aio_context_acquire(bdrv_get_aio_context(bs));
+    }
 }
 
 void bdrv_graph_wrunlock(void)
@@ -161,11 +180,6 @@ void coroutine_fn bdrv_graph_co_rdlock(void)
 {
     BdrvGraphRWlock *bdrv_graph;
     bdrv_graph = qemu_get_current_aio_context()->bdrv_graph;
-
-    /* Do not lock if in main thread */
-    if (qemu_in_main_thread()) {
-        return;
-    }
 
     for (;;) {
         qatomic_set(&bdrv_graph->reader_count,
@@ -230,11 +244,6 @@ void coroutine_fn bdrv_graph_co_rdunlock(void)
     BdrvGraphRWlock *bdrv_graph;
     bdrv_graph = qemu_get_current_aio_context()->bdrv_graph;
 
-    /* Do not lock if in main thread */
-    if (qemu_in_main_thread()) {
-        return;
-    }
-
     qatomic_store_release(&bdrv_graph->reader_count,
                           bdrv_graph->reader_count - 1);
     /* make sure writer sees reader_count before we check has_writer */
@@ -265,7 +274,10 @@ void bdrv_graph_rdunlock_main_loop(void)
 
 void assert_bdrv_graph_readable(void)
 {
+    /* reader_count() is slow due to aio_context_list_lock lock contention */
+#ifdef CONFIG_DEBUG_GRAPH_LOCK
     assert(qemu_in_main_thread() || reader_count());
+#endif
 }
 
 void assert_bdrv_graph_writable(void)

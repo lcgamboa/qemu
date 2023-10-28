@@ -67,8 +67,8 @@ enum {
     ARM_CP_ALIAS                 = 1 << 8,
     /*
      * Flag: Register does I/O and therefore its accesses need to be marked
-     * with gen_io_start() and also end the TB. In particular, registers which
-     * implement clocks or timers require this.
+     * with translator_io_start() and also end the TB. In particular,
+     * registers which implement clocks or timers require this.
      */
     ARM_CP_IO                    = 1 << 9,
     /*
@@ -1070,5 +1070,11 @@ static inline bool arm_cpreg_in_idspace(const ARMCPRegInfo *ri)
         arm_cpreg_encoding_in_idspace(ri->opc0, ri->opc1, ri->opc2,
                                       ri->crn, ri->crm);
 }
+
+#ifdef CONFIG_USER_ONLY
+static inline void define_cortex_a72_a57_a53_cp_reginfo(ARMCPU *cpu) { }
+#else
+void define_cortex_a72_a57_a53_cp_reginfo(ARMCPU *cpu);
+#endif
 
 #endif /* TARGET_ARM_CPREGS_H */

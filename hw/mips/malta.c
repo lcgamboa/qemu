@@ -629,9 +629,9 @@ static void bl_setup_gt64120_jump_kernel(void **p, uint64_t run_addr,
 
     /* Bus endianess is always reversed */
 #if TARGET_BIG_ENDIAN
-#define cpu_to_gt32 cpu_to_le32
+#define cpu_to_gt32(x) (x)
 #else
-#define cpu_to_gt32 cpu_to_be32
+#define cpu_to_gt32(x) bswap32(x)
 #endif
 
     /* setup MEM-to-PCI0 mapping as done by YAMON */
@@ -748,7 +748,6 @@ static void write_bootloader(uint8_t *base, uint64_t run_addr,
                              uint64_t kernel_entry)
 {
     uint32_t *p;
-    void *v;
 
     /* Small bootloader */
     p = (uint32_t *)base;
@@ -785,9 +784,7 @@ static void write_bootloader(uint8_t *base, uint64_t run_addr,
      *
      */
 
-    v = p;
-    bl_setup_gt64120_jump_kernel(&v, run_addr, kernel_entry);
-    p = v;
+    bl_setup_gt64120_jump_kernel((void **)&p, run_addr, kernel_entry);
 
     /* YAMON subroutines */
     p = (uint32_t *) (base + 0x800);
@@ -1254,7 +1251,7 @@ void mips_malta_init(MachineState *machine)
     pci_bus_map_irqs(pci_bus, malta_pci_slot_get_pirq);
 
     /* Southbridge */
-    piix4 = pci_create_simple_multifunction(pci_bus, PIIX4_PCI_DEVFN, true,
+    piix4 = pci_create_simple_multifunction(pci_bus, PIIX4_PCI_DEVFN,
                                             TYPE_PIIX4_PCI_DEVICE);
     isa_bus = ISA_BUS(qdev_get_child_bus(DEVICE(piix4), "isa.0"));
 

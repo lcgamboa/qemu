@@ -637,9 +637,8 @@ xmit_seg(E1000State *s)
 
     e1000x_inc_reg_if_not_full(s->mac_reg, TPT);
     e1000x_grow_8reg_if_not_full(s->mac_reg, TOTL, s->tx.size + 4);
-    s->mac_reg[GPTC] = s->mac_reg[TPT];
-    s->mac_reg[GOTCL] = s->mac_reg[TOTL];
-    s->mac_reg[GOTCH] = s->mac_reg[TOTH];
+    e1000x_inc_reg_if_not_full(s->mac_reg, GPTC);
+    e1000x_grow_8reg_if_not_full(s->mac_reg, GOTCL, s->tx.size + 4);
 }
 
 static void
@@ -805,38 +804,11 @@ start_xmit(E1000State *s)
 }
 
 static int
-receive_filter(E1000State *s, const uint8_t *buf, int size)
+receive_filter(E1000State *s, const void *buf)
 {
-    uint32_t rctl = s->mac_reg[RCTL];
-    int isbcast = is_broadcast_ether_addr(buf);
-    int ismcast = is_multicast_ether_addr(buf);
-
-    if (e1000x_is_vlan_packet(buf, le16_to_cpu(s->mac_reg[VET])) &&
-        e1000x_vlan_rx_filter_enabled(s->mac_reg)) {
-        uint16_t vid = lduw_be_p(&PKT_GET_VLAN_HDR(buf)->h_tci);
-        uint32_t vfta =
-            ldl_le_p((uint32_t *)(s->mac_reg + VFTA) +
-                     ((vid >> E1000_VFTA_ENTRY_SHIFT) & E1000_VFTA_ENTRY_MASK));
-        if ((vfta & (1 << (vid & E1000_VFTA_ENTRY_BIT_SHIFT_MASK))) == 0) {
-            return 0;
-        }
-    }
-
-    if (!isbcast && !ismcast && (rctl & E1000_RCTL_UPE)) { /* promiscuous ucast */
-        return 1;
-    }
-
-    if (ismcast && (rctl & E1000_RCTL_MPE)) {          /* promiscuous mcast */
-        e1000x_inc_reg_if_not_full(s->mac_reg, MPRC);
-        return 1;
-    }
-
-    if (isbcast && (rctl & E1000_RCTL_BAM)) {          /* broadcast enabled */
-        e1000x_inc_reg_if_not_full(s->mac_reg, BPRC);
-        return 1;
-    }
-
-    return e1000x_rx_group_filter(s->mac_reg, buf);
+    return (!e1000x_is_vlan_packet(buf, s->mac_reg[VET]) ||
+            e1000x_rx_vlan_filter(s->mac_reg, PKT_GET_VLAN_HDR(buf))) &&
+           e1000x_rx_group_filter(s->mac_reg, buf);
 }
 
 static void
@@ -916,13 +888,13 @@ e1000_receive_iov(NetClientState *nc, const struct iovec *iov, int iovcnt)
     uint16_t vlan_special = 0;
     uint8_t vlan_status = 0;
     uint8_t min_buf[ETH_ZLEN];
-    struct iovec min_iov;
     uint8_t *filter_buf = iov->iov_base;
     size_t size = iov_size(iov, iovcnt);
     size_t iov_ofs = 0;
     size_t desc_offset;
     size_t desc_size;
     size_t total_size;
+    eth_pkt_types_e pkt_type;
 
     if (!e1000x_hw_rx_enabled(s->mac_reg)) {
         return -1;
@@ -932,15 +904,7 @@ e1000_receive_iov(NetClientState *nc, const struct iovec *iov, int iovcnt)
         return 0;
     }
 
-    /* Pad to minimum Ethernet frame length */
-    if (size < sizeof(min_buf)) {
-        iov_to_buf(iov, iovcnt, 0, min_buf, size);
-        memset(&min_buf[size], 0, sizeof(min_buf) - size);
-        min_iov.iov_base = filter_buf = min_buf;
-        min_iov.iov_len = size = sizeof(min_buf);
-        iovcnt = 1;
-        iov = &min_iov;
-    } else if (iov->iov_len < MAXIMUM_ETHERNET_HDR_LEN) {
+    if (iov->iov_len < MAXIMUM_ETHERNET_HDR_LEN) {
         /* This is very unlikely, but may happen. */
         iov_to_buf(iov, iovcnt, 0, min_buf, MAXIMUM_ETHERNET_HDR_LEN);
         filter_buf = min_buf;
@@ -951,7 +915,7 @@ e1000_receive_iov(NetClientState *nc, const struct iovec *iov, int iovcnt)
         return size;
     }
 
-    if (!receive_filter(s, filter_buf, size)) {
+    if (!receive_filter(s, filter_buf)) {
         return size;
     }
 
@@ -972,6 +936,7 @@ e1000_receive_iov(NetClientState *nc, const struct iovec *iov, int iovcnt)
         size -= 4;
     }
 
+    pkt_type = get_eth_packet_type(PKT_GET_ETH_HDR(filter_buf));
     rdh_start = s->mac_reg[RDH];
     desc_offset = 0;
     total_size = size + e1000x_fcs_len(s->mac_reg);
@@ -1037,7 +1002,7 @@ e1000_receive_iov(NetClientState *nc, const struct iovec *iov, int iovcnt)
         }
     } while (desc_offset < total_size);
 
-    e1000x_update_rx_total_stats(s->mac_reg, size, total_size);
+    e1000x_update_rx_total_stats(s->mac_reg, pkt_type, size, total_size);
 
     n = E1000_ICS_RXT0;
     if ((rdt = s->mac_reg[RDT]) < s->mac_reg[RDH])

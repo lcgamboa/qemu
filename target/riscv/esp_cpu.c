@@ -221,12 +221,10 @@ static void esp_cpu_init(Object *obj)
     RISCVCPU *cpu = RISCV_CPU(obj);
     CPURISCVState *env = &cpu->env;
     set_misa(env, MXL_RV32, RVI | RVM | RVC);
-
-    /* Since 8.0, it is also required to set CPU's cfg extension booleans, unfortunately, there is no
-     * public function to do this, so we have to manually write to the fields. */
-    cpu->cfg.ext_i = true;
-    cpu->cfg.ext_m = true;
-    cpu->cfg.ext_c = true;
+    /* Zawrs extension is enabled by default, but depends on "A" extension which isn't present on C3 */
+    cpu->cfg.ext_zawrs = false;
+    /* Zfa extension is enabled by default, but depends on "F" extension which isn't present on C3 */
+    cpu->cfg.ext_zfa = false;
 
     /* Initialize the IRQ lines */
     qdev_init_gpio_in_named_with_opaque(DEVICE(s),

@@ -26,9 +26,6 @@
 
 #define EFUSE_DEBUG    0
 
-
-#define EFUSE_DEFAULT_FILENAME "qemu_efuses.bin"
-
 /**
  * @brief Specify the delay, in us of a a write or read operation, this will only be used to simulate
  * the delay the real efuses actually take on real hardware.
@@ -310,7 +307,7 @@ static void esp32c3_efuse_write(void *opaque, hwaddr addr,
     uint32_t *content_32 = (uint32_t*) content_8;
 
 #if EFUSE_DEBUG
-    info_report("[EFUSE] Writing to 0x%08lx = 0x%08lx (size: %d)\n", addr, value, size);
+    info_report("[EFUSE] Writing to 0x%08lx = 0x%08lx (size: %d)", addr, value, size);
 #endif
 
     /* Check if the programming cmd block is being written */
@@ -376,7 +373,7 @@ static void esp32c3_efuse_write(void *opaque, hwaddr addr,
         case offsetof(ESP32C3EfuseRegs, dbg_erase_all):
             {
 #if EFUSE_DEBUG
-                info_report("[EFUSE] erasing all efuses!\n");
+                info_report("[EFUSE] erasing all efuses!");
 #endif
                 uint32_t size = offsetof(ESP32C3EfuseRegs, rd_repeat_err0) - offsetof(ESP32C3EfuseRegs, rd_wr_dis);
                 memset(&s->efuses.rd_wr_dis, 0, size);
@@ -473,6 +470,9 @@ static void esp32c3_efuse_realize(DeviceState *dev, Error **errp)
 
         esp32c3_efuse_reset((DeviceState*) s);
     }
+
+    /* State machine is ready */
+    s->efuses.status.state = 1;
 
     return;
 error:

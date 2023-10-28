@@ -43,6 +43,7 @@
 #define DR_REG_APB_SARADC_BASE                  0x60040000
 #define DR_REG_USB_SERIAL_JTAG_BASE             0x60043000
 #define DR_REG_AES_XTS_BASE                     0x600CC000
+#define DR_REG_EMAC_BASE                        0x600CD000
 
 
 #define ESP32C3_IO_START_ADDR                   (DR_REG_UART_BASE)

@@ -11,11 +11,11 @@
  *
  */
 
+/* header to be included in non-KVM-specific code */
+
 #ifndef QEMU_KVM_H
 #define QEMU_KVM_H
 
-#include "qemu/queue.h"
-#include "hw/core/cpu.h"
 #include "exec/memattrs.h"
 #include "qemu/accel.h"
 #include "qom/object.h"
@@ -368,6 +368,8 @@ int kvm_arch_get_registers(CPUState *cpu);
 #define KVM_PUT_FULL_STATE      3
 
 int kvm_arch_put_registers(CPUState *cpu, int level);
+
+int kvm_arch_get_default_type(MachineState *ms);
 
 int kvm_arch_init(MachineState *ms, KVMState *s);
 

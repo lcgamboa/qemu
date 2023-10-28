@@ -148,7 +148,7 @@ uint32_t HELPER(v7m_tt)(CPUARMState *env, uint32_t addr, uint32_t op)
      *  R: 0 because unpriv and A flag not set
      *  SRVALID: 0 because NS
      *  MRVALID: 0 because unpriv and A flag not set
-     *  SREGION: 0 becaus SRVALID is 0
+     *  SREGION: 0 because SRVALID is 0
      *  MREGION: 0 because MRVALID is 0
      */
     return 0;
@@ -1937,8 +1937,8 @@ static bool do_v7m_function_return(ARMCPU *cpu)
          */
         mmu_idx = arm_v7m_mmu_idx_for_secstate(env, true);
         oi = make_memop_idx(MO_LEUL, arm_to_core_mmu_idx(mmu_idx));
-        newpc = cpu_ldl_le_mmu(env, frameptr, oi, 0);
-        newpsr = cpu_ldl_le_mmu(env, frameptr + 4, oi, 0);
+        newpc = cpu_ldl_mmu(env, frameptr, oi, 0);
+        newpsr = cpu_ldl_mmu(env, frameptr + 4, oi, 0);
 
         /* Consistency checks on new IPSR */
         newpsr_exc = newpsr & XPSR_EXCP;

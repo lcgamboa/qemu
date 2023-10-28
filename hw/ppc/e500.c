@@ -712,7 +712,7 @@ static int ppce500_prep_device_tree(PPCE500MachineState *machine,
     p->kernel_base = kernel_base;
     p->kernel_size = kernel_size;
 
-    qemu_register_reset(ppce500_reset_device_tree, p);
+    qemu_register_reset_nosnapshotload(ppce500_reset_device_tree, p);
     p->notifier.notify = ppce500_init_notify;
     qemu_add_machine_init_done_notifier(&p->notifier);
 
@@ -765,7 +765,9 @@ static void mmubooke_create_initial_mapping(CPUPPCState *env)
     tlb->mas7_3 = 0;
     tlb->mas7_3 |= MAS3_UR | MAS3_UW | MAS3_UX | MAS3_SR | MAS3_SW | MAS3_SX;
 
+#ifdef CONFIG_KVM
     env->tlb_dirty = true;
+#endif
 }
 
 static void ppce500_cpu_reset_sec(void *opaque)
@@ -898,6 +900,7 @@ void ppce500_init(MachineState *machine)
     MemoryRegion *address_space_mem = get_system_memory();
     PPCE500MachineState *pms = PPCE500_MACHINE(machine);
     const PPCE500MachineClass *pmc = PPCE500_MACHINE_GET_CLASS(machine);
+    MachineClass *mc = MACHINE_CLASS(pmc);
     PCIBus *pci_bus;
     CPUPPCState *env = NULL;
     uint64_t loadaddr;
@@ -1073,7 +1076,7 @@ void ppce500_init(MachineState *machine)
     if (pci_bus) {
         /* Register network interfaces. */
         for (i = 0; i < nb_nics; i++) {
-            pci_nic_init_nofail(&nd_table[i], pci_bus, "virtio-net-pci", NULL);
+            pci_nic_init_nofail(&nd_table[i], pci_bus, mc->default_nic, NULL);
         }
     }
 

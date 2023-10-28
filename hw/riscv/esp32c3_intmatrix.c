@@ -230,7 +230,7 @@ static uint64_t esp32c3_intmatrix_read(void* opaque, hwaddr addr, unsigned int s
     const uint32_t index = addr / sizeof(uint32_t);
     uint32_t r = 0;
 
-    if (index <= 61) {
+    if (index < ESP32C3_INT_MATRIX_INPUTS) {
         r = s->irq_map[index];
     } else if (index >= ESP32C3_INTMATRIX_IO_PRIO_START && index < ESP32C3_INTMATRIX_IO_PRIO_END) {
         const uint32_t line = index - ESP32C3_INTMATRIX_IO_PRIO_START;
@@ -257,7 +257,7 @@ static void esp32c3_intmatrix_write(void* opaque, hwaddr addr, uint64_t value, u
 
     const uint32_t index = addr / sizeof(uint32_t);
 
-    if (index <= 61) {
+    if (index < ESP32C3_INT_MATRIX_INPUTS) {
 
         s->irq_map[index] = (value & 0x1f);
 #if INTMATRIX_DEBUG

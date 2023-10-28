@@ -26,6 +26,7 @@
 #include "sysemu/kvm.h"
 #include "sysemu/runstate.h"
 #include "sysemu/reset.h"
+#include "net/net.h"
 #include "hw/misc/esp32c3_reg.h"
 #include "hw/misc/esp32c3_rtc_cntl.h"
 #include "hw/misc/esp32c3_cache.h"
@@ -42,6 +43,7 @@
 #include "hw/misc/esp32c3_aes.h"
 #include "hw/misc/esp32c3_rsa.h"
 #include "hw/misc/esp32c3_hmac.h"
+#include "hw/misc/esp32c3_ds.h"
 #include "hw/misc/esp32c3_jtag.h"
 #include "hw/dma/esp32c3_gdma.h"
 #include "hw/misc/esp32c3_iomux.h"
@@ -73,6 +75,7 @@ struct Esp32C3MachineState {
 
     qemu_irq cpu_reset;
 
+    DeviceState *eth; /* Ethernet controller */
     ESP32C3IntMatrixState intmatrix;
     ESP32C3UARTState uart[ESP32C3_UART_COUNT];
     ESP32C3GPIOState gpio;
@@ -84,6 +87,7 @@ struct Esp32C3MachineState {
     ESP32C3ShaState sha;
     ESP32C3RsaState rsa;
     ESP32C3HmacState hmac;
+    ESP32C3DsState ds;
     ESP32C3TimgState timg[2];
     ESP32C3SysTimerState systimer;
     ESP32C3SpiState spi1;
@@ -348,6 +352,7 @@ static void esp32c3_reset_request(void* opaque, int n, int level)
     }
 }
 
+
 static void esp32c3_init_spi_flash(Esp32C3MachineState *ms, BlockBackend* blk)
 {
     DeviceState *spi_master = DEVICE(&ms->spi1);
@@ -383,10 +388,38 @@ static void esp32c3_init_spi_flash(Esp32C3MachineState *ms, BlockBackend* blk)
                                 qdev_get_gpio_in_named(flash_dev, SSI_GPIO_CS, 0));
 }
 
-
 static void esp32c3_add_unimp_device(MemoryRegion *dest, const char* name, hwaddr dport_base_addr, size_t size, uint32_t default_value)
 {
     create_unimplemented_device_default_value(name, dport_base_addr, size, default_value);
+}
+
+static void esp32c3_init_openeth(Esp32C3MachineState *ms)
+{
+    const char* type_openeth = "open_eth";
+    MemoryRegion* mr = NULL;
+    SysBusDevice* sbd = NULL;
+
+    NICInfo *nd = &nd_table[0];
+    MemoryRegion* sys_mem = get_system_memory();
+
+    if (nd->used && nd->model && strcmp(nd->model, type_openeth) == 0) {
+        /* Create a new OpenCores Ethernet component */
+        DeviceState* open_eth_dev = qdev_new(type_openeth);
+        ms->eth = open_eth_dev;
+        qdev_set_nic_properties(open_eth_dev, nd);
+        sbd = SYS_BUS_DEVICE(open_eth_dev);
+        sysbus_realize(sbd, &error_fatal);
+
+        /* OpenCores Ethernet has two memory regions: one for registers and one for descriptors,
+         * we need to provide one I/O range for each of them */
+        mr = sysbus_mmio_get_region(sbd, 0);
+        memory_region_add_subregion_overlap(sys_mem, DR_REG_EMAC_BASE, mr, 0);
+        mr = sysbus_mmio_get_region(sbd, 1);
+        memory_region_add_subregion_overlap(sys_mem, DR_REG_EMAC_BASE + 0x400, mr, 0);
+
+        sysbus_connect_irq(sbd, 0,
+                           qdev_get_gpio_in(DEVICE(&ms->intmatrix), ETS_ETH_MAC_INTR_SOURCE));
+    }
 }
 
 
@@ -412,10 +445,6 @@ static void esp32c3_machine_init(MachineState *machine)
     /* Initialize SoC */
     object_initialize_child(OBJECT(ms), "soc", &ms->soc, TYPE_ESP_RISCV_CPU);
     qdev_prop_set_uint64(DEVICE(&ms->soc), "resetvec", ESP32C3_RESET_ADDRESS);
-
-    /* Initialize the peripheral bus */
-    qbus_init(&ms->periph_bus, sizeof(ms->periph_bus),
-              TYPE_SYSTEM_BUS, DEVICE(ms), "esp32c3-periph-bus");
 
     /* Initialize the memory mapping */
     const struct MemmapEntry *memmap = esp32c3_memmap;
@@ -456,6 +485,10 @@ static void esp32c3_machine_init(MachineState *machine)
     memory_region_add_subregion(sys_mem, ESP32C3_IO_START_ADDR, &ms->iomem);
 
 
+    /* Initialize the peripheral bus */
+    qbus_init(&ms->periph_bus, sizeof(ms->periph_bus),
+              TYPE_SYSTEM_BUS, DEVICE(&ms->soc), "esp32c3-periph-bus");
+
     /* Initialize the main I/O of the CPU that waits for "reset" requests */
     qdev_init_gpio_in_named(DEVICE(&ms->soc), esp32c3_reset_request, ESP32C3_RESET_GPIO_NAME, 1);
 
@@ -480,6 +513,7 @@ static void esp32c3_machine_init(MachineState *machine)
     object_initialize_child(OBJECT(machine), "gdma", &ms->gdma, TYPE_ESP32C3_GDMA);
     object_initialize_child(OBJECT(machine), "rsa", &ms->rsa, TYPE_ESP32C3_RSA);
     object_initialize_child(OBJECT(machine), "hmac", &ms->hmac, TYPE_ESP32C3_HMAC);
+    object_initialize_child(OBJECT(machine), "ds", &ms->ds, TYPE_ESP32C3_DS);
     object_initialize_child(OBJECT(machine), "timg0", &ms->timg[0], TYPE_ESP32C3_TIMG);
     object_initialize_child(OBJECT(machine), "timg1", &ms->timg[1], TYPE_ESP32C3_TIMG);
     object_initialize_child(OBJECT(machine), "systimer", &ms->systimer, TYPE_ESP32C3_SYSTIMER);
@@ -491,6 +525,7 @@ static void esp32c3_machine_init(MachineState *machine)
     /* Realize all the I/O peripherals we depend on */
 
     /* Interrupt matrix realization */
+    DeviceState* intmatrix_dev = DEVICE(&ms->intmatrix);
     {
         /* Store the current Machine CPU in the interrupt matrix */
         object_property_set_link(OBJECT(&ms->intmatrix), "cpu", OBJECT(&ms->soc), &error_abort);
@@ -503,11 +538,12 @@ static void esp32c3_machine_init(MachineState *machine)
          */
         for (int i = 0; i <= ESP32C3_CPU_INT_COUNT; i++) {
             qemu_irq cpu_input = qdev_get_gpio_in_named(DEVICE(&ms->soc), ESP_CPU_IRQ_LINES_NAME, i);
-            qdev_connect_gpio_out_named(DEVICE(&ms->intmatrix), ESP32C3_INT_MATRIX_OUTPUT_NAME, i, cpu_input);
+            qdev_connect_gpio_out_named(intmatrix_dev, ESP32C3_INT_MATRIX_OUTPUT_NAME, i, cpu_input);
         }
     }
 
-    DeviceState* intmatrix_dev = DEVICE(&ms->intmatrix);
+    /* Initialize OpenCores Ethernet controller now sicne it requires the interrupt matrix */
+    esp32c3_init_openeth(ms);
 
     /* USB Serial JTAG realization */
     {
@@ -538,7 +574,9 @@ static void esp32c3_machine_init(MachineState *machine)
         sysbus_realize(SYS_BUS_DEVICE(&ms->spi1), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->spi1), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_SPI1_BASE, mr, 0);
-        esp32c3_init_spi_flash(ms, blk);
+        if (blk) {
+            esp32c3_init_spi_flash(ms, blk);
+        }
     }
 
     for (int i = 0; i < ESP32C3_UART_COUNT; ++i) {
@@ -589,14 +627,6 @@ static void esp32c3_machine_init(MachineState *machine)
             sysbus_connect_irq(SYS_BUS_DEVICE(&ms->clock), i,
                            qdev_get_gpio_in(intmatrix_dev, ETS_FROM_CPU_INTR0_SOURCE + i));
         }
-    }
-
-    /* HMAC realization */
-    {
-        ms->hmac.efuse = &ms->efuse;
-        qdev_realize(DEVICE(&ms->hmac), &ms->periph_bus, &error_fatal);
-        MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->hmac), 0);
-        memory_region_add_subregion_overlap(sys_mem, DR_REG_HMAC_BASE, mr, 0);
     }
 
     /* Timer Groups realization */
@@ -682,6 +712,24 @@ static void esp32c3_machine_init(MachineState *machine)
                            qdev_get_gpio_in(intmatrix_dev, ETS_RSA_INTR_SOURCE));
     }
 
+    /* HMAC realization */
+    {
+        ms->hmac.efuse = &ms->efuse;
+        qdev_realize(DEVICE(&ms->hmac), &ms->periph_bus, &error_fatal);
+        MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->hmac), 0);
+        memory_region_add_subregion_overlap(sys_mem, DR_REG_HMAC_BASE, mr, 0);
+    }
+
+    /* Digital Signature realization */
+    {
+        ms->ds.hmac = &ms->hmac;
+        ms->ds.aes = &ms->aes;
+        ms->ds.rsa = &ms->rsa;
+        ms->ds.sha = &ms->sha;
+        qdev_realize(DEVICE(&ms->ds), &ms->periph_bus, &error_fatal);
+        MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->ds), 0);
+        memory_region_add_subregion_overlap(sys_mem, DR_REG_DIGITAL_SIGNATURE_BASE, mr, 0);
+    }
 
     esp32c3_add_unimp_device(sys_mem, "esp32c3.sensitive", DR_REG_SENSITIVE_BASE, 0x1000,0);
     esp32c3_add_unimp_device(sys_mem, "esp32c3.mmu", DR_REG_MMU_TABLE, 0x1000,0);

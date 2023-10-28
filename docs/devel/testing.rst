@@ -479,6 +479,18 @@ first to contribute the mapping to the ``libvirt-ci`` project:
    contains the ``mappings.yml`` update.  Then add the prerequisite and
    run ``make lcitool-refresh``.
 
+ * Please also trigger gitlab container generation pipelines on your change
+   for as many OS distros as practical to make sure that there are no
+   obvious breakages when adding the new pre-requisite. Please see
+   `CI <https://www.qemu.org/docs/master/devel/ci.html>`__ documentation
+   page on how to trigger gitlab CI pipelines on your change.
+
+ * Please also trigger gitlab container generation pipelines on your change
+   for as many OS distros as practical to make sure that there are no
+   obvious breakages when adding the new pre-requisite. Please see
+   `CI <https://www.qemu.org/docs/master/devel/ci.html>`__ documentation
+   page on how to trigger gitlab CI pipelines on your change.
+
 For enterprise distros that default to old, end-of-life versions of the
 Python runtime, QEMU uses a separate set of mappings that work with more
 recent versions.  These can be found in ``tests/lcitool/mappings.yml``.
@@ -552,7 +564,7 @@ When CI tasks, maintainers or yourself report a Docker test failure, follow the
 below steps to debug it:
 
 1. Locally reproduce the failure with the reported command line. E.g. run
-   ``make docker-test-mingw@fedora J=8``.
+   ``make docker-test-mingw@fedora-win64-cross J=8``.
 2. Add "V=1" to the command line, try again, to see the verbose output.
 3. Further add "DEBUG=1" to the command line. This will pause in a shell prompt
    in the container right before testing starts. You could either manually
@@ -1371,6 +1383,11 @@ variable as shown on the code snippet below to skip the test:
   @skipIf(os.getenv('GITLAB_CI'), 'Running on GitLab')
   def test(self):
       do_something()
+
+QEMU_TEST_FLAKY_TESTS
+^^^^^^^^^^^^^^^^^^^^^
+Some tests are not working reliably and thus are disabled by default.
+Set this environment variable to enable them.
 
 Uninstalling Avocado
 ~~~~~~~~~~~~~~~~~~~~

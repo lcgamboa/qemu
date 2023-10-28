@@ -111,6 +111,32 @@ Use ``-machine acpi=off`` instead.
 The HAXM project has been retired (see https://github.com/intel/haxm#status).
 Use "whpx" (on Windows) or "hvf" (on macOS) instead.
 
+``-async-teardown`` (since 8.1)
+'''''''''''''''''''''''''''''''
+
+Use ``-run-with async-teardown=on`` instead.
+
+``-chroot`` (since 8.1)
+'''''''''''''''''''''''
+
+Use ``-run-with chroot=dir`` instead.
+
+``-singlestep`` (since 8.1)
+'''''''''''''''''''''''''''
+
+The ``-singlestep`` option has been turned into an accelerator property,
+and given a name that better reflects what it actually does.
+Use ``-accel tcg,one-insn-per-tb=on`` instead.
+
+User-mode emulator command line arguments
+-----------------------------------------
+
+``-singlestep`` (since 8.1)
+'''''''''''''''''''''''''''
+
+The ``-singlestep`` option has been given a name that better reflects
+what it actually does. For both linux-user and bsd-user, use the
+new ``-one-insn-per-tb`` option instead.
 
 QEMU Machine Protocol (QMP) commands
 ------------------------------------
@@ -183,6 +209,45 @@ accepted incorrect commands will return an error. Users should make sure that
 all arguments passed to ``device_add`` are consistent with the documented
 property types.
 
+``StatusInfo`` member ``singlestep`` (since 8.1)
+''''''''''''''''''''''''''''''''''''''''''''''''
+
+The ``singlestep`` member of the ``StatusInfo`` returned from the
+``query-status`` command is deprecated. This member has a confusing
+name and it never did what the documentation claimed or what its name
+suggests. We do not believe that anybody is actually using the
+information provided in this member.
+
+The information it reports is whether the TCG JIT is in "one
+instruction per translated block" mode (which can be set on the
+command line or via the HMP, but not via QMP). The information remains
+available via the HMP 'info jit' command.
+
+QEMU Machine Protocol (QMP) events
+----------------------------------
+
+``MEM_UNPLUG_ERROR`` (since 6.2)
+''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+
+Use the more generic event ``DEVICE_UNPLUG_GUEST_ERROR`` instead.
+
+``vcpu`` trace events (since 8.1)
+'''''''''''''''''''''''''''''''''
+
+The ability to instrument QEMU helper functions with vCPU-aware trace
+points was removed in 7.0. However QMP still exposed the vcpu
+parameter. This argument has now been deprecated and the remaining
+remaining trace points that used it are selected just by name.
+
+Human Monitor Protocol (HMP) commands
+-------------------------------------
+
+``singlestep`` (since 8.1)
+''''''''''''''''''''''''''
+
+The ``singlestep`` command has been replaced by the ``one-insn-per-tb``
+command, which has the same behaviour but a less misleading name.
+
 Host Architectures
 ------------------
 
@@ -207,20 +272,11 @@ it. Since all recent x86 hardware from the past >10 years is capable of the
 64-bit x86 extensions, a corresponding 64-bit OS should be used instead.
 
 
-QEMU API (QAPI) events
-----------------------
-
-``MEM_UNPLUG_ERROR`` (since 6.2)
-''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-
-Use the more generic event ``DEVICE_UNPLUG_GUEST_ERROR`` instead.
-
-
 System emulator machines
 ------------------------
 
-Arm ``virt`` machine ``dtb-kaslr-seed`` property
-''''''''''''''''''''''''''''''''''''''''''''''''
+Arm ``virt`` machine ``dtb-kaslr-seed`` property (since 7.1)
+''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 
 The ``dtb-kaslr-seed`` property on the ``virt`` board has been
 deprecated; use the new name ``dtb-randomness`` instead. The new name
@@ -283,6 +339,37 @@ The ``nvme`` device originally used a PCI Vendor/Device Identifier combination
 from Intel that was not properly allocated. Since version 5.2, the controller
 has used a properly allocated identifier. Deprecate the ``use-intel-id``
 machine compatibility parameter.
+
+``-device cxl-type3,memdev=xxxx`` (since 8.0)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``cxl-type3`` device initially only used a single memory backend.  With
+the addition of volatile memory support, it is now necessary to distinguish
+between persistent and volatile memory backends.  As such, memdev is deprecated
+in favor of persistent-memdev.
+
+``-fsdev proxy`` and ``-virtfs proxy`` (since 8.1)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The 9p ``proxy`` filesystem backend driver has been deprecated and will be
+removed (along with its proxy helper daemon) in a future version of QEMU. Please
+use ``-fsdev local`` or ``-virtfs local`` for using the 9p ``local`` filesystem
+backend, or alternatively consider deploying virtiofsd instead.
+
+The 9p ``proxy`` backend was originally developed as an alternative to the 9p
+``local`` backend. The idea was to enhance security by dispatching actual low
+level filesystem operations from 9p server (QEMU process) over to a separate
+process (the virtfs-proxy-helper binary). However this alternative never gained
+momentum. The proxy backend is much slower than the local backend, hasn't seen
+any development in years, and showed to be less secure, especially due to the
+fact that its helper daemon must be run as root, whereas with the local backend
+QEMU is typically run as unprivileged user and allows to tighten behaviour by
+mapping permissions et al by using its 'mapped' security model option.
+
+Nowadays it would make sense to reimplement the ``proxy`` backend by using
+QEMU's ``vhost`` feature, which would eliminate the high latency costs under
+which the 9p ``proxy`` backend currently suffers. However as of to date nobody
+has indicated plans for such kind of reimplementation unfortunately.
 
 
 Block device options
@@ -364,3 +451,13 @@ both, older and future versions of QEMU.
 The ``blacklist`` config file option has been renamed to ``block-rpcs``
 (to be in sync with the renaming of the corresponding command line
 option).
+
+Migration
+---------
+
+``skipped`` MigrationStats field (since 8.1)
+''''''''''''''''''''''''''''''''''''''''''''
+
+``skipped`` field in Migration stats has been deprecated.  It hasn't
+been used for more than 10 years.
+

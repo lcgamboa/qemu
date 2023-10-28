@@ -84,8 +84,11 @@ int64_t coroutine_mixed_fn bdrv_nb_sectors(BlockDriverState *bs);
 int64_t coroutine_fn GRAPH_RDLOCK bdrv_co_getlength(BlockDriverState *bs);
 int64_t co_wrapper_mixed_bdrv_rdlock bdrv_getlength(BlockDriverState *bs);
 
-int64_t coroutine_fn bdrv_co_get_allocated_file_size(BlockDriverState *bs);
-int64_t co_wrapper bdrv_get_allocated_file_size(BlockDriverState *bs);
+int64_t coroutine_fn GRAPH_RDLOCK
+bdrv_co_get_allocated_file_size(BlockDriverState *bs);
+
+int64_t co_wrapper_bdrv_rdlock
+bdrv_get_allocated_file_size(BlockDriverState *bs);
 
 BlockMeasureInfo *bdrv_measure(BlockDriver *drv, QemuOpts *opts,
                                BlockDriverState *in_bs, Error **errp);
@@ -110,6 +113,19 @@ int coroutine_fn GRAPH_RDLOCK bdrv_co_flush(BlockDriverState *bs);
 
 int coroutine_fn GRAPH_RDLOCK bdrv_co_pdiscard(BdrvChild *child, int64_t offset,
                                                int64_t bytes);
+
+/* Report zone information of zone block device. */
+int coroutine_fn GRAPH_RDLOCK bdrv_co_zone_report(BlockDriverState *bs,
+                                                  int64_t offset,
+                                                  unsigned int *nr_zones,
+                                                  BlockZoneDescriptor *zones);
+int coroutine_fn GRAPH_RDLOCK bdrv_co_zone_mgmt(BlockDriverState *bs,
+                                                BlockZoneOp op,
+                                                int64_t offset, int64_t len);
+int coroutine_fn GRAPH_RDLOCK bdrv_co_zone_append(BlockDriverState *bs,
+                                                  int64_t *offset,
+                                                  QEMUIOVector *qiov,
+                                                  BdrvRequestFlags flags);
 
 bool bdrv_can_write_zeroes_with_unmap(BlockDriverState *bs);
 int bdrv_block_status(BlockDriverState *bs, int64_t offset,
@@ -164,8 +180,11 @@ const char *bdrv_get_node_name(const BlockDriverState *bs);
 const char *bdrv_get_device_name(const BlockDriverState *bs);
 const char *bdrv_get_device_or_node_name(const BlockDriverState *bs);
 
-int coroutine_fn bdrv_co_get_info(BlockDriverState *bs, BlockDriverInfo *bdi);
-int co_wrapper_mixed bdrv_get_info(BlockDriverState *bs, BlockDriverInfo *bdi);
+int coroutine_fn GRAPH_RDLOCK
+bdrv_co_get_info(BlockDriverState *bs, BlockDriverInfo *bdi);
+
+int co_wrapper_mixed_bdrv_rdlock
+bdrv_get_info(BlockDriverState *bs, BlockDriverInfo *bdi);
 
 ImageInfoSpecific *bdrv_get_specific_info(BlockDriverState *bs,
                                           Error **errp);
@@ -199,10 +218,18 @@ void *qemu_try_blockalign0(BlockDriverState *bs, size_t size);
 void bdrv_enable_copy_on_read(BlockDriverState *bs);
 void bdrv_disable_copy_on_read(BlockDriverState *bs);
 
-void coroutine_fn bdrv_co_debug_event(BlockDriverState *bs,
-                                      BlkdebugEvent event);
-void co_wrapper_mixed bdrv_debug_event(BlockDriverState *bs,
-                                       BlkdebugEvent event);
+void coroutine_fn GRAPH_RDLOCK
+bdrv_co_debug_event(BlockDriverState *bs, BlkdebugEvent event);
+
+void co_wrapper_mixed_bdrv_rdlock
+bdrv_debug_event(BlockDriverState *bs, BlkdebugEvent event);
+
+#define BLKDBG_CO_EVENT(child, evt) \
+    do { \
+        if (child) { \
+            bdrv_co_debug_event(child->bs, evt); \
+        } \
+    } while (0)
 
 #define BLKDBG_EVENT(child, evt) \
     do { \
@@ -238,9 +265,6 @@ AioContext *coroutine_fn bdrv_co_enter(BlockDriverState *bs);
 void coroutine_fn bdrv_co_leave(BlockDriverState *bs, AioContext *old_ctx);
 
 AioContext *child_of_bds_get_parent_aio_context(BdrvChild *c);
-
-void coroutine_fn GRAPH_RDLOCK bdrv_co_io_plug(BlockDriverState *bs);
-void coroutine_fn GRAPH_RDLOCK bdrv_co_io_unplug(BlockDriverState *bs);
 
 bool coroutine_fn GRAPH_RDLOCK
 bdrv_co_can_store_new_dirty_bitmap(BlockDriverState *bs, const char *name,

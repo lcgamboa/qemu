@@ -34,6 +34,9 @@
 #include "exec/log.h"
 #include "fpu/softfloat.h"
 
+#define HELPER_H "helper.h"
+#include "exec/helper-info.c.inc"
+#undef  HELPER_H
 
 //#define DEBUG_DISPATCH 1
 
@@ -61,8 +64,6 @@ static TCGv NULL_QREG;
 #define IS_NULL_QREG(t) (t == NULL_QREG)
 /* Used to distinguish stores from bad addressing modes.  */
 static TCGv store_dummy;
-
-#include "exec/gen-icount.h"
 
 void m68k_tcg_init(void)
 {
@@ -304,23 +305,14 @@ static inline void gen_addr_fault(DisasContext *s)
 static inline TCGv gen_load(DisasContext *s, int opsize, TCGv addr,
                             int sign, int index)
 {
-    TCGv tmp;
-    tmp = tcg_temp_new_i32();
-    switch(opsize) {
+    TCGv tmp = tcg_temp_new_i32();
+
+    switch (opsize) {
     case OS_BYTE:
-        if (sign)
-            tcg_gen_qemu_ld8s(tmp, addr, index);
-        else
-            tcg_gen_qemu_ld8u(tmp, addr, index);
-        break;
     case OS_WORD:
-        if (sign)
-            tcg_gen_qemu_ld16s(tmp, addr, index);
-        else
-            tcg_gen_qemu_ld16u(tmp, addr, index);
-        break;
     case OS_LONG:
-        tcg_gen_qemu_ld32u(tmp, addr, index);
+        tcg_gen_qemu_ld_tl(tmp, addr, index,
+                           opsize | (sign ? MO_SIGN : 0) | MO_TE);
         break;
     default:
         g_assert_not_reached();
@@ -332,15 +324,11 @@ static inline TCGv gen_load(DisasContext *s, int opsize, TCGv addr,
 static inline void gen_store(DisasContext *s, int opsize, TCGv addr, TCGv val,
                              int index)
 {
-    switch(opsize) {
+    switch (opsize) {
     case OS_BYTE:
-        tcg_gen_qemu_st8(val, addr, index);
-        break;
     case OS_WORD:
-        tcg_gen_qemu_st16(val, addr, index);
-        break;
     case OS_LONG:
-        tcg_gen_qemu_st32(val, addr, index);
+        tcg_gen_qemu_st_tl(val, addr, index, opsize | MO_TE);
         break;
     default:
         g_assert_not_reached();
@@ -971,23 +959,17 @@ static void gen_load_fp(DisasContext *s, int opsize, TCGv addr, TCGv_ptr fp,
     tmp = tcg_temp_new();
     switch (opsize) {
     case OS_BYTE:
-        tcg_gen_qemu_ld8s(tmp, addr, index);
-        gen_helper_exts32(cpu_env, fp, tmp);
-        break;
     case OS_WORD:
-        tcg_gen_qemu_ld16s(tmp, addr, index);
-        gen_helper_exts32(cpu_env, fp, tmp);
-        break;
     case OS_LONG:
-        tcg_gen_qemu_ld32u(tmp, addr, index);
+        tcg_gen_qemu_ld_tl(tmp, addr, index, opsize | MO_SIGN | MO_TE);
         gen_helper_exts32(cpu_env, fp, tmp);
         break;
     case OS_SINGLE:
-        tcg_gen_qemu_ld32u(tmp, addr, index);
+        tcg_gen_qemu_ld_tl(tmp, addr, index, MO_TEUL);
         gen_helper_extf32(cpu_env, fp, tmp);
         break;
     case OS_DOUBLE:
-        tcg_gen_qemu_ld64(t64, addr, index);
+        tcg_gen_qemu_ld_i64(t64, addr, index, MO_TEUQ);
         gen_helper_extf64(cpu_env, fp, t64);
         break;
     case OS_EXTENDED:
@@ -995,11 +977,11 @@ static void gen_load_fp(DisasContext *s, int opsize, TCGv addr, TCGv_ptr fp,
             gen_exception(s, s->base.pc_next, EXCP_FP_UNIMP);
             break;
         }
-        tcg_gen_qemu_ld32u(tmp, addr, index);
+        tcg_gen_qemu_ld_i32(tmp, addr, index, MO_TEUL);
         tcg_gen_shri_i32(tmp, tmp, 16);
         tcg_gen_st16_i32(tmp, fp, offsetof(FPReg, l.upper));
         tcg_gen_addi_i32(tmp, addr, 4);
-        tcg_gen_qemu_ld64(t64, tmp, index);
+        tcg_gen_qemu_ld_i64(t64, tmp, index, MO_TEUQ);
         tcg_gen_st_i64(t64, fp, offsetof(FPReg, l.lower));
         break;
     case OS_PACKED:
@@ -1024,24 +1006,18 @@ static void gen_store_fp(DisasContext *s, int opsize, TCGv addr, TCGv_ptr fp,
     tmp = tcg_temp_new();
     switch (opsize) {
     case OS_BYTE:
-        gen_helper_reds32(tmp, cpu_env, fp);
-        tcg_gen_qemu_st8(tmp, addr, index);
-        break;
     case OS_WORD:
-        gen_helper_reds32(tmp, cpu_env, fp);
-        tcg_gen_qemu_st16(tmp, addr, index);
-        break;
     case OS_LONG:
         gen_helper_reds32(tmp, cpu_env, fp);
-        tcg_gen_qemu_st32(tmp, addr, index);
+        tcg_gen_qemu_st_tl(tmp, addr, index, opsize | MO_TE);
         break;
     case OS_SINGLE:
         gen_helper_redf32(tmp, cpu_env, fp);
-        tcg_gen_qemu_st32(tmp, addr, index);
+        tcg_gen_qemu_st_tl(tmp, addr, index, MO_TEUL);
         break;
     case OS_DOUBLE:
         gen_helper_redf64(t64, cpu_env, fp);
-        tcg_gen_qemu_st64(t64, addr, index);
+        tcg_gen_qemu_st_i64(t64, addr, index, MO_TEUQ);
         break;
     case OS_EXTENDED:
         if (m68k_feature(s->env, M68K_FEATURE_CF_FPU)) {
@@ -1050,10 +1026,10 @@ static void gen_store_fp(DisasContext *s, int opsize, TCGv addr, TCGv_ptr fp,
         }
         tcg_gen_ld16u_i32(tmp, fp, offsetof(FPReg, l.upper));
         tcg_gen_shli_i32(tmp, tmp, 16);
-        tcg_gen_qemu_st32(tmp, addr, index);
+        tcg_gen_qemu_st_i32(tmp, addr, index, MO_TEUL);
         tcg_gen_addi_i32(tmp, addr, 4);
         tcg_gen_ld_i64(t64, fp, offsetof(FPReg, l.lower));
-        tcg_gen_qemu_st64(t64, tmp, index);
+        tcg_gen_qemu_st_i64(t64, tmp, index, MO_TEUQ);
         break;
     case OS_PACKED:
         /*
@@ -2079,14 +2055,14 @@ DISAS_INSN(movep)
     if (insn & 0x80) {
         for ( ; i > 0 ; i--) {
             tcg_gen_shri_i32(dbuf, reg, (i - 1) * 8);
-            tcg_gen_qemu_st8(dbuf, abuf, IS_USER(s));
+            tcg_gen_qemu_st_i32(dbuf, abuf, IS_USER(s), MO_UB);
             if (i > 1) {
                 tcg_gen_addi_i32(abuf, abuf, 2);
             }
         }
     } else {
         for ( ; i > 0 ; i--) {
-            tcg_gen_qemu_ld8u(dbuf, abuf, IS_USER(s));
+            tcg_gen_qemu_ld_tl(dbuf, abuf, IS_USER(s), MO_UB);
             tcg_gen_deposit_i32(reg, reg, dbuf, (i - 1) * 8, 8);
             if (i > 1) {
                 tcg_gen_addi_i32(abuf, abuf, 2);
@@ -2661,10 +2637,10 @@ DISAS_INSN(swap)
 
 DISAS_INSN(bkpt)
 {
-#if defined(CONFIG_SOFTMMU)
-    gen_exception(s, s->base.pc_next, EXCP_ILLEGAL);
-#else
+#if defined(CONFIG_USER_ONLY)
     gen_exception(s, s->base.pc_next, EXCP_DEBUG);
+#else
+    gen_exception(s, s->base.pc_next, EXCP_ILLEGAL);
 #endif
 }
 
@@ -2862,7 +2838,7 @@ DISAS_INSN(unlk)
     tcg_gen_addi_i32(QREG_SP, src, 4);
 }
 
-#if defined(CONFIG_SOFTMMU)
+#if !defined(CONFIG_USER_ONLY)
 DISAS_INSN(reset)
 {
     if (IS_USER(s)) {
@@ -4337,14 +4313,14 @@ static void m68k_copy_line(TCGv dst, TCGv src, int index)
     t1 = tcg_temp_new_i64();
 
     tcg_gen_andi_i32(addr, src, ~15);
-    tcg_gen_qemu_ld64(t0, addr, index);
+    tcg_gen_qemu_ld_i64(t0, addr, index, MO_TEUQ);
     tcg_gen_addi_i32(addr, addr, 8);
-    tcg_gen_qemu_ld64(t1, addr, index);
+    tcg_gen_qemu_ld_i64(t1, addr, index, MO_TEUQ);
 
     tcg_gen_andi_i32(addr, dst, ~15);
-    tcg_gen_qemu_st64(t0, addr, index);
+    tcg_gen_qemu_st_i64(t0, addr, index, MO_TEUQ);
     tcg_gen_addi_i32(addr, addr, 8);
-    tcg_gen_qemu_st64(t1, addr, index);
+    tcg_gen_qemu_st_i64(t1, addr, index, MO_TEUQ);
 }
 
 DISAS_INSN(move16_reg)
@@ -4422,7 +4398,7 @@ DISAS_INSN(move_from_sr)
     DEST_EA(env, insn, OS_WORD, sr, NULL);
 }
 
-#if defined(CONFIG_SOFTMMU)
+#if !defined(CONFIG_USER_ONLY)
 DISAS_INSN(moves)
 {
     int opsize;
@@ -4629,7 +4605,7 @@ DISAS_INSN(cinv)
     /* Invalidate cache line.  Implement as no-op.  */
 }
 
-#if defined(CONFIG_SOFTMMU)
+#if !defined(CONFIG_USER_ONLY)
 DISAS_INSN(pflush)
 {
     TCGv opmode;
@@ -4767,7 +4743,7 @@ static void gen_qemu_store_fcr(DisasContext *s, TCGv addr, int reg)
 
     tmp = tcg_temp_new();
     gen_load_fcr(s, tmp, reg);
-    tcg_gen_qemu_st32(tmp, addr, index);
+    tcg_gen_qemu_st_tl(tmp, addr, index, MO_TEUL);
 }
 
 static void gen_qemu_load_fcr(DisasContext *s, TCGv addr, int reg)
@@ -4776,7 +4752,7 @@ static void gen_qemu_load_fcr(DisasContext *s, TCGv addr, int reg)
     TCGv tmp;
 
     tmp = tcg_temp_new();
-    tcg_gen_qemu_ld32u(tmp, addr, index);
+    tcg_gen_qemu_ld_tl(tmp, addr, index, MO_TEUL);
     gen_store_fcr(s, tmp, reg);
 }
 
@@ -5376,7 +5352,7 @@ DISAS_INSN(ftrapcc)
     do_trapcc(s, &c);
 }
 
-#if defined(CONFIG_SOFTMMU)
+#if !defined(CONFIG_USER_ONLY)
 DISAS_INSN(frestore)
 {
     TCGv addr;
@@ -5819,7 +5795,7 @@ void register_m68k_insns (CPUM68KState *env)
     BASE(bitop_im,  08c0, ffc0);
     INSN(arith_im,  0a80, fff8, CF_ISA_A);
     INSN(arith_im,  0a00, ff00, M68K);
-#if defined(CONFIG_SOFTMMU)
+#if !defined(CONFIG_USER_ONLY)
     INSN(moves,     0e00, ff00, M68K);
 #endif
     INSN(cas,       0ac0, ffc0, CAS);
@@ -5848,7 +5824,7 @@ void register_m68k_insns (CPUM68KState *env)
     BASE(move_to_ccr, 44c0, ffc0);
     INSN(not,       4680, fff8, CF_ISA_A);
     INSN(not,       4600, ff00, M68K);
-#if defined(CONFIG_SOFTMMU)
+#if !defined(CONFIG_USER_ONLY)
     BASE(move_to_sr, 46c0, ffc0);
 #endif
     INSN(nbcd,      4800, ffc0, M68K);
@@ -5865,7 +5841,7 @@ void register_m68k_insns (CPUM68KState *env)
     BASE(tst,       4a00, ff00);
     INSN(tas,       4ac0, ffc0, CF_ISA_B);
     INSN(tas,       4ac0, ffc0, M68K);
-#if defined(CONFIG_SOFTMMU)
+#if !defined(CONFIG_USER_ONLY)
     INSN(halt,      4ac8, ffff, CF_ISA_A);
     INSN(halt,      4ac8, ffff, M68K);
 #endif
@@ -5879,7 +5855,7 @@ void register_m68k_insns (CPUM68KState *env)
     BASE(trap,      4e40, fff0);
     BASE(link,      4e50, fff8);
     BASE(unlk,      4e58, fff8);
-#if defined(CONFIG_SOFTMMU)
+#if !defined(CONFIG_USER_ONLY)
     INSN(move_to_usp, 4e60, fff8, USP);
     INSN(move_from_usp, 4e68, fff8, USP);
     INSN(reset,     4e70, ffff, M68K);
@@ -6004,7 +5980,7 @@ void register_m68k_insns (CPUM68KState *env)
     INSN(ftrapcc,   f27a, fffe, FPU);       /* opmode 010, 011 */
     INSN(ftrapcc,   f27c, ffff, FPU);       /* opmode 100 */
     INSN(fbcc,      f280, ff80, FPU);
-#if defined(CONFIG_SOFTMMU)
+#if !defined(CONFIG_USER_ONLY)
     INSN(frestore,  f340, ffc0, CF_FPU);
     INSN(fsave,     f300, ffc0, CF_FPU);
     INSN(frestore,  f340, ffc0, FPU);
@@ -6214,7 +6190,7 @@ void m68k_cpu_dump_state(CPUState *cs, FILE *f, int flags)
         break;
     }
     qemu_fprintf(f, "\n");
-#ifdef CONFIG_SOFTMMU
+#ifndef CONFIG_USER_ONLY
     qemu_fprintf(f, "%sA7(MSP) = %08x %sA7(USP) = %08x %sA7(ISP) = %08x\n",
                  env->current_sp == M68K_SSP ? "->" : "  ", env->sp[M68K_SSP],
                  env->current_sp == M68K_USP ? "->" : "  ", env->sp[M68K_USP],
@@ -6228,5 +6204,5 @@ void m68k_cpu_dump_state(CPUState *cs, FILE *f, int flags)
                  env->mmu.ttr[M68K_ITTR0], env->mmu.ttr[M68K_ITTR1]);
     qemu_fprintf(f, "MMUSR %08x, fault at %08x\n",
                  env->mmu.mmusr, env->mmu.ar);
-#endif
+#endif /* !CONFIG_USER_ONLY */
 }

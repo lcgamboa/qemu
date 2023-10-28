@@ -31,6 +31,7 @@
 #include "net/net.h"
 #include "migration.h"
 #include "migration/snapshot.h"
+#include "migration-stats.h"
 #include "migration/vmstate.h"
 #include "migration/misc.h"
 #include "migration/register.h"
@@ -67,6 +68,7 @@
 #include "qemu/yank.h"
 #include "yank_functions.h"
 #include "sysemu/qtest.h"
+#include "options.h"
 
 const unsigned int postcopy_ram_discard_version;
 
@@ -115,7 +117,7 @@ static struct mig_cmd_args {
  * The format of arguments is depending on postcopy mode:
  * - postcopy RAM only
  *   uint64_t host page size
- *   uint64_t taget page size
+ *   uint64_t target page size
  *
  * - postcopy RAM and postcopy dirty bitmaps
  *   format is the same as for postcopy RAM only
@@ -253,7 +255,7 @@ static uint32_t get_validatable_capabilities_count(void)
     uint32_t result = 0;
     int i;
     for (i = 0; i < MIGRATION_CAPABILITY__MAX; i++) {
-        if (should_validate_capability(i) && s->enabled_capabilities[i]) {
+        if (should_validate_capability(i) && s->capabilities[i]) {
             result++;
         }
     }
@@ -275,7 +277,7 @@ static int configuration_pre_save(void *opaque)
     state->capabilities = g_renew(MigrationCapability, state->capabilities,
                                   state->caps_count);
     for (i = j = 0; i < MIGRATION_CAPABILITY__MAX; i++) {
-        if (should_validate_capability(i) && s->enabled_capabilities[i]) {
+        if (should_validate_capability(i) && s->capabilities[i]) {
             state->capabilities[j++] = i;
         }
     }
@@ -325,7 +327,7 @@ static bool configuration_validate_capabilities(SaveState *state)
             continue;
         }
         source_state = test_bit(i, source_caps_bm);
-        target_state = s->enabled_capabilities[i];
+        target_state = s->capabilities[i];
         if (source_state != target_state) {
             error_report("Capability %s is %s, but received capability is %s",
                          MigrationCapability_str(i),
@@ -535,6 +537,9 @@ static void dump_vmstate_vmsf(FILE *out_file, const VMStateField *field,
             field->version_id);
     fprintf(out_file, "%*s\"field_exists\": %s,\n", indent, "",
             field->field_exists ? "true" : "false");
+    if (field->flags & VMS_ARRAY) {
+        fprintf(out_file, "%*s\"num\": %d,\n", indent, "", field->num);
+    }
     fprintf(out_file, "%*s\"size\": %zu", indent, "", field->size);
     if (field->vmsd != NULL) {
         fprintf(out_file, ",\n");
@@ -922,11 +927,9 @@ static int vmstate_load(QEMUFile *f, SaveStateEntry *se)
 static void vmstate_save_old_style(QEMUFile *f, SaveStateEntry *se,
                                    JSONWriter *vmdesc)
 {
-    int64_t old_offset, size;
-
-    old_offset = qemu_file_total_transferred_fast(f);
+    uint64_t old_offset = qemu_file_transferred_noflush(f);
     se->ops->save_state(f, se->opaque);
-    size = qemu_file_total_transferred_fast(f) - old_offset;
+    uint64_t size = qemu_file_transferred_noflush(f) - old_offset;
 
     if (vmdesc) {
         json_writer_int64(vmdesc, "size", size);
@@ -1335,7 +1338,7 @@ int qemu_savevm_state_iterate(QEMUFile *f, bool postcopy)
             !(se->ops->has_postcopy && se->ops->has_postcopy(se->opaque))) {
             continue;
         }
-        if (qemu_file_rate_limit(f)) {
+        if (migration_rate_exceeded(f)) {
             return 0;
         }
         trace_savevm_section_start(se->idstr, se->section_id);
@@ -1611,14 +1614,15 @@ static int qemu_savevm_state(QEMUFile *f, Error **errp)
         return -EINVAL;
     }
 
-    if (migrate_use_block()) {
+    if (migrate_block()) {
         error_setg(errp, "Block migration and snapshots are incompatible");
         return -EINVAL;
     }
 
     migrate_init(ms);
-    memset(&ram_counters, 0, sizeof(ram_counters));
+    memset(&mig_stats, 0, sizeof(mig_stats));
     memset(&compression_counters, 0, sizeof(compression_counters));
+    reset_vfio_bytes_transferred();
     ms->to_dst_file = f;
 
     qemu_mutex_unlock_iothread();
@@ -1752,7 +1756,8 @@ static int loadvm_postcopy_handle_advise(MigrationIncomingState *mis,
         return -EINVAL;
     }
 
-    if (!postcopy_ram_supported_by_host(mis)) {
+    if (!postcopy_ram_supported_by_host(mis, &local_err)) {
+        error_report_err(local_err);
         postcopy_state_set(POSTCOPY_INCOMING_NONE);
         return -1;
     }
@@ -2356,6 +2361,21 @@ static int loadvm_process_command(QEMUFile *f)
             error_report("CMD_OPEN_RETURN_PATH failed");
             return -1;
         }
+
+        /*
+         * Switchover ack is enabled but no device uses it, so send an ACK to
+         * source that it's OK to switchover. Do it here, after return path has
+         * been created.
+         */
+        if (migrate_switchover_ack() && !mis->switchover_ack_pending_num) {
+            int ret = migrate_send_rp_switchover_ack(mis);
+            if (ret) {
+                error_report(
+                    "Could not send switchover ack RP MSG, err %d (%s)", ret,
+                    strerror(-ret));
+                return ret;
+            }
+        }
         break;
 
     case MIG_CMD_PING:
@@ -2582,6 +2602,23 @@ static int qemu_loadvm_state_header(QEMUFile *f)
     return 0;
 }
 
+static void qemu_loadvm_state_switchover_ack_needed(MigrationIncomingState *mis)
+{
+    SaveStateEntry *se;
+
+    QTAILQ_FOREACH(se, &savevm_state.handlers, entry) {
+        if (!se->ops || !se->ops->switchover_ack_needed) {
+            continue;
+        }
+
+        if (se->ops->switchover_ack_needed(se->opaque)) {
+            mis->switchover_ack_pending_num++;
+        }
+    }
+
+    trace_loadvm_state_switchover_ack_needed(mis->switchover_ack_pending_num);
+}
+
 static int qemu_loadvm_state_setup(QEMUFile *f)
 {
     SaveStateEntry *se;
@@ -2785,6 +2822,10 @@ int qemu_loadvm_state(QEMUFile *f)
         return -EINVAL;
     }
 
+    if (migrate_switchover_ack()) {
+        qemu_loadvm_state_switchover_ack_needed(mis);
+    }
+
     cpu_synchronize_all_pre_loadvm();
 
     ret = qemu_loadvm_state_main(f, mis);
@@ -2858,6 +2899,24 @@ int qemu_load_device_state(QEMUFile *f)
     return 0;
 }
 
+int qemu_loadvm_approve_switchover(void)
+{
+    MigrationIncomingState *mis = migration_incoming_get_current();
+
+    if (!mis->switchover_ack_pending_num) {
+        return -EINVAL;
+    }
+
+    mis->switchover_ack_pending_num--;
+    trace_loadvm_approve_switchover(mis->switchover_ack_pending_num);
+
+    if (mis->switchover_ack_pending_num) {
+        return 0;
+    }
+
+    return migrate_send_rp_switchover_ack(mis);
+}
+
 bool save_snapshot(const char *name, bool overwrite, const char *vmstate,
                   bool has_devices, strList *devices, Error **errp)
 {
@@ -2915,11 +2974,7 @@ bool save_snapshot(const char *name, bool overwrite, const char *vmstate,
 
     saved_vm_running = runstate_is_running();
 
-    ret = global_state_store();
-    if (ret) {
-        error_setg(errp, "Error saving global state");
-        return false;
-    }
+    global_state_store();
     vm_stop(RUN_STATE_SAVE_VM);
 
     bdrv_drain_all_begin();
@@ -2952,7 +3007,7 @@ bool save_snapshot(const char *name, bool overwrite, const char *vmstate,
         goto the_end;
     }
     ret = qemu_savevm_state(f, errp);
-    vm_state_size = qemu_file_total_transferred(f);
+    vm_state_size = qemu_file_transferred_noflush(f);
     ret2 = qemu_fclose(f);
     if (ret < 0) {
         goto the_end;

@@ -18,13 +18,8 @@
  * member in your target-specific DisasContext.
  */
 
-
 #include "qemu/bswap.h"
-#include "exec/exec-all.h"
-#include "exec/cpu_ldst.h"
-#include "exec/plugin-gen.h"
-#include "exec/translate-all.h"
-#include "tcg/tcg.h"
+#include "exec/cpu_ldst.h"	/* for abi_ptr */
 
 /**
  * gen_intermediate_code
@@ -77,6 +72,7 @@ typedef enum DisasJumpType {
  * @num_insns: Number of translated instructions (including current).
  * @max_insns: Maximum number of instructions to be translated in this TB.
  * @singlestep_enabled: "Hardware" single stepping enabled.
+ * @saved_can_do_io: Known value of cpu->neg.can_do_io, or -1 for unknown.
  *
  * Architecture-agnostic disassembly context.
  */
@@ -88,6 +84,7 @@ typedef struct DisasContextBase {
     int num_insns;
     int max_insns;
     bool singlestep_enabled;
+    int8_t saved_can_do_io;
     void *host_addr[2];
 } DisasContextBase;
 
@@ -147,8 +144,8 @@ typedef struct TranslatorOps {
  * - When too many instructions have been translated.
  */
 void translator_loop(CPUState *cpu, TranslationBlock *tb, int *max_insns,
-                     target_ulong pc, void *host_pc,
-                     const TranslatorOps *ops, DisasContextBase *db);
+                     vaddr pc, void *host_pc, const TranslatorOps *ops,
+                     DisasContextBase *db);
 
 /**
  * translator_use_goto_tb
@@ -158,7 +155,17 @@ void translator_loop(CPUState *cpu, TranslationBlock *tb, int *max_insns,
  * Return true if goto_tb is allowed between the current TB
  * and the destination PC.
  */
-bool translator_use_goto_tb(DisasContextBase *db, target_ulong dest);
+bool translator_use_goto_tb(DisasContextBase *db, vaddr dest);
+
+/**
+ * translator_io_start
+ * @db: Disassembly context
+ *
+ * If icount is enabled, set cpu->can_to_io, adjust db->is_jmp to
+ * DISAS_TOO_MANY if it is still DISAS_NEXT, and return true.
+ * Otherwise return false.
+ */
+bool translator_io_start(DisasContextBase *db);
 
 /*
  * Translator Load Functions
@@ -219,12 +226,7 @@ translator_ldq_swap(CPUArchState *env, DisasContextBase *db,
  * re-synthesised for s390x "ex"). It ensures we update other areas of
  * the translator with details of the executed instruction.
  */
-
-static inline void translator_fake_ldb(uint8_t insn8, abi_ptr pc)
-{
-    plugin_insn_append(pc, &insn8, sizeof(insn8));
-}
-
+void translator_fake_ldb(uint8_t insn8, abi_ptr pc);
 
 /*
  * Return whether addr is on the same page as where disassembly started.

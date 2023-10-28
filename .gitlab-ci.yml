@@ -4,7 +4,7 @@ stages:
 
 build-linux:
   stage: build
-  image: $CI_DOCKER_REGISTRY/qemu-build:5
+  image: $CI_DOCKER_REGISTRY/qemu-build:6
   tags:
     - build
     - amd64
@@ -18,18 +18,18 @@ build-linux:
       - PLATFORM: [x86_64-linux-gnu]
         TARGET: [riscv32-linux-user, xtensa-softmmu, riscv32-softmmu]
   script:
-    - ./configure --prefix=/opt/qemu --target-list=${TARGET} --extra-cflags=-Werror --disable-capstone --disable-vnc --disable-sdl --disable-gtk --enable-gcrypt --enable-slirp
-    - ninja -C build install
-    - find /opt/qemu/share/qemu -maxdepth 1 -mindepth 1 -not -name 'esp*.bin' -exec rm -rf {} \;
-    - mkdir -p dist
-    - DIST_DIR=${PWD}/dist
-
     - VERSION=${CI_COMMIT_TAG:-""}
     - VERSION=${VERSION#"esp-v"}    # remove prefix in tags like `esp-v7.1.0_20221221`
     - VERSION=${VERSION#"esp-"}     # remove prefix in tags like `esp-develop-20221221`
     - VERSION=${VERSION//"-"/"_"}   # replace dashes with underscores in the version
     - VERSION=${VERSION:-${CI_COMMIT_SHORT_SHA}}
 
+    - ./configure --prefix=/opt/qemu --target-list=${TARGET} --with-pkgversion=${VERSION} --extra-cflags=-Werror --disable-capstone --disable-vnc --disable-sdl --disable-gtk --enable-gcrypt --enable-slirp
+    - ninja -C build install
+
+    - find /opt/qemu/share/qemu -maxdepth 1 -mindepth 1 -not -name 'esp*.bin' -exec rm -rf {} \;
+    - mkdir -p dist
+    - DIST_DIR=${PWD}/dist
     - export ARCHIVE_NAME=esp-qemu-${TARGET}-${VERSION}-${PLATFORM}.tar.bz2
     - cd /opt
     - tar cjvf ${DIST_DIR}/${ARCHIVE_NAME} qemu

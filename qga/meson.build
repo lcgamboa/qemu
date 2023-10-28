@@ -9,7 +9,7 @@ endif
 have_qga_vss = get_option('qga_vss') \
   .require(targetos == 'windows',
            error_message: 'VSS support requires Windows') \
-  .require(link_language == 'cpp',
+  .require('cpp' in all_languages,
            error_message: 'VSS support requires a C++ compiler') \
   .require(have_vss, error_message: '''VSS support requires VSS headers.
     If your Visual Studio installation doesn't have the VSS headers,
@@ -22,7 +22,7 @@ have_qga_vss = get_option('qga_vss') \
     Then run configure with: --extra-cxxflags="-isystem /path/to/vss/inc/win2003"''') \
   .require(midl.found() or widl.found(),
            error_message: 'VSS support requires midl or widl') \
-  .require(not enable_static,
+  .require(not get_option('prefer_static'),
            error_message: 'VSS support requires dynamic linking with GLib') \
   .allowed()
 
@@ -154,7 +154,7 @@ if targetos == 'windows'
                               qemu_ga_msi_arch[cpu],
                               qemu_ga_msi_vss,
                               '-D', 'BUILD_DIR=' + meson.project_build_root(),
-                              '-D', 'BIN_DIR=' + glib.get_variable('bindir'),
+                              '-D', 'BIN_DIR=' + glib_pc.get_variable('bindir'),
                               '-D', 'QEMU_GA_VERSION=' + config_host['QEMU_GA_VERSION'],
                               '-D', 'QEMU_GA_MANUFACTURER=' + config_host['QEMU_GA_MANUFACTURER'],
                               '-D', 'QEMU_GA_DISTRO=' + config_host['QEMU_GA_DISTRO'],

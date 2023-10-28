@@ -25,7 +25,7 @@
 
 #include "qemu/osdep.h"
 #include "qemu/int128.h"
-#include "tcg/tcg-op.h"
+#include "tcg/tcg-op-common.h"
 #include "tcg-internal.h"
 
 #define CASE_OP_32_64(x)                        \
@@ -453,9 +453,7 @@ static uint64_t do_constant_folding_2(TCGOpcode op, uint64_t x, uint64_t y)
         return (uint64_t)x % ((uint64_t)y ? : 1);
 
     default:
-        fprintf(stderr,
-                "Unrecognized operation %d in do_constant_folding.\n", op);
-        tcg_abort();
+        g_assert_not_reached();
     }
 }
 
@@ -493,7 +491,7 @@ static bool do_constant_folding_cond_32(uint32_t x, uint32_t y, TCGCond c)
     case TCG_COND_GTU:
         return x > y;
     default:
-        tcg_abort();
+        g_assert_not_reached();
     }
 }
 
@@ -521,7 +519,7 @@ static bool do_constant_folding_cond_64(uint64_t x, uint64_t y, TCGCond c)
     case TCG_COND_GTU:
         return x > y;
     default:
-        tcg_abort();
+        g_assert_not_reached();
     }
 }
 
@@ -541,7 +539,7 @@ static bool do_constant_folding_cond_eq(TCGCond c)
     case TCG_COND_EQ:
         return 1;
     default:
-        tcg_abort();
+        g_assert_not_reached();
     }
 }
 
@@ -2186,13 +2184,22 @@ void tcg_optimize(TCGContext *s)
         CASE_OP_32_64_VEC(orc):
             done = fold_orc(&ctx, op);
             break;
-        case INDEX_op_qemu_ld_i32:
-        case INDEX_op_qemu_ld_i64:
+        case INDEX_op_qemu_ld_a32_i32:
+        case INDEX_op_qemu_ld_a64_i32:
+        case INDEX_op_qemu_ld_a32_i64:
+        case INDEX_op_qemu_ld_a64_i64:
+        case INDEX_op_qemu_ld_a32_i128:
+        case INDEX_op_qemu_ld_a64_i128:
             done = fold_qemu_ld(&ctx, op);
             break;
-        case INDEX_op_qemu_st_i32:
-        case INDEX_op_qemu_st8_i32:
-        case INDEX_op_qemu_st_i64:
+        case INDEX_op_qemu_st8_a32_i32:
+        case INDEX_op_qemu_st8_a64_i32:
+        case INDEX_op_qemu_st_a32_i32:
+        case INDEX_op_qemu_st_a64_i32:
+        case INDEX_op_qemu_st_a32_i64:
+        case INDEX_op_qemu_st_a64_i64:
+        case INDEX_op_qemu_st_a32_i128:
+        case INDEX_op_qemu_st_a64_i128:
             done = fold_qemu_st(&ctx, op);
             break;
         CASE_OP_32_64(rem):

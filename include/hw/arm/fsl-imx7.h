@@ -82,6 +82,7 @@ struct FslIMX7State {
     ChipideaState      usb[FSL_IMX7_NUM_USBS];
     DesignwarePCIEHost pcie;
     uint32_t           phy_num[FSL_IMX7_NUM_ETHS];
+    bool               phy_connected[FSL_IMX7_NUM_ETHS];
 };
 
 enum FslIMX7MemoryMap {
@@ -164,7 +165,7 @@ enum FslIMX7MemoryMap {
      * Some versions of the reference manual claim that UART2 is @
      * 0x30870000, but experiments with HW + DT files in upstream
      * Linux kernel show that not to be true and that block is
-     * acutally located @ 0x30890000
+     * actually located @ 0x30890000
      */
     FSL_IMX7_UART2_ADDR           = 0x30890000,
     FSL_IMX7_UART3_ADDR           = 0x30880000,

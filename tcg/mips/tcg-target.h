@@ -27,16 +27,7 @@
 #ifndef MIPS_TCG_TARGET_H
 #define MIPS_TCG_TARGET_H
 
-#if _MIPS_SIM == _ABIO32
-# define TCG_TARGET_REG_BITS 32
-#elif _MIPS_SIM == _ABIN32 || _MIPS_SIM == _ABI64
-# define TCG_TARGET_REG_BITS 64
-#else
-# error "Unknown ABI"
-#endif
-
 #define TCG_TARGET_INSN_UNIT_SIZE 4
-#define TCG_TARGET_TLB_DISPLACEMENT_BITS 16
 #define TCG_TARGET_NB_REGS 32
 
 #define MAX_CODE_GEN_BUFFER_SIZE  ((size_t)-1)
@@ -76,7 +67,7 @@ typedef enum {
     TCG_REG_RA,
 
     TCG_REG_CALL_STACK = TCG_REG_SP,
-    TCG_AREG0 = TCG_REG_S0,
+    TCG_AREG0 = TCG_REG_S8,
 } TCGReg;
 
 /* used for function call generation */
@@ -204,9 +195,10 @@ extern bool use_mips32r2_instructions;
 #define TCG_TARGET_HAS_ext16u_i64       0 /* andi rt, rs, 0xffff */
 #endif
 
-#define TCG_TARGET_DEFAULT_MO (0)
-#define TCG_TARGET_HAS_MEMORY_BSWAP     1
+#define TCG_TARGET_HAS_qemu_ldst_i128   0
 
+#define TCG_TARGET_DEFAULT_MO           0
 #define TCG_TARGET_NEED_LDST_LABELS
+#define TCG_TARGET_NEED_POOL_LABELS
 
 #endif

@@ -680,8 +680,7 @@ address_space_translate_for_iotlb(CPUState *cpu, int asidx, hwaddr orig_addr,
     IOMMUTLBEntry iotlb;
     int iommu_idx;
     hwaddr addr = orig_addr;
-    AddressSpaceDispatch *d =
-        qatomic_rcu_read(&cpu->cpu_ases[asidx].memory_dispatch);
+    AddressSpaceDispatch *d = cpu->cpu_ases[asidx].memory_dispatch;
 
     for (;;) {
         section = address_space_translate_internal(d, addr, &addr, plen, false);
@@ -1369,6 +1368,11 @@ static void *file_ram_alloc(RAMBlock *block,
         error_setg(errp, "alignment 0x%" PRIx64
                    " must be a power of two", block->mr->align);
         return NULL;
+    } else if (offset % block->page_size) {
+        error_setg(errp, "offset 0x%" PRIx64
+                   " must be multiples of page size 0x%zx",
+                   offset, block->page_size);
+        return NULL;
     }
     block->mr->align = MAX(block->page_size, block->mr->align);
 #if defined(__s390x__)
@@ -1400,7 +1404,7 @@ static void *file_ram_alloc(RAMBlock *block,
      * those labels. Therefore, extending the non-empty backend file
      * is disabled as well.
      */
-    if (truncate && ftruncate(fd, memory)) {
+    if (truncate && ftruncate(fd, offset + memory)) {
         perror("ftruncate");
     }
 
@@ -1416,6 +1420,7 @@ static void *file_ram_alloc(RAMBlock *block,
     }
 
     block->fd = fd;
+    block->fd_offset = offset;
     return area;
 }
 #endif
@@ -1562,6 +1567,11 @@ void qemu_ram_set_migratable(RAMBlock *rb)
 void qemu_ram_unset_migratable(RAMBlock *rb)
 {
     rb->flags &= ~RAM_MIGRATABLE;
+}
+
+bool qemu_ram_is_named_file(RAMBlock *rb)
+{
+    return rb->flags & RAM_NAMED_FILE;
 }
 
 int qemu_ram_get_fd(RAMBlock *rb)
@@ -1874,7 +1884,7 @@ RAMBlock *qemu_ram_alloc_from_fd(ram_addr_t size, MemoryRegion *mr,
 
     /* Just support these ram flags by now. */
     assert((ram_flags & ~(RAM_SHARED | RAM_PMEM | RAM_NORESERVE |
-                          RAM_PROTECTED)) == 0);
+                          RAM_PROTECTED | RAM_NAMED_FILE)) == 0);
 
     if (xen_enabled()) {
         error_setg(errp, "-mem-path not supported with Xen");
@@ -1889,7 +1899,7 @@ RAMBlock *qemu_ram_alloc_from_fd(ram_addr_t size, MemoryRegion *mr,
 
     size = HOST_PAGE_ALIGN(size);
     file_size = get_file_size(fd);
-    if (file_size > 0 && file_size < size) {
+    if (file_size > offset && file_size < (offset + size)) {
         error_setg(errp, "backing store size 0x%" PRIx64
                    " does not match 'size' option 0x" RAM_ADDR_FMT,
                    file_size, size);
@@ -1929,7 +1939,7 @@ RAMBlock *qemu_ram_alloc_from_fd(ram_addr_t size, MemoryRegion *mr,
 
 RAMBlock *qemu_ram_alloc_from_file(ram_addr_t size, MemoryRegion *mr,
                                    uint32_t ram_flags, const char *mem_path,
-                                   bool readonly, Error **errp)
+                                   off_t offset, bool readonly, Error **errp)
 {
     int fd;
     bool created;
@@ -1941,7 +1951,8 @@ RAMBlock *qemu_ram_alloc_from_file(ram_addr_t size, MemoryRegion *mr,
         return NULL;
     }
 
-    block = qemu_ram_alloc_from_fd(size, mr, ram_flags, fd, 0, readonly, errp);
+    block = qemu_ram_alloc_from_fd(size, mr, ram_flags, fd, offset, readonly,
+                                   errp);
     if (!block) {
         if (created) {
             unlink(mem_path);
@@ -2075,7 +2086,7 @@ void qemu_ram_remap(ram_addr_t addr, ram_addr_t length)
                 flags |= block->flags & RAM_NORESERVE ? MAP_NORESERVE : 0;
                 if (block->fd >= 0) {
                     area = mmap(vaddr, length, PROT_READ | PROT_WRITE,
-                                flags, block->fd, offset);
+                                flags, block->fd, offset + block->fd_offset);
                 } else {
                     flags |= MAP_ANONYMOUS;
                     area = mmap(vaddr, length, PROT_READ | PROT_WRITE,
@@ -2400,10 +2411,16 @@ MemoryRegionSection *iotlb_to_section(CPUState *cpu,
 {
     int asidx = cpu_asidx_from_attrs(cpu, attrs);
     CPUAddressSpace *cpuas = &cpu->cpu_ases[asidx];
-    AddressSpaceDispatch *d = qatomic_rcu_read(&cpuas->memory_dispatch);
-    MemoryRegionSection *sections = d->map.sections;
+    AddressSpaceDispatch *d = cpuas->memory_dispatch;
+    int section_index = index & ~TARGET_PAGE_MASK;
+    MemoryRegionSection *ret;
 
-    return &sections[index & ~TARGET_PAGE_MASK];
+    assert(section_index < d->map.sections_nb);
+    ret = d->map.sections + section_index;
+    assert(ret->mr);
+    assert(ret->mr->ops);
+
+    return ret;
 }
 
 static void io_mem_init(void)
@@ -2469,23 +2486,42 @@ static void tcg_log_global_after_sync(MemoryListener *listener)
     }
 }
 
+static void tcg_commit_cpu(CPUState *cpu, run_on_cpu_data data)
+{
+    CPUAddressSpace *cpuas = data.host_ptr;
+
+    cpuas->memory_dispatch = address_space_to_dispatch(cpuas->as);
+    tlb_flush(cpu);
+}
+
 static void tcg_commit(MemoryListener *listener)
 {
     CPUAddressSpace *cpuas;
-    AddressSpaceDispatch *d;
+    CPUState *cpu;
 
     assert(tcg_enabled());
     /* since each CPU stores ram addresses in its TLB cache, we must
        reset the modified entries */
     cpuas = container_of(listener, CPUAddressSpace, tcg_as_listener);
-    cpu_reloading_memory_map();
-    /* The CPU and TLB are protected by the iothread lock.
-     * We reload the dispatch pointer now because cpu_reloading_memory_map()
-     * may have split the RCU critical section.
+    cpu = cpuas->cpu;
+
+    /*
+     * Defer changes to as->memory_dispatch until the cpu is quiescent.
+     * Otherwise we race between (1) other cpu threads and (2) ongoing
+     * i/o for the current cpu thread, with data cached by mmu_lookup().
+     *
+     * In addition, queueing the work function will kick the cpu back to
+     * the main loop, which will end the RCU critical section and reclaim
+     * the memory data structures.
+     *
+     * That said, the listener is also called during realize, before
+     * all of the tcg machinery for run-on is initialized: thus halt_cond.
      */
-    d = address_space_to_dispatch(cpuas->as);
-    qatomic_rcu_set(&cpuas->memory_dispatch, d);
-    tlb_flush(cpuas->cpu);
+    if (cpu->halt_cond) {
+        async_run_on_cpu(cpu, tcg_commit_cpu, RUN_ON_CPU_HOST_PTR(cpuas));
+    } else {
+        tcg_commit_cpu(cpu, RUN_ON_CPU_HOST_PTR(cpuas));
+    }
 }
 
 static void memory_map_init(void)
@@ -3125,7 +3161,7 @@ void address_space_unmap(AddressSpace *as, void *buffer, hwaddr len,
     bounce.buffer = NULL;
     memory_region_unref(bounce.mr);
     /* Clear in_use before reading map_client_list.  */
-    qatomic_mb_set(&bounce.in_use, false);
+    qatomic_set_mb(&bounce.in_use, false);
     cpu_notify_map_clients();
 }
 
@@ -3347,6 +3383,11 @@ size_t qemu_target_page_size(void)
     return TARGET_PAGE_SIZE;
 }
 
+int qemu_target_page_mask(void)
+{
+    return TARGET_PAGE_MASK;
+}
+
 int qemu_target_page_bits(void)
 {
     return TARGET_PAGE_BITS;
@@ -3355,6 +3396,17 @@ int qemu_target_page_bits(void)
 int qemu_target_page_bits_min(void)
 {
     return TARGET_PAGE_BITS_MIN;
+}
+
+/* Convert target pages to MiB (2**20). */
+size_t qemu_target_pages_to_MiB(size_t pages)
+{
+    int page_bits = TARGET_PAGE_BITS;
+
+    /* So far, the largest (non-huge) page size is 64k, i.e. 16 bits. */
+    g_assert(page_bits < 20);
+
+    return pages >> (20 - page_bits);
 }
 
 bool cpu_physical_memory_is_io(hwaddr phys_addr)
@@ -3428,6 +3480,24 @@ int ram_block_discard_range(RAMBlock *rb, uint64_t start, size_t length)
              * so a userfault will trigger.
              */
 #ifdef CONFIG_FALLOCATE_PUNCH_HOLE
+            /*
+             * We'll discard data from the actual file, even though we only
+             * have a MAP_PRIVATE mapping, possibly messing with other
+             * MAP_PRIVATE/MAP_SHARED mappings. There is no easy way to
+             * change that behavior whithout violating the promised
+             * semantics of ram_block_discard_range().
+             *
+             * Only warn, because it works as long as nobody else uses that
+             * file.
+             */
+            if (!qemu_ram_is_shared(rb)) {
+                warn_report_once("ram_block_discard_range: Discarding RAM"
+                                 " in private file mappings is possibly"
+                                 " dangerous, because it will modify the"
+                                 " underlying file and will affect other"
+                                 " users of the file");
+            }
+
             ret = fallocate(rb->fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
                             start, length);
             if (ret) {
