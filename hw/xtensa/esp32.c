@@ -672,7 +672,7 @@ static void esp32_soc_init(Object *obj)
 
     object_initialize_child(obj, "fe", &s->fe, TYPE_ESP32_FE);
 
-    object_initialize_child(obj, "phya", &s->phya, TYPE_ESP32_RAMDEV);
+    object_initialize_child(obj, "phya", &s->phya, TYPE_ESP32_PHYA);
 
     object_initialize_child(obj, "efuse", &s->efuse, TYPE_ESP32_EFUSE);
 

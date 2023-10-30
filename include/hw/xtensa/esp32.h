@@ -22,7 +22,7 @@
 #include "hw/ssi/esp32_rmt.h"
 #include "hw/misc/esp32_wifi.h"
 #include "hw/misc/esp32_fe.h"
-#include "hw/misc/esp32_ramdev.h"
+#include "hw/misc/esp32_phya.h"
 #include "hw/i2c/esp32_i2c.h"
 #include "hw/nvram/esp32_efuse.h"
 #include "hw/xtensa/esp32_intc.h"
@@ -57,7 +57,7 @@ typedef struct Esp32SocState {
     Esp32RmtState rmt;
     Esp32WifiState wifi;
     Esp32FeState fe;
-    Esp32RamdevState phya;
+    Esp32PhyaState phya;
     Esp32IomuxState iomux;
 
     Esp32FlashEncryptionState flash_enc;
