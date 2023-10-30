@@ -31,8 +31,8 @@ make "-j$ncpu"
 cd build
 rm -f qemu-system-xtensa
 ninja -v > qemu-system-xtensa.rsp
-sed -i '1d' qemu-system-xtensa.rsp
-sed -i 's/\[2\/2\] cc -m64 -mcx16//g' qemu-system-xtensa.rsp
+sed -i -n '$p' qemu-system-xtensa.rsp
+sed -i 's/\[.\/.\] cc -m64 -mcx16//g' qemu-system-xtensa.rsp
 
 #dynamic
 sed -i 's/qemu-system-xtensa.p\/softmmu_main.c.o//g' qemu-system-xtensa.rsp
@@ -42,8 +42,8 @@ cc -m64 -mcx16 -ggdb @qemu-system-xtensa.rsp
 
 rm -f qemu-system-riscv32
 ninja -v > qemu-system-riscv32.rsp
-sed -i '1d' qemu-system-riscv32.rsp
-sed -i 's/\[2\/2\] cc -m64 -mcx16//g' qemu-system-riscv32.rsp
+sed -i -n '$p' qemu-system-riscv32.rsp
+sed -i 's/\[.\/.\] cc -m64 -mcx16//g' qemu-system-riscv32.rsp
 
 #dynamic
 sed -i 's/qemu-system-riscv32.p\/softmmu_main.c.o//g' qemu-system-riscv32.rsp
