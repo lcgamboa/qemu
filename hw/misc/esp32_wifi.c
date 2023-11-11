@@ -71,7 +71,7 @@ static void esp32_wifi_write(void *opaque, hwaddr addr, uint64_t value,
                 frame.frame_length=item.length;
                 frame.next_frame=0;
                 Esp32_WLAN_handle_frame(s, &frame);
-                set_interrupt(s,0x80);
+                //set_interrupt(s,0x80);
             }
     }
     s->mem[addr/4]=value;

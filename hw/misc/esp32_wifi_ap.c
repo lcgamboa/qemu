@@ -31,16 +31,33 @@
 #include "net/net.h"
 #include "qemu/timer.h"
 
+#include "hw/irq.h"
 #include "hw/misc/esp32_wifi.h"
+#include "hw/misc/esp32_phya.h"
 #include "esp32_wlan.h"
 #include "esp32_wlan_packet.h"
 
 // 50ms between beacons
 #define BEACON_TIME 500000000
 #define INTER_FRAME_TIME 5000000
+#define WAIT_ACK_TIMEOUT 10000000
 #define DEBUG 0
 #define DEBUG_DUMPFRAMES 0
 #define DEBUG_WIRESHARK_IMPORT 0
+
+// color defines
+#define BLACK 0
+#define RED 1
+#define GREEN 2
+#define YELLOW 3
+#define BLUE 4
+#define MAGNETA 5
+#define CYAN 6
+#define WHITE 7
+#define ANSI_DEFAULT() printf("\033[0m")
+#define ANSI_COLOR(f, b) printf("\033[%d;%dm", (f) + 30, (b) + 40)
+#define ANSI_FG_LCOLOR(f) printf("\033[0;%dm", (f) + 30)
+#define ANSI_FG_HCOLOR(f) printf("\033[1;%dm", (f) + 30)
 
 access_point_info access_points[]={
     {"PICSimLabWifi",1,-25,{0x10,0x01,0x00,0xc4,0x0a,0x56}},
@@ -98,7 +115,19 @@ static void Esp32_WLAN_inject_timer(void *opaque)
 
 }
 
-static void macprint(uint8_t *p, const char * name) {
+static void set_interrupt(Esp32WifiState *s,int e) {
+    s->raw_interrupt |= e;
+    qemu_set_irq(s->irq, 1);
+}
+
+static void Esp32_WLAN_Wait_ACk_timer(void *opaque)
+{
+    Esp32WifiState *s = (Esp32WifiState *)opaque;
+
+    set_interrupt(s,0x80);
+}
+
+static void macprint(const uint8_t *p, const char * name) {
     printf("%s: %02x:%02x:%02x:%02x:%02x:%02x\n",name, p[0],p[1],p[2],p[3],p[4],p[5]);
 }
 
@@ -211,7 +240,8 @@ static void infoprint(struct mac80211_frame *frame) {
                 printf("beacon capability : %u\n",frame->beacon_info.capability);
                 break;  
               default:
-                buffer_print((uint8_t *)frame->data_and_fcs, frame->frame_length - IEEE80211_HEADER_SIZE);
+                if(frame->frame_length  > IEEE80211_HEADER_SIZE)
+                   buffer_print((uint8_t *)frame->data_and_fcs, frame->frame_length - IEEE80211_HEADER_SIZE);
                 break;
             }
             break; 
@@ -219,7 +249,8 @@ static void infoprint(struct mac80211_frame *frame) {
             switch (frame->frame_control.sub_type)
             {        
               default:
-                buffer_print((uint8_t *)frame->data_and_fcs, frame->frame_length - IEEE80211_HEADER_SIZE);
+                if(frame->frame_length  > IEEE80211_HEADER_SIZE)
+                   buffer_print((uint8_t *)frame->data_and_fcs, frame->frame_length - IEEE80211_HEADER_SIZE);
                 break;
             }
             break; 
@@ -227,7 +258,8 @@ static void infoprint(struct mac80211_frame *frame) {
             switch (frame->frame_control.sub_type)
             {        
               default:
-                buffer_print((uint8_t *)frame->data_and_fcs, frame->frame_length - IEEE80211_HEADER_SIZE);
+                if(frame->frame_length  > IEEE80211_HEADER_SIZE)
+                   buffer_print((uint8_t *)frame->data_and_fcs, frame->frame_length - IEEE80211_HEADER_SIZE);
                 break;
             }
             break;   
@@ -249,7 +281,11 @@ void Esp32_WLAN_insert_frame(Esp32WifiState *s, struct mac80211_frame *frame)
     struct mac80211_frame *i_frame;
 
     insertCRC(frame);
-    if(DEBUG) printf("---------------\nIN> Send Frame type=%d subtype=%d\n",frame->frame_control.type,frame->frame_control.sub_type);
+    if(DEBUG) {
+        ANSI_FG_HCOLOR(GREEN);
+        printf("---------------\nIN> Send Frame type=%d subtype=%d\n",frame->frame_control.type,frame->frame_control.sub_type);
+        ANSI_DEFAULT();
+    }
     infoprint(frame);
     s->inject_queue_size++;
     i_frame = s->inject_queue;
@@ -321,11 +357,16 @@ static ssize_t Esp32_WLAN_receive(NetClientState *ncs,
             }
         }
 
-        if((buf[12] == 0xff)&&(buf[13] == 0x0d))
+        if(((buf[12] & IEEE80211_ENCAPSULATED) == IEEE80211_ENCAPSULATED)&&(buf[13] == ((IEEE80211_TYPE_MGT << 4)|IEEE80211_TYPE_MGT_SUBTYPE_ACTION)))
         {
+          unsigned long ethernet_frame_size;
+          unsigned char ethernet_frame[1518];
+          struct mac80211_frame *reply = NULL;
 
           //discard packages originated from the same mac address
           if(!memcmp(&buf[6],s->macaddr,6)) return -1;
+          //check destination
+          if((memcmp(&buf[0],BROADCAST,6))&&(memcmp(&buf[0],s->macaddr,6))) return -1;
 
           //action frame  
           Esp32_WLAN_init_ap_frame(s, frame);
@@ -333,11 +374,84 @@ static ssize_t Esp32_WLAN_receive(NetClientState *ncs,
           memcpy(frame->destination_address, &buf[0], 6);
           memcpy(frame->source_address, &buf[6], 6);
           memset(frame->bssid_address, 0xff, 6);
-          frame->frame_control.type= 0;
+          frame->frame_control.type= IEEE80211_TYPE_MGT;
           frame->frame_control.sub_type= IEEE80211_TYPE_MGT_SUBTYPE_ACTION;
+          frame->frame_control.flags=  (buf[12] == IEEE80211_ENCAPSULATED_PROTECTED) ? 0x40 : 00;
+          frame->duration_id= 0 ;
+          frame->frame_length-=12;
+          Esp32_WLAN_insert_frame(s, frame);
+
+
+           //if destination is broadcast, don´t send ack 
+          if(!memcmp(&buf[0],BROADCAST,6)) return size;
+
+          //Send Ack
+          reply = Esp32_WLAN_create_ack();
+          memcpy(reply->destination_address, &buf[6], 6);
+          memcpy(reply->source_address, s->macaddr, 6);
+          memset(reply->bssid_address, 0xff, 6);
+          reply->duration_id=0;
+
+          if(DEBUG) {
+            ANSI_FG_HCOLOR(RED);
+            macprint(reply->destination_address,"---------------\nOUT< ACK send: dest ");
+            ANSI_DEFAULT();
+          }
+          infoprint(reply);
+           /*
+            * The access point uses the 802.11 frame
+            * and sends a 802.3 frame into the network...
+            * This packet is then understandable by
+            * qemu-slirp
+            *
+            * If we ever want the access point to offer
+            * some services, it can be added here!!
+            */
+          // ethernet header type
+          ethernet_frame[12] = IEEE80211_ENCAPSULATED;
+          ethernet_frame[13] = ((IEEE80211_TYPE_CTL << 4)|IEEE80211_TYPE_CTL_SUBTYPE_ACK); 
+
+          memcpy(&ethernet_frame[0], reply->destination_address, 6);
+          memcpy(&ethernet_frame[6], reply->source_address, 6);
+
+          // add size of ethernet header
+          ethernet_frame_size = 14;
+          /*
+           * Send 802.3 frame
+           */
+          qemu_send_packet(qemu_get_queue(s->nic), ethernet_frame, ethernet_frame_size);
+
+          return size; 
+        }
+
+        if(((buf[12] & IEEE80211_ENCAPSULATED)== IEEE80211_ENCAPSULATED)&&(buf[13] == ((IEEE80211_TYPE_CTL << 4)|IEEE80211_TYPE_CTL_SUBTYPE_ACK)))
+        {
+
+          //discard packages originated from the same mac address
+          if(!memcmp(&buf[6],s->macaddr,6)) return -1;
+          //check destination
+          if(memcmp(&buf[0],s->macaddr,6)) return -1;
+
+          Esp32_WLAN_Set_Packet_Status(ESP32_PHYA_ACK);
+          timer_mod_anticipate(s->wait_ack_timer, qemu_clock_get_ns(QEMU_CLOCK_REALTIME) + WAIT_ACK_TIMEOUT);
+
+          Esp32_WLAN_init_ap_frame(s, frame); 
+          memcpy(frame->destination_address, &buf[0], 6);
+          memcpy(frame->source_address, &buf[6], 6);
+          memset(frame->bssid_address, 0xff, 6); 
+          frame->frame_control.type= IEEE80211_TYPE_CTL;
+          frame->frame_control.sub_type= IEEE80211_TYPE_CTL_SUBTYPE_ACK;
           frame->frame_control.flags= 0; 
           frame->duration_id= 0 ;
-          Esp32_WLAN_insert_frame(s, frame);
+          frame->frame_length = 10;
+
+          if(DEBUG) {
+            ANSI_FG_HCOLOR(GREEN);
+            macprint(&buf[6],"---------------\nIN> ACK received: source");
+            ANSI_DEFAULT();
+          }
+          infoprint(frame);
+          //ACK is not inserted in DMA
           return size; 
         }
         Esp32_WLAN_init_ap_frame(s, frame);
@@ -374,6 +488,8 @@ void Esp32_WLAN_setup_ap(DeviceState *dev,Esp32WifiState *s) {
     // it when necessary...
     s->inject_timer = timer_new_ns(QEMU_CLOCK_REALTIME, Esp32_WLAN_inject_timer, s);
 
+    s->wait_ack_timer = timer_new_ns(QEMU_CLOCK_REALTIME, Esp32_WLAN_Wait_ACk_timer, s);
+
     s->nic = qemu_new_nic(&net_info, &s->conf, object_get_typename(OBJECT(s)), dev->id, s);
     qemu_format_nic_info_str(qemu_get_queue(s->nic), s->macaddr);
 }
@@ -390,6 +506,7 @@ static void send_single_frame(Esp32WifiState *s, struct mac80211_frame *frame, s
     
     Esp32_WLAN_insert_frame(s, reply);
 }
+
 void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame)
 {
     struct mac80211_frame *reply = NULL;
@@ -397,8 +514,11 @@ void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame)
     char ssid[64];
     unsigned long ethernet_frame_size;
     unsigned char ethernet_frame[1518];
-    if(DEBUG) 
+    if(DEBUG){ 
+        ANSI_FG_HCOLOR(RED);
         printf("-------------------------\n<OUT Handle Frame type:%d subtype:%d channel:%d ap_state:%d\n",frame->frame_control.type,frame->frame_control.sub_type,esp32_wifi_channel,s->ap_state);
+        ANSI_DEFAULT();
+    }
     infoprint(frame);
     access_point_info *ap_info=0;
     for(int i=0;i<nb_aps;i++)
@@ -406,7 +526,8 @@ void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame)
             ap_info=&access_points[i];
             break;
         }
-   
+
+    Esp32_WLAN_Set_Packet_Status(ESP32_PHYA_ACK);
     if(frame->frame_control.type == IEEE80211_TYPE_MGT) {        
         switch(frame->frame_control.sub_type) {
             case IEEE80211_TYPE_MGT_SUBTYPE_BEACON:
@@ -430,8 +551,8 @@ void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame)
                 * some services, it can be added here!!
                 */
                 // ethernet header type
-                ethernet_frame[12] = 0xFF;
-                ethernet_frame[13] = 0x0D;
+                ethernet_frame[12] = (frame->frame_control.flags & 0x40) ? IEEE80211_ENCAPSULATED_PROTECTED : IEEE80211_ENCAPSULATED;
+                ethernet_frame[13] = ((IEEE80211_TYPE_MGT << 4)|IEEE80211_TYPE_MGT_SUBTYPE_ACTION); 
 
                 memcpy(&ethernet_frame[0], frame->destination_address, 6);
                 memcpy(&ethernet_frame[6], s->macaddr, 6);
@@ -449,6 +570,13 @@ void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame)
                 * Send 802.3 frame
                 */
                 qemu_send_packet(qemu_get_queue(s->nic), ethernet_frame, ethernet_frame_size);
+                 
+                //if destination is not broadcast wait for ack 
+                if(memcmp(&ethernet_frame[0],BROADCAST,6)){ 
+                   Esp32_WLAN_Set_Packet_Status(ESP32_PHYA_NACK);
+                   timer_mod(s->wait_ack_timer, qemu_clock_get_ns(QEMU_CLOCK_REALTIME) + WAIT_ACK_TIMEOUT);
+                   return;
+                }
                 break;
             case IEEE80211_TYPE_MGT_SUBTYPE_PROBE_RESP:
                 ap_info=&dummy_ap;
@@ -584,5 +712,6 @@ void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame)
             qemu_send_packet(qemu_get_queue(s->nic), ethernet_frame, ethernet_frame_size);
         }
     }
+    set_interrupt(s,0x80);
 }
 

@@ -41,6 +41,7 @@ typedef struct Esp32WifiState {
     // various timers
     QEMUTimer *beacon_timer;
     QEMUTimer *inject_timer;
+    QEMUTimer *wait_ack_timer;
     uint8_t ipaddr[4];              
     uint8_t macaddr[6];             
 

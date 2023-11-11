@@ -169,6 +169,13 @@ static void esp32c3_wdt_cb(void* opaque)
     const int cur_stage = wdt->current_stage;
     ESP32C3WdtStageConf conf = wdt->stage_conf[cur_stage];
 
+    /* Retrieve the `wdt_disable` property */
+    ESP32C3TimgState* state = container_of(opaque, ESP32C3TimgState, wdt);
+
+    if (state->wdt_disable) {
+        return;
+    }
+
     /* Check which action must be taken for the current stage */
     if (conf == ESP32C3_WDT_INTERRUPT) {
         wdt->raw_st = 1;
@@ -720,7 +727,7 @@ static void esp32c3_timg_init(Object *obj)
 }
 
 static Property esp32c3_timg_properties[] = {
-    // DEFINE_PROP_BOOL("wdt_disable", ESP32C3TimgState, wdt_disable, false),
+    DEFINE_PROP_BOOL("wdt_disable", ESP32C3TimgState, wdt_disable, false),
     DEFINE_PROP_END_OF_LIST(),
 };
 

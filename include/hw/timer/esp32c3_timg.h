@@ -4,7 +4,7 @@
 #include "hw/registerfields.h"
 
 
-#define TYPE_ESP32C3_TIMG "esp32c3.timg"
+#define TYPE_ESP32C3_TIMG "timer.esp32c3.timg"
 #define ESP32C3_TIMG(obj)           OBJECT_CHECK(ESP32C3TimgState, (obj), TYPE_ESP32C3_TIMG)
 #define ESP32C3_TIMG_GET_CLASS(obj) OBJECT_GET_CLASS(ESP32C3TimgState, obj, TYPE_ESP32C3_TIMG)
 #define ESP32C3_TIMG_CLASS(klass)   OBJECT_CLASS_CHECK(ESP32C3TimgState, klass, TYPE_ESP32C3_TIMG)
@@ -142,6 +142,9 @@ typedef struct ESP32C3TimgState {
     ESP32C3T0State t0;
     ESP32C3WdtState wdt;
     ESP32C3RtcState rtc;
+
+    /* Property used to disable the watchdog from command line */
+    bool wdt_disable;
 } ESP32C3TimgState;
 
 

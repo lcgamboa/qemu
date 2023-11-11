@@ -9,6 +9,8 @@
 
 #define DEBUG 0
 
+static uint32_t *g_mem;
+
 static uint64_t esp32_phya_read(void *opaque, hwaddr addr, unsigned int size)
 {
     uint32_t r = 0;
@@ -22,6 +24,11 @@ static uint64_t esp32_phya_read(void *opaque, hwaddr addr, unsigned int size)
     if(DEBUG) printf("esp32_phya_read  0x%04lx= 0x%08x\n",addr,r);
 
     return r;
+}
+
+void Esp32_WLAN_Set_Packet_Status(const uint32_t state){
+    if(g_mem)
+      g_mem[0x270/4] = state;
 }
 
 static void esp32_phya_write(void *opaque, hwaddr addr, uint64_t value,
@@ -48,6 +55,7 @@ static void esp32_phya_init(Object *obj)
                           TYPE_ESP32_PHYA, 0x1000);
     sysbus_init_mmio(sbd, &s->iomem);
     memset(s->mem,0,sizeof(s->mem));
+    g_mem = s->mem;
 }
 
 

@@ -53,6 +53,9 @@
 #define IEEE80211_TYPE_CTL              0x01
 #define IEEE80211_TYPE_DATA             0x02
 
+#define IEEE80211_ENCAPSULATED                    0xFE
+#define IEEE80211_ENCAPSULATED_PROTECTED          0xFF
+
 #define IEEE80211_TYPE_MGT_SUBTYPE_BEACON           0x08
 #define IEEE80211_TYPE_MGT_SUBTYPE_ACTION           0x0d
 #define IEEE80211_TYPE_MGT_SUBTYPE_PROBE_REQ        0x04
