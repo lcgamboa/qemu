@@ -3,7 +3,7 @@
 #include "hw/hw.h"
 #include "hw/registerfields.h"
 #include "hw/sysbus.h"
-#include "hw/misc/esp32_reg.h"
+//#include "hw/misc/esp32_reg.h"
 #include "sysemu/sysemu.h"
 #include "net/net.h"
 
@@ -56,6 +56,7 @@ typedef struct Esp32WifiState {
 void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame);
 void Esp32_WLAN_setup_ap(DeviceState *dev,Esp32WifiState *s);
 void Esp32_sendFrame(Esp32WifiState *s, struct mac80211_frame *frame,int length, int signal_strength);
+void Esp32_WLAN_frame_delivered(Esp32WifiState *s);
 
 REG32(WIFI_DMA_IN_STATUS, 0x84);
 REG32(WIFI_DMA_INLINK, 0x88);

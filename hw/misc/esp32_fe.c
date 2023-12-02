@@ -15,9 +15,12 @@ static uint64_t esp32_fe_read(void *opaque, hwaddr addr, unsigned int size)
     uint32_t r = 0;
     Esp32FeState *s = ESP32_FE(opaque);
     r=s->mem[addr/4];
-    if(addr==124)
+    switch(addr){
+      case 0x174:
+      case 0x7C:
         r=0xffffffff;
-
+        break;
+    }
     if(DEBUG) printf("esp32_fe_read  0x%04lx= 0x%08x\n",addr,r);
     
     return r;

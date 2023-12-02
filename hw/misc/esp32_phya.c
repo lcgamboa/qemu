@@ -16,19 +16,16 @@ static uint64_t esp32_phya_read(void *opaque, hwaddr addr, unsigned int size)
     uint32_t r = 0;
     Esp32PhyaState *s = ESP32_PHYA(opaque);
     r=s->mem[addr/4];
-    /* 
-    if(addr == 0x270){ //failed ACK
-       r = 0x00002300;   
-    }
-    */
     if(DEBUG) printf("esp32_phya_read  0x%04lx= 0x%08x\n",addr,r);
 
     return r;
 }
 
 void Esp32_WLAN_Set_Packet_Status(const uint32_t state){
-    if(g_mem)
-      g_mem[0x270/4] = state;
+    if(g_mem){
+      g_mem[0x270/4] = state; //ESP32
+      g_mem[0x320/4] = state; //ESP32C3
+    }
 }
 
 static void esp32_phya_write(void *opaque, hwaddr addr, uint64_t value,

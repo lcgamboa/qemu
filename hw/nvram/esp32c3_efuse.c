@@ -451,8 +451,13 @@ static void esp32c3_efuse_realize(DeviceState *dev, Error **errp)
         s->efuses.rd_mac_spi_sys_3.wafer_version_minor_low = 3;
 
         /* No need to rewrite the all the efuses, rd_mac_spi_sys_3 is enough */
-        const uint32_t offset = offsetof(ESP32C3EfuseRegs, rd_mac_spi_sys_3) - esp32c3_offset_of_block(0);
+        uint32_t offset = offsetof(ESP32C3EfuseRegs, rd_mac_spi_sys_3) - esp32c3_offset_of_block(0);
         *((uint32_t*) (s->mirror + offset)) = s->efuses.rd_mac_spi_sys_3.val;
+
+        /* set a default non zero mac address for wifi interface */
+        const char macaddr[6] = {0x01, 0x10, 0xfe, 0x24, 0x0a, 0xc4};
+        offset = offsetof(ESP32C3EfuseRegs, rd_mac_spi_sys_0) - esp32c3_offset_of_block(0);
+        memcpy(((uint8_t*) (s->mirror + offset)),macaddr, 6);
 
     } else {
         /* A block was given as a parameter, open it in READ/WRITE */

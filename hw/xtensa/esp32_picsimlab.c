@@ -872,8 +872,10 @@ static void esp32_soc_init(Object *obj)
     object_initialize_child(obj, "rmt", &s->rmt, TYPE_ESP32_RMT);
 
     for(int i=0;i<nb_nics;i++)
-        if (nd_table[i].used && nd_table[i].model && strcmp(nd_table[i].model, TYPE_ESP32_WIFI) == 0)
+        if (nd_table[i].used && nd_table[i].model && strcmp(nd_table[i].model, TYPE_ESP32_WIFI) == 0){
             object_initialize_child(obj, "wifi", &s->wifi, TYPE_ESP32_WIFI);
+            s->wifi_dev = DEVICE(&s->wifi);
+        }
 
     object_initialize_child(obj, "fe", &s->fe, TYPE_ESP32_FE);
 
@@ -1006,7 +1008,6 @@ static void esp32_machine_init_openeth(Esp32SocState *ss)
     MemoryRegion* sys_mem = get_system_memory();
     hwaddr reg_base = DR_REG_EMAC_BASE;
     hwaddr desc_base = reg_base + 0x400;
-    qemu_irq irq = qdev_get_gpio_in(DEVICE(&ss->intmatrix), ETS_ETH_MAC_INTR_SOURCE);
 
     for(int i=0;i<nb_nics;i++) {
         const char* type_openeth = "open_eth";
@@ -1017,16 +1018,15 @@ static void esp32_machine_init_openeth(Esp32SocState *ss)
             qdev_set_nic_properties(open_eth_dev, nd);
             sbd = SYS_BUS_DEVICE(open_eth_dev);
             sysbus_realize_and_unref(sbd, &error_fatal);
-            sysbus_connect_irq(sbd, 0, irq);
+            sysbus_connect_irq(sbd, 0, qdev_get_gpio_in(DEVICE(&ss->intmatrix), ETS_ETH_MAC_INTR_SOURCE));
             memory_region_add_subregion(sys_mem, reg_base, sysbus_mmio_get_region(sbd, 0));
             memory_region_add_subregion(sys_mem, desc_base, sysbus_mmio_get_region(sbd, 1));
         }
         
         if (nd->used && nd->model && strcmp(nd->model, TYPE_ESP32_WIFI) == 0) {
             //get macaddres from efuse file
-            Esp32EfuseState *efuse = esp32_efuse_find();
-            device_cold_reset(DEVICE(efuse));
-            char * mptr = (char *)&efuse->efuse_rd.blk0[1];
+            device_cold_reset(DEVICE(&ss->efuse));
+            char * mptr = (char *)&ss->efuse.efuse_rd.blk0[1];
             for(int i=0; i < 6 ; i++){
                 ss->wifi.macaddr[i]=mptr[5-i];
             }

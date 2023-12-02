@@ -53,8 +53,8 @@
 #define IEEE80211_TYPE_CTL              0x01
 #define IEEE80211_TYPE_DATA             0x02
 
-#define IEEE80211_ENCAPSULATED                    0xFE
-#define IEEE80211_ENCAPSULATED_PROTECTED          0xFF
+#define IEEE80211_ENCAPSULATED                    0xA0
+#define IEEE80211_ENCAPSULATED_PROTECTED          0xB0
 
 #define IEEE80211_TYPE_MGT_SUBTYPE_BEACON           0x08
 #define IEEE80211_TYPE_MGT_SUBTYPE_ACTION           0x0d
@@ -167,6 +167,47 @@ typedef struct {
     unsigned sig_len_copy:12;     /**< another copy of the length */
     unsigned rx_state:8;          /**< state of the packet. 0: no error; others: error numbers which are not public */
 } QEMU_PACKED wifi_pkt_rx_ctrl_t;
+
+
+typedef struct {
+    signed rssi:8;                /**< Received Signal Strength Indicator(RSSI) of packet. unit: dBm */
+    unsigned rate:5;              /**< PHY rate encoding of the packet. Only valid for non HT(11bg) packet */
+    unsigned :1;                  /**< reserved */
+    unsigned sig_mode:2;          /**< 0: non HT(11bg) packet; 1: HT(11n) packet; 3: VHT(11ac) packet */
+    unsigned legacy_length:12;    /**< copy of the length */
+    unsigned damatch0:1;          /* destination matches address0 */
+    unsigned damatch1:1;          /* destination matches address1 */
+    unsigned bssidmatch0:1;       /* bssid matches address0  */
+    unsigned bssidmatch1:1;       /* bssid matches address1  */
+    unsigned mcs:7;               /**< Modulation Coding Scheme. If is HT(11n) packet, shows the modulation, range from 0 to 76(MSC0 ~ MCS76) */
+    unsigned cwb:1;               /**< Channel Bandwidth of the packet. 0: 20MHz; 1: 40MHz */
+    unsigned :16;                 /**< reserved */
+    unsigned smoothing:1;         /**< reserved */
+    unsigned not_sounding:1;      /**< reserved */
+    unsigned :1;                  /**< reserved */
+    unsigned aggregation:1;       /**< Aggregation. 0: MPDU packet; 1: AMPDU packet */
+    unsigned stbc:2;              /**< Space Time Block Code(STBC). 0: non STBC packet; 1: STBC packet */
+    unsigned fec_coding:1;        /**< Flag is set for 11n packets which are LDPC */
+    unsigned sgi:1;               /**< Short Guide Interval(SGI). 0: Long GI; 1: Short GI */
+    unsigned :8;                  /**< reserved */
+    unsigned ampdu_cnt:8;         /**< ampdu cnt */
+    unsigned channel:4;           /**< primary channel on which this packet is received */
+    unsigned secondary_channel:4; /**< secondary channel on which this packet is received. 0: none; 1: above; 2: below */
+    unsigned :8;                  /**< reserved */
+    unsigned timestamp:32;        /**< timestamp. The local time when this packet is received. It is precise only if modem sleep or light sleep is not enabled. unit: microsecond */
+    unsigned :32;                 /**< reserved */
+    signed noise_floor:8;         /**< noise floor of Radio Frequency Module(RF). unit: dBm*/
+    unsigned :24;                 /**< reserved */
+    unsigned :32;                 /**< reserved */
+    unsigned :31;                 /**< reserved */
+    unsigned ant:1;               /**< antenna number from which this packet is received. 0: WiFi antenna 0; 1: WiFi antenna 1 */
+    unsigned :32;                 /**< reserved */
+    unsigned :32;                 /**< reserved */
+    unsigned :32;                 /**< reserved */
+    unsigned sig_len:12;          /**< length of packet including Frame Check Sequence(FCS) */
+    unsigned sig_len_copy:12;     /**< another copy of the length */
+    unsigned rx_state:8;          /**< state of the packet. 0: no error; others: error numbers which are not public */
+} QEMU_PACKED wifi_pkt_rx_ctrl_c3_t;
 
 extern int esp32_wifi_channel;
 

@@ -2,7 +2,6 @@
 
 #include "hw/hw.h"
 #include "hw/sysbus.h"
-#include "hw/misc/esp32_reg.h"
 
 
 #define TYPE_ESP32_ANA "misc.esp32.ana"
