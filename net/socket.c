@@ -250,13 +250,20 @@ static int net_socket_mcast_create(struct sockaddr_in *mcastaddr,
         goto fail;
     }
 
+    struct in_addr group_addr = mcastaddr->sin_addr;
+    if (localaddr) {
+        mcastaddr->sin_addr = *localaddr;
+    } else {
+        mcastaddr->sin_addr.s_addr = htonl(INADDR_ANY);
+    }
     ret = bind(fd, (struct sockaddr *)mcastaddr, sizeof(*mcastaddr));
     if (ret < 0) {
         error_setg_errno(errp, errno, "can't bind ip=%s to socket",
                          inet_ntoa(mcastaddr->sin_addr));
         goto fail;
     }
-
+    mcastaddr->sin_addr = group_addr;
+    
     /* Add host to multicast group */
     imr.imr_multiaddr = mcastaddr->sin_addr;
     if (localaddr) {
