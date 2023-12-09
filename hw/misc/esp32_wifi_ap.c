@@ -231,7 +231,7 @@ static void infoprint(struct mac80211_frame *frame) {
             switch (frame->frame_control.sub_type)
             {        
               case IEEE80211_TYPE_MGT_SUBTYPE_BEACON:
-                printf("beacon timestamp : %lu\n",frame->beacon_info.timestamp);
+                printf("beacon timestamp : %lu\n",(unsigned long) frame->beacon_info.timestamp);
                 printf("beacon interval : %u\n",frame->beacon_info.interval);
                 printf("beacon capability : %u\n",frame->beacon_info.capability);
                 break;  
@@ -279,7 +279,7 @@ void Esp32_WLAN_insert_frame(Esp32WifiState *s, struct mac80211_frame *frame)
     insertCRC(frame);
     if(DEBUG) {
         ANSI_FG_HCOLOR(GREEN);
-        printf("---------------\n>IN Send Frame type:%d subtype:%d channel:%d ap_state:%d  time:%ld \n",frame->frame_control.type,frame->frame_control.sub_type,esp32_wifi_channel,s->ap_state,qemu_clock_get_ns(QEMU_CLOCK_REALTIME));
+        printf("---------------\n>IN Send Frame type:%d subtype:%d channel:%d ap_state:%d  time:%ld \n",frame->frame_control.type,frame->frame_control.sub_type,esp32_wifi_channel,s->ap_state,(unsigned long) qemu_clock_get_ns(QEMU_CLOCK_REALTIME));
         ANSI_DEFAULT();
     }
     infoprint(frame);
@@ -516,7 +516,7 @@ void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame)
     unsigned char ethernet_frame[1518];
     if(DEBUG){ 
         ANSI_FG_HCOLOR(RED);
-        printf("-------------------------\n<OUT Handle Frame type:%d subtype:%d channel:%d ap_state:%d time:%ld \n",frame->frame_control.type,frame->frame_control.sub_type,esp32_wifi_channel,s->ap_state, qemu_clock_get_ns(QEMU_CLOCK_REALTIME));
+        printf("-------------------------\n<OUT Handle Frame type:%d subtype:%d channel:%d ap_state:%d time:%ld \n",frame->frame_control.type,frame->frame_control.sub_type,esp32_wifi_channel,s->ap_state,(unsigned long)  qemu_clock_get_ns(QEMU_CLOCK_REALTIME));
         ANSI_DEFAULT();
     }
     infoprint(frame);

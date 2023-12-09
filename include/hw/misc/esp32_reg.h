@@ -1,5 +1,6 @@
 #pragma once
 
+#define DR_REG_FRAMEBUF_BASE                    0x21000000
 
 #define DR_REG_DPORT_BASE                       0x3ff00000
 #define DR_REG_AES_BASE                         0x3ff01000

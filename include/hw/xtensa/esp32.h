@@ -29,6 +29,7 @@
 #include "hw/misc/esp32_flash_enc.h"
 #include "hw/sd/dwc_sdmmc.h"
 #include "hw/misc/esp32_iomux.h"
+#include "hw/display/esp_rgb.h"
 
 typedef struct Esp32SocState {
     /*< private >*/
@@ -61,6 +62,8 @@ typedef struct Esp32SocState {
     Esp32IomuxState iomux;
 
     Esp32FlashEncryptionState flash_enc;
+    ESPRgbState rgb;
+
     DWCSDMMCState sdmmc;
     DeviceState *eth;
     DeviceState *wifi_dev;

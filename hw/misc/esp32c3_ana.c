@@ -32,7 +32,7 @@ static uint64_t esp32c3_ana_read(void *opaque, hwaddr addr, unsigned int size)
           r=0xFFFFFFFF;
           break;
     }
-    if(DEBUG) printf("esp32c3_ana_read  0x%04lx= 0x%08x\n",addr,r);
+    if(DEBUG) printf("esp32c3_ana_read  0x%04lx= 0x%08x\n",(unsigned long) addr,r);
 
     return r;
 }
@@ -41,7 +41,7 @@ static void esp32c3_ana_write(void *opaque, hwaddr addr, uint64_t value,
                                  unsigned int size) {
     Esp32C3AnaState *s = ESP32C3_ANA(opaque);
 
-    if(DEBUG) printf("esp32c3_ana_write 0x%04lx= 0x%08lx\n",addr, value);
+    if(DEBUG) printf("esp32c3_ana_write 0x%04lx= 0x%08lx\n",(unsigned long) addr, (unsigned long) value);
 
     if(addr == 0x150) {
         int v= (value & 0x0FF00000) >> 0x14;

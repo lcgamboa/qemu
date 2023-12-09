@@ -34,7 +34,7 @@ static uint64_t esp32C3_wifi_read(void *opaque, hwaddr addr, unsigned int size)
             break;           
     }
 
-    if(DEBUG) printf("esp32C3_wifi_read  0x%04lx= 0x%08x\n",addr,r);
+    if(DEBUG) printf("esp32C3_wifi_read  0x%04lx= 0x%08x\n",(unsigned long) addr,r);
 
     return r;
 }
@@ -51,7 +51,7 @@ void Esp32_WLAN_frame_delivered(Esp32WifiState *s){
 static void esp32C3_wifi_write(void *opaque, hwaddr addr, uint64_t value,
                                  unsigned int size) {
     Esp32WifiState *s = ESP32_WIFI(opaque);
-    if(DEBUG) printf("esp32C3_wifi_write 0x%04lx= 0x%08lx\n",addr, value);
+    if(DEBUG) printf("esp32C3_wifi_write 0x%04lx= 0x%08lx\n",(unsigned long) addr, (unsigned long) value);
 
     switch (addr) {
         case A_C3_WIFI_DMA_INLINK:

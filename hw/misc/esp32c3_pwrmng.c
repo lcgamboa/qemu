@@ -39,7 +39,7 @@ static uint64_t esp32c3_pwrmng_read(void *opaque, hwaddr addr, unsigned int size
           break;    
     }
     
-    if(DEBUG) printf("esp32_pwrmng_read  0x%04lx= 0x%08x\n",addr,r);
+    if(DEBUG) printf("esp32_pwrmng_read  0x%04lx= 0x%08x\n",(unsigned long) addr,r);
 
     return r;
 }
@@ -49,7 +49,7 @@ static void esp32c3_pwrmng_write(void *opaque, hwaddr addr,
 {
     Esp32c3PwrMngState *s = ESP32C3_PWR_MANAGER(opaque);
     
-    if(DEBUG) printf("esp32_pwrmng_write 0x%04lx= 0x%08lx\n",addr, value);
+    if(DEBUG) printf("esp32_pwrmng_write 0x%04lx= 0x%08lx\n",(unsigned long) addr, (unsigned long) value);
 
     s->mem[addr/4]=value;
 }

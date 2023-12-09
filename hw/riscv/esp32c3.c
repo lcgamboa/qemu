@@ -46,6 +46,7 @@
 #include "hw/misc/esp32c3_ds.h"
 #include "hw/misc/esp32c3_jtag.h"
 #include "hw/dma/esp32c3_gdma.h"
+#include "hw/display/esp_rgb.h"
 
 #define ESP32C3_IO_WARNING          0
 
@@ -83,8 +84,11 @@ struct Esp32C3MachineState {
     ESP32C3SpiState spi1;
     ESP32C3RtcCntlState rtccntl;
     ESP32C3UsbJtagState jtag;
+    ESPRgbState rgb;
 };
 
+/* Fake register used by ESP-IDF application to determine whether the code is running on real hardware or on QEMU */
+#define A_SYSCON_ORIGIN_REG     0x3F8
 /* Temporary macro for generating a random value from register SYSCON_RND_DATA_REG */
 #define A_SYSCON_RND_DATA_REG 0x0B0
 
@@ -107,6 +111,7 @@ enum MemoryRegions {
     ESP32C3_MEMREGION_RTCFAST,
     ESP32C3_MEMREGION_DCACHE,
     ESP32C3_MEMREGION_ICACHE,
+    ESP32C3_MEMREGION_FRAMEBUF,
 };
 
 #define ESP32C3_INTERNAL_SRAM0_SIZE (16*1024)
@@ -123,6 +128,8 @@ static const struct MemmapEntry {
     [ESP32C3_MEMREGION_RTCFAST] = { 0x50000000,   0x2000 },
     [ESP32C3_MEMREGION_DCACHE]  = { 0x3c000000, 0x800000 },
     [ESP32C3_MEMREGION_ICACHE]  = { 0x42000000, 0x800000 },
+    /* Virtual Framebuffer, used for the graphical interface */
+    [ESP32C3_MEMREGION_FRAMEBUF] = { 0x20000000, ESP_RGB_MAX_VRAM_SIZE }
 };
 
 
@@ -135,6 +142,9 @@ static uint64_t esp32c3_io_read(void *opaque, hwaddr addr, unsigned int size)
 {
     if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_RTC_I2C_BASE, DR_REG_RTC_I2C_BASE + 0x100)) {
         return (uint32_t) 0xffffff;
+    } else if (addr + ESP32C3_IO_START_ADDR == DR_REG_SYSCON_BASE + A_SYSCON_ORIGIN_REG) {
+        /* Return "QEMU" as a 32-bit value */
+        return 0x51454d55;
     } else if (addr + ESP32C3_IO_START_ADDR == DR_REG_SYSCON_BASE + A_SYSCON_RND_DATA_REG) {
         /* Return a random 32-bit value */
         static bool init = false;
@@ -343,6 +353,7 @@ static void esp32c3_machine_init(MachineState *machine)
     object_initialize_child(OBJECT(machine), "spi1", &ms->spi1, TYPE_ESP32C3_SPI);
     object_initialize_child(OBJECT(machine), "rtccntl", &ms->rtccntl, TYPE_ESP32C3_RTC_CNTL);
     object_initialize_child(OBJECT(machine), "jtag", &ms->jtag, TYPE_ESP32C3_JTAG);
+    object_initialize_child(OBJECT(machine), "rgb", &ms->rgb, TYPE_ESP_RGB);
 
     /* Realize all the I/O peripherals we depend on */
 
@@ -544,6 +555,16 @@ static void esp32c3_machine_init(MachineState *machine)
         qdev_realize(DEVICE(&ms->ds), &ms->periph_bus, &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->ds), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_DIGITAL_SIGNATURE_BASE, mr, 0);
+    }
+
+    /* RGB display realization */
+    {
+        /* Give the internal RAM memory region to the display */
+        ms->rgb.intram = dram;
+        sysbus_realize(SYS_BUS_DEVICE(&ms->rgb), &error_fatal);
+        MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->rgb), 0);
+        memory_region_add_subregion_overlap(sys_mem, DR_REG_FRAMEBUF_BASE, mr, 0);
+        memory_region_add_subregion_overlap(sys_mem, esp32c3_memmap[ESP32C3_MEMREGION_FRAMEBUF].base, &ms->rgb.vram, 0);
     }
 
     /* Open and load the "bios", which is the ROM binary, also named "first stage bootloader" */

@@ -28,7 +28,7 @@ static uint64_t esp32c3_saradc_read(void *opaque, hwaddr addr, unsigned int size
             break;
     }
     
-    if(DEBUG) printf("esp32_saradc_read  0x%04lx= 0x%08x\n",addr,r);
+    if(DEBUG) printf("esp32_saradc_read  0x%04lx= 0x%08x\n",(unsigned long) addr,r);
 
     return r;
 }
@@ -38,7 +38,7 @@ static void esp32c3_saradc_write(void *opaque, hwaddr addr,
 {
     Esp32c3SarAdcState *s = ESP32C3_SARADC(opaque);
     
-    if(DEBUG) printf("esp32_saradc_write 0x%04lx= 0x%08lx\n",addr, value);
+    if(DEBUG) printf("esp32_saradc_write 0x%04lx= 0x%08lx\n",(unsigned long) addr, (unsigned long) value);
 
     s->mem[addr/4]=value;
 }

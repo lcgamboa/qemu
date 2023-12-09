@@ -82,7 +82,7 @@ void hmac_sha256_final(struct hmac_sha256_ctx *ctx, uint8_t *mac,
     // we need to pad the "ctx_inside" state because `sha256_compress` expects a padded input
     uint64_t bit_len = __builtin_bswap64(SHA256_DIGEST_SIZE * 8 + 512);
     block[SHA256_DIGEST_SIZE] = 0x80;
-    bzero(block + SHA256_DIGEST_SIZE + 1, SHA256_BLOCK_SIZE - SHA256_DIGEST_SIZE - 1);
+    memset(block + SHA256_DIGEST_SIZE + 1, 0, SHA256_BLOCK_SIZE - SHA256_DIGEST_SIZE - 1);
     memcpy(block + SHA256_BLOCK_SIZE - sizeof(bit_len), &bit_len, sizeof(bit_len));
 
     sha256_compress(&ctx->ctx_outside, block);

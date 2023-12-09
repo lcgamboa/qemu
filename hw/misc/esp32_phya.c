@@ -16,7 +16,7 @@ static uint64_t esp32_phya_read(void *opaque, hwaddr addr, unsigned int size)
     uint32_t r = 0;
     Esp32PhyaState *s = ESP32_PHYA(opaque);
     r=s->mem[addr/4];
-    if(DEBUG) printf("esp32_phya_read  0x%04lx= 0x%08x\n",addr,r);
+    if(DEBUG) printf("esp32_phya_read  0x%04lx= 0x%08x\n",(unsigned long) addr,r);
 
     return r;
 }
@@ -32,7 +32,7 @@ static void esp32_phya_write(void *opaque, hwaddr addr, uint64_t value,
                                  unsigned int size) {
   Esp32PhyaState *s = ESP32_PHYA(opaque);
   
-  if(DEBUG) printf("esp32_phya_write 0x%04lx= 0x%08lx\n",addr, value);
+  if(DEBUG) printf("esp32_phya_write 0x%04lx= 0x%08lx\n",(unsigned long) addr, (unsigned long) value);
 
   s->mem[addr/4]=(uint32_t)value;
 }

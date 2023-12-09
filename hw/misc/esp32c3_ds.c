@@ -22,7 +22,7 @@ static void write_and_padd(uint8_t *block, const uint8_t *data, uint16_t data_le
     memcpy(block, data, data_len);
     // Apply a one bit, followed by zero bits (refer to the TRM of respective target).
     block[data_len] = 0x80;
-    bzero(block + data_len + 1, SHA256_BLOCK_SIZE - data_len - 1);
+    memset(block + data_len + 1, 0, SHA256_BLOCK_SIZE - data_len - 1);
 }
 
 

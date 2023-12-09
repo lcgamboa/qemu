@@ -21,7 +21,7 @@ static uint64_t esp32_fe_read(void *opaque, hwaddr addr, unsigned int size)
         r=0xffffffff;
         break;
     }
-    if(DEBUG) printf("esp32_fe_read  0x%04lx= 0x%08x\n",addr,r);
+    if(DEBUG) printf("esp32_fe_read  0x%04lx= 0x%08x\n",(unsigned long) addr,r);
     
     return r;
 }
@@ -29,7 +29,7 @@ static uint64_t esp32_fe_read(void *opaque, hwaddr addr, unsigned int size)
 static void esp32_fe_write(void *opaque, hwaddr addr, uint64_t value,
                                  unsigned int size) {
   Esp32FeState *s = ESP32_FE(opaque);
-  if(DEBUG) printf("esp32_fe_write 0x%04lx= 0x%08lx\n",addr, value);
+  if(DEBUG) printf("esp32_fe_write 0x%04lx= 0x%08lx\n",(unsigned long) addr, (unsigned long) value);
 
   s->mem[addr/4]=(uint32_t)value;
 }

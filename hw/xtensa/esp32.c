@@ -55,6 +55,7 @@ enum {
     ESP32_MEMREGION_RTCSLOW,
     ESP32_MEMREGION_RTCFAST_D,
     ESP32_MEMREGION_RTCFAST_I,
+    ESP32_MEMREGION_FRAMEBUF,
 };
 
 static const struct MemmapEntry {
@@ -70,6 +71,8 @@ static const struct MemmapEntry {
     [ESP32_MEMREGION_RTCSLOW] = { 0x50000000, 0x2000 },
     [ESP32_MEMREGION_RTCFAST_I] = { 0x400C0000, 0x2000 },
     [ESP32_MEMREGION_RTCFAST_D] = { 0x3ff80000, 0x2000 },
+    /* Virtual Framebuffer, used for the graphical interface */
+    [ESP32_MEMREGION_FRAMEBUF] = { 0x20000000, ESP_RGB_MAX_VRAM_SIZE }
 };
 
 
@@ -190,6 +193,7 @@ static void esp32_soc_reset(DeviceState *dev)
             device_cold_reset(s->wifi_dev);
         }
         device_cold_reset(DEVICE(&s->rmt));
+        device_cold_reset(DEVICE(&s->rgb));
     }
     if (s->requested_reset & ESP32_SOC_RESET_PROCPU) {
         xtensa_select_static_vectors(&s->cpu[0].env, s->rtc_cntl.stat_vector_sel[0]);
@@ -280,6 +284,7 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     MemoryRegion *rtcfast_d = g_new(MemoryRegion, 1);
 
     for (int i = 0; i < ms->smp.cpus; ++i) {
+        assert(i >= 0 && i <= 9);
         MemoryRegion *drom = g_new(MemoryRegion, 1);
         MemoryRegion *irom = g_new(MemoryRegion, 1);
 
@@ -525,6 +530,12 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     qdev_realize(DEVICE(&s->iomux), &s->periph_bus, &error_abort);
     esp32_soc_add_periph_device(sys_mem, &s->iomux, DR_REG_IO_MUX_BASE);
 
+    /* Provide internal RAM MemoryRegion to the RGB display */
+    s->rgb.intram = dram;
+    qdev_realize(DEVICE(&s->rgb), &s->periph_bus, &error_abort);
+    esp32_soc_add_periph_device(sys_mem, &s->rgb, DR_REG_FRAMEBUF_BASE);
+    memory_region_add_subregion_overlap(sys_mem, esp32_memmap[ESP32_MEMREGION_FRAMEBUF].base, &s->rgb.vram, 0);
+
     esp32_soc_add_unimp_device(sys_mem, "esp32.rtcio", DR_REG_RTCIO_BASE, 0x400,0);
     esp32_soc_add_unimp_device(sys_mem, "esp32.hinf", DR_REG_HINF_BASE, 0x1000,0);
     esp32_soc_add_unimp_device(sys_mem, "esp32.slc", DR_REG_SLC_BASE, 0x1000,0);
@@ -684,6 +695,8 @@ static void esp32_soc_init(Object *obj)
 
     object_initialize_child(obj, "iomux", &s->iomux, TYPE_ESP32_IOMUX);
 
+    object_initialize_child(obj, "rgb", &s->rgb, TYPE_ESP_RGB);
+
     qdev_init_gpio_in_named(DEVICE(s), esp32_dig_reset, ESP32_RTC_DIG_RESET_GPIO, 1);
     qdev_init_gpio_in_named(DEVICE(s), esp32_cpu_reset, ESP32_RTC_CPU_RESET_GPIO, ESP32_CPU_COUNT);
     qdev_init_gpio_in_named(DEVICE(s), esp32_cpu_stall, ESP32_RTC_CPU_STALL_GPIO, ESP32_CPU_COUNT);
@@ -798,7 +811,6 @@ static void esp32_machine_init_openeth(Esp32SocState *ss)
     MemoryRegion* sys_mem = get_system_memory();
     hwaddr reg_base = DR_REG_EMAC_BASE;
     hwaddr desc_base = reg_base + 0x400;
-    qemu_irq irq = qdev_get_gpio_in(DEVICE(&ss->intmatrix), ETS_ETH_MAC_INTR_SOURCE);
 
     for(int i=0;i<nb_nics;i++) {
         const char* type_openeth = "open_eth";
@@ -809,16 +821,15 @@ static void esp32_machine_init_openeth(Esp32SocState *ss)
             qdev_set_nic_properties(open_eth_dev, nd);
             sbd = SYS_BUS_DEVICE(open_eth_dev);
             sysbus_realize_and_unref(sbd, &error_fatal);
-            sysbus_connect_irq(sbd, 0, irq);
+            sysbus_connect_irq(sbd, 0, qdev_get_gpio_in(DEVICE(&ss->intmatrix), ETS_ETH_MAC_INTR_SOURCE));
             memory_region_add_subregion(sys_mem, reg_base, sysbus_mmio_get_region(sbd, 0));
             memory_region_add_subregion(sys_mem, desc_base, sysbus_mmio_get_region(sbd, 1));
         }
         
         if (nd->used && nd->model && strcmp(nd->model, TYPE_ESP32_WIFI) == 0) {
             //get macaddres from efuse file
-            Esp32EfuseState *efuse = esp32_efuse_find();
-            device_cold_reset(DEVICE(efuse));
-            char * mptr = (char *)&efuse->efuse_rd.blk0[1];
+            device_cold_reset(DEVICE(&ss->efuse));
+            char * mptr = (char *)&ss->efuse.efuse_rd.blk0[1];
             for(int i=0; i < 6 ; i++){
                 ss->wifi.macaddr[i]=mptr[5-i];
             }
