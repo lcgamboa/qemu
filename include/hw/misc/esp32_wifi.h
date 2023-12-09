@@ -48,9 +48,16 @@ typedef struct Esp32WifiState {
     uint8_t ap_ipaddr[4];               
     uint8_t ap_macaddr[6];     
 
-    uint8_t associated_ap_macaddr[6];         
+    uint8_t associated_ap_macaddr[6]; 
+
+    uint8_t softap_macaddr[6];       
+
+    uint8_t mode;  
 
 } Esp32WifiState;
+
+#define Esp32_Mode_Station 0
+#define Esp32_Mode_SoftAP  1
 
 
 void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame);

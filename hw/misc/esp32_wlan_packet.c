@@ -61,11 +61,21 @@ static void add_tag(mac80211_frame *frame, int tag, int len, unsigned char bytes
 
 void Esp32_WLAN_init_ap_frame(Esp32WifiState *s, mac80211_frame *frame) {
     frame->sequence_control.sequence_number = s->inject_sequence_number++;
-    if(s->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATED)
-        memcpy(frame->source_address, s->macaddr, 6);
-    else
-        memcpy(frame->source_address, s->ap_macaddr, 6);
-    memcpy(frame->bssid_address, s->ap_macaddr, 6);
+    if(s->mode == Esp32_Mode_Station){
+        if(s->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATED)
+            memcpy(frame->source_address, s->macaddr, 6);
+        else
+            memcpy(frame->source_address, s->ap_macaddr, 6);
+        memcpy(frame->bssid_address, s->ap_macaddr, 6);
+    }
+    else{
+        if(s->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATED)
+            memcpy(frame->source_address, s->ap_macaddr, 6);
+        else
+            memcpy(frame->source_address, s->softap_macaddr, 6);
+        memcpy(frame->bssid_address, s->softap_macaddr, 6);
+    } 
+
 }
 
 static mac80211_frame *new_frame(unsigned type, unsigned subtype) {

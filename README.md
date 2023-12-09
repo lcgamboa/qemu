@@ -9,8 +9,9 @@ Official [QEMU README](https://github.com/lcgamboa/qemu/blob/picsimlab-esp32/REA
 # Differences from the Espressif QEMU fork
 
 * Support for compiling as a dynamic library
-* WIFI support (station mode) for ESP32 and ESP32C3
+* WIFI support (Station and SoftAP modes) for ESP32 and ESP32C3
 * ESP-NOW protocol support for ESP32 and ESP32C3
+* ESP32 an ESP32C3 IOMUX
 
 # Using WIFI support
 
