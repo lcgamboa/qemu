@@ -56,6 +56,8 @@ static void esp32_ledc_write(void *opaque, hwaddr addr,
                             uint64_t value, unsigned int size)
 {
     Esp32LEDCState *s = ESP32_LEDC(opaque);
+    int ledn;
+    
     switch (addr) {
     case A_LEDC_HSTIMER0_CONF_REG ... A_LEDC_LSTIMER3_CONF_REG:
         /* get duty resolution from timer config */
@@ -100,7 +102,7 @@ static void esp32_ledc_write(void *opaque, hwaddr addr,
     case A_LEDC_LSCH5_DUTY_REG:
     case A_LEDC_LSCH6_DUTY_REG:
     case A_LEDC_LSCH7_DUTY_REG:
-        int ledn = (addr - A_LEDC_HSCH0_DUTY_REG) / 0x14;
+        ledn = (addr - A_LEDC_HSCH0_DUTY_REG) / 0x14;
         led_set_intensity(&s->led[ledn], esp32_ledc_get_percent(s, value, addr));
         qemu_set_irq(s->ledc_sync[0], (0x5000 | (ledn << 8) | led_get_intensity(&s->led[ledn])));
         break;

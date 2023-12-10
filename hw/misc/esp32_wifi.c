@@ -133,6 +133,15 @@ static const MemoryRegionOps esp32_wifi_ops = {
     .endianness = DEVICE_LITTLE_ENDIAN,
 };
 
+static void esp32_wifi_reset(DeviceState *dev)
+{
+    Esp32WifiState *s = ESP32_WIFI(dev);
+
+    s->dma_inlink_address=0;
+    memset(s->mem,0,sizeof(s->mem));
+    Esp32_WLAN_reset_ap(s);
+}
+
 static void esp32_wifi_realize(DeviceState *dev, Error **errp)
 {
     Esp32WifiState *s = ESP32_WIFI(dev);
@@ -151,11 +160,13 @@ static Property esp32_wifi_properties[] = {
     DEFINE_NIC_PROPERTIES(Esp32WifiState, conf),
     DEFINE_PROP_END_OF_LIST(),
 };
+
 static void esp32_wifi_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
 
     dc->realize = esp32_wifi_realize;
+    dc->reset = esp32_wifi_reset;
     set_bit(DEVICE_CATEGORY_NETWORK, dc->categories);
     dc->desc = "Esp32 WiFi";
     device_class_set_props(dc, esp32_wifi_properties);

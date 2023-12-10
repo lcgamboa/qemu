@@ -24,8 +24,10 @@
  * Modifications:
  *  2008-February-24  Clemens Kolbitsch :
  *                                  New implementation based on ne2000.c
- *  18/1/22 Martin Johnson : Modified for esp32 wifi emulation
+ *  18/01/22 Martin Johnson : Modified for esp32 wifi emulation
+ *  08/12/23 lcgamboa@yahoo.com : Modified for esp32c3, espnow and SoftAp wifi emulation
  */
+
 
 #include "qemu/osdep.h"
 #include "net/net.h"
@@ -507,8 +509,8 @@ static NetClientInfo net_info = {
     .cleanup = Esp32_WLAN_cleanup,
 };
 
-void Esp32_WLAN_setup_ap(DeviceState *dev,Esp32WifiState *s) {
-
+void Esp32_WLAN_reset_ap(Esp32WifiState *s) {
+    esp32_wifi_channel = 0;
     s->ap_state = Esp32_WLAN__STATE_NOT_AUTHENTICATED;
     s->beacon_ap=0;
     s->mode = Esp32_Mode_Station;
@@ -519,6 +521,11 @@ void Esp32_WLAN_setup_ap(DeviceState *dev,Esp32WifiState *s) {
 
     s->inject_queue = NULL;
     s->inject_queue_size = 0;
+}
+
+void Esp32_WLAN_setup_ap(DeviceState *dev,Esp32WifiState *s) {
+
+    Esp32_WLAN_reset_ap(s);
 
     s->beacon_timer = timer_new_ns(QEMU_CLOCK_REALTIME, Esp32_WLAN_beacon_timer, s);
     timer_mod(s->beacon_timer, qemu_clock_get_ns(QEMU_CLOCK_REALTIME)+BEACON_TIME);
