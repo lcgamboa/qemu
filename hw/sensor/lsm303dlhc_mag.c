@@ -427,6 +427,8 @@ static int lsm303dlhc_mag_event(I2CSlave *i2c, enum i2c_event event)
         break;
     case I2C_NACK:
         break;
+    case I2C_START_SEND_ASYNC:
+        break;
     }
 
     s->len = 0;

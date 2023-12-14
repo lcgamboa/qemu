@@ -96,7 +96,6 @@ static int smbus_i2c_event(I2CSlave *s, enum i2c_event event)
                 dev->mode = SMBUS_READ_DATA;
             }
             break;
-
         default:
             BADF("Unexpected recv start condition in state %d\n", dev->mode);
             dev->mode = SMBUS_CONFUSED;
@@ -143,6 +142,9 @@ static int smbus_i2c_event(I2CSlave *s, enum i2c_event event)
             dev->mode = SMBUS_CONFUSED;
             break;
         }
+
+    case I2C_START_SEND_ASYNC:
+        break;    
     }
 
     return 0;

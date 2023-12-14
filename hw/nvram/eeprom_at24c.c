@@ -74,6 +74,8 @@ int at24c_eeprom_event(I2CSlave *s, enum i2c_event event)
         break;
     case I2C_NACK:
         break;
+    case I2C_START_SEND_ASYNC:
+        break;    
     }
     return 0;
 }
