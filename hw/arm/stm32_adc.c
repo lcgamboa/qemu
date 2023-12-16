@@ -841,6 +841,15 @@ static void stm32_ADC_SQR1_write(Stm32Adc *s,uint32_t new_value)
 static void stm32_ADC_CR2_write(Stm32Adc *s,uint32_t new_value)
 {     
     uint64_t curr_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL); 
+    
+    
+    if(s->ADC_CR2 & ADC_CR2_ADON)
+    if ((new_value & ADC_CR2_ADON ) == new_value){
+       s->ADC_CR2=new_value & 0x00fef90f; 
+       stm32_adc_start_conv(s);
+       return;
+    }
+
     s->ADC_CR2=new_value & 0x00fef90f; 
  
     if (s->ADC_CR2&ADC_CR2_SWSTART )  
@@ -854,7 +863,8 @@ static void stm32_ADC_CR2_write(Stm32Adc *s,uint32_t new_value)
 	  } else {
         stm32_hw_warn("ignore request ADC_CR2_SWSTART!\n");
 	  }
-    } else if (s->ADC_CR2&ADC_CR2_CONT )  
+    } 
+    else if (s->ADC_CR2&ADC_CR2_CONT )  
     {
       /*if(!(s->ADC_CR2 & ADC_CR2_ADON))   //CR2_ADON should be set (for Enable ADC) before start conversion
          hw_error("Attempted to start conversion while ADC was disabled\n");*/
@@ -865,13 +875,16 @@ static void stm32_ADC_CR2_write(Stm32Adc *s,uint32_t new_value)
       //timer_mod(s->conv_timer_cont,  curr_time + stm32_ADC_get_nbr_cycle_per_sample(s,stm32_ADC_get_channel_number(s,1)) );
       timer_mod(s->conv_timer_cont,  curr_time + stm32_ADC_get_nbr_cycle_per_sample(s,stm32_ADC_get_channel_number(s,1)) );
 
-    /*} else if (s->ADC_CR2 & ADC_CR2_ADON) {
+    } 
+    /*
+    else if (s->ADC_CR2 & ADC_CR2_ADON) {
 		printf("ggg\n");
 		if (s->conv_continuous == true) {
 		  timer_mod(s->conv_timer_cont,  curr_time + stm32_ADC_get_nbr_cycle_per_sample(s,stm32_ADC_get_channel_number(s,1)) ); 
 		  printf("Contimuous!\n");
-		}*/
+		}
 	}
+    */
 }
 
 static uint32_t stm32_ADC_DR_read(Stm32Adc *s)

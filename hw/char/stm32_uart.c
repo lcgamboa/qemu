@@ -32,7 +32,7 @@
 
 /* See the README file for details on these settings. */
 //#define DEBUG_STM32_UART
-#define STM32_UART_NO_BAUD_DELAY
+//#define STM32_UART_NO_BAUD_DELAY
 //#define STM32_UART_ENABLE_OVERRUN
 
 #ifdef DEBUG_STM32_UART
@@ -334,7 +334,6 @@ static void stm32_uart_tx_timer_expire(void *opaque) {
 }
 
 /* DMA tx delay */
-/*
 static void stm32_uart_tx_dma_timer_expire(void *opaque) {
     Stm32Uart *s = (Stm32Uart *)opaque;
     uint64_t curr_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
@@ -349,7 +348,6 @@ static void stm32_uart_tx_dma_timer_expire(void *opaque) {
     }
 
 }
-*/
 
 /* CHAR DEVICE HANDLERS */
 int stm32_uart_can_receive(void *opaque);

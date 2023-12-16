@@ -12,7 +12,12 @@
 
 #include "qemu/osdep.h"
 #include "vss-common.h"
+#include "vss-debug.h"
+#ifdef HAVE_VSS_SDK
 #include <vscoordint.h>
+#else
+#include <vsadmin.h>
+#endif
 #include <vsprov.h>
 
 #define VSS_TIMEOUT_MSEC (60*1000)
@@ -525,9 +530,11 @@ STDAPI DllCanUnloadNow()
 EXTERN_C
 BOOL WINAPI DllMain(HINSTANCE hinstDll, DWORD dwReason, LPVOID lpReserved)
 {
+    qga_debug("begin, reason = %lu", dwReason);
     if (dwReason == DLL_PROCESS_ATTACH) {
         g_hinstDll = hinstDll;
         DisableThreadLibraryCalls(hinstDll);
     }
+    qga_debug_end;
     return TRUE;
 }

@@ -27,7 +27,6 @@
 #define BLOCKJOB_INT_H
 
 #include "block/blockjob.h"
-#include "block/block.h"
 
 /**
  * BlockJobDriver:
@@ -39,12 +38,26 @@ struct BlockJobDriver {
     JobDriver job_driver;
 
     /*
+     * I/O API functions. These functions are thread-safe.
+     *
+     * See include/block/block-io.h for more information about
+     * the I/O API.
+     */
+
+    /*
      * Returns whether the job has pending requests for the child or will
      * submit new requests before the next pause point. This callback is polled
      * in the context of draining a job node after requesting that the job be
      * paused, until all activity on the child has stopped.
      */
     bool (*drained_poll)(BlockJob *job);
+
+    /*
+     * Global state (GS) API. These functions run under the BQL.
+     *
+     * See include/block/block-global-state.h for more information about
+     * the GS API.
+     */
 
     /*
      * If the callback is not NULL, it will be invoked before the job is
@@ -55,6 +68,13 @@ struct BlockJobDriver {
 
     void (*set_speed)(BlockJob *job, int64_t speed);
 };
+
+/*
+ * Global state (GS) API. These functions run under the BQL.
+ *
+ * See include/block/block-global-state.h for more information about
+ * the GS API.
+ */
 
 /**
  * block_job_create:
@@ -98,13 +118,26 @@ void block_job_free(Job *job);
  */
 void block_job_user_resume(Job *job);
 
-/**
- * block_job_ratelimit_get_delay:
+/*
+ * I/O API functions. These functions are thread-safe.
  *
- * Calculate and return delay for the next request in ns. See the documentation
- * of ratelimit_calculate_delay() for details.
+ * See include/block/block-io.h for more information about
+ * the I/O API.
  */
-int64_t block_job_ratelimit_get_delay(BlockJob *job, uint64_t n);
+
+/**
+ * block_job_ratelimit_processed_bytes:
+ *
+ * To be called after some work has been done. Adjusts the delay for the next
+ * request. See the documentation of ratelimit_calculate_delay() for details.
+ */
+void block_job_ratelimit_processed_bytes(BlockJob *job, uint64_t n);
+
+/**
+ * Put the job to sleep (assuming that it wasn't canceled) to throttle it to the
+ * right speed according to its rate limiting.
+ */
+void block_job_ratelimit_sleep(BlockJob *job);
 
 /**
  * block_job_error_action:

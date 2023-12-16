@@ -1,8 +1,7 @@
 /*
  * host-signal.h: signal info dependent on the host architecture
  *
- * Copyright (c) 2003-2005 Fabrice Bellard
- * Copyright (c) 2021 Linaro Limited
+ * Copyright (c) 2022 Linaro Ltd.
  *
  * This work is licensed under the terms of the GNU LGPL, version 2.1 or later.
  * See the COPYING file in the top-level directory.
@@ -10,6 +9,8 @@
 
 #ifndef PPC_HOST_SIGNAL_H
 #define PPC_HOST_SIGNAL_H
+
+#include <asm/ptrace.h>
 
 /* The third argument to a SA_SIGINFO handler is ucontext_t. */
 typedef ucontext_t host_sigcontext;

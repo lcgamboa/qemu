@@ -36,8 +36,6 @@
 #include "hw/qdev-clock.h"
 
 #include "qemu/timer.h"
-//#include "hw/arm/armv7m.h"
-#include "qemu-common.h"
 #include "hw/sysbus.h"
 #include "qemu/log.h"
 

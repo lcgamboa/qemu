@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
-#include "libqos/libqtest.h"
+#include "libqtest.h"
 #include "libqos/pci.h"
 #include "libqos/pci-pc.h"
 #include "qapi/qmp/qdict.h"
@@ -588,6 +588,7 @@ static void test_hotplug_2_reverse(void)
     machine_stop(qts);
 }
 
+#ifndef _WIN32
 static QDict *migrate_status(QTestState *qts)
 {
     QDict *resp, *ret;
@@ -1141,6 +1142,11 @@ static void test_migrate_guest_off_abort(gconstpointer opaque)
         ret = migrate_status(qts);
 
         status = qdict_get_str(ret, "status");
+        if (strcmp(status, "completed") == 0) {
+            g_test_skip("Failed to cancel the migration");
+            qobject_unref(ret);
+            goto out;
+        }
         if (strcmp(status, "active") == 0) {
             qobject_unref(ret);
             break;
@@ -1155,8 +1161,12 @@ static void test_migrate_guest_off_abort(gconstpointer opaque)
 
     while (true) {
         ret = migrate_status(qts);
-
         status = qdict_get_str(ret, "status");
+        if (strcmp(status, "completed") == 0) {
+            g_test_skip("Failed to cancel the migration");
+            qobject_unref(ret);
+            goto out;
+        }
         if (strcmp(status, "cancelled") == 0) {
             qobject_unref(ret);
             break;
@@ -1169,6 +1179,7 @@ static void test_migrate_guest_off_abort(gconstpointer opaque)
     check_one_card(qts, true, "standby0", MAC_STANDBY0);
     check_one_card(qts, false, "primary0", MAC_PRIMARY0);
 
+out:
     qos_object_destroy((QOSGraphObject *)vdev);
     machine_stop(qts);
 }
@@ -1251,8 +1262,7 @@ static void test_migrate_abort_wait_unplug(gconstpointer opaque)
             qobject_unref(ret);
             break;
         }
-        g_assert_cmpstr(status, !=, "failed");
-        g_assert_cmpstr(status, !=, "active");
+        g_assert_cmpstr(status, ==, "cancelling");
         qobject_unref(ret);
     }
 
@@ -1324,11 +1334,11 @@ static void test_migrate_abort_active(gconstpointer opaque)
         ret = migrate_status(qts);
 
         status = qdict_get_str(ret, "status");
+        g_assert_cmpstr(status, !=, "failed");
         if (strcmp(status, "wait-unplug") != 0) {
             qobject_unref(ret);
             break;
         }
-        g_assert_cmpstr(status, !=, "failed");
         qobject_unref(ret);
     }
 
@@ -1340,6 +1350,11 @@ static void test_migrate_abort_active(gconstpointer opaque)
         ret = migrate_status(qts);
 
         status = qdict_get_str(ret, "status");
+        if (strcmp(status, "completed") == 0) {
+            g_test_skip("Failed to cancel the migration");
+            qobject_unref(ret);
+            goto out;
+        }
         if (strcmp(status, "cancelled") == 0) {
             qobject_unref(ret);
             break;
@@ -1352,6 +1367,7 @@ static void test_migrate_abort_active(gconstpointer opaque)
     check_one_card(qts, true, "standby0", MAC_STANDBY0);
     check_one_card(qts, true, "primary0", MAC_PRIMARY0);
 
+out:
     qos_object_destroy((QOSGraphObject *)vdev);
     machine_stop(qts);
 }
@@ -1425,6 +1441,11 @@ static void test_migrate_off_abort(gconstpointer opaque)
         ret = migrate_status(qts);
 
         status = qdict_get_str(ret, "status");
+        if (strcmp(status, "completed") == 0) {
+            g_test_skip("Failed to cancel the migration");
+            qobject_unref(ret);
+            goto out;
+        }
         if (strcmp(status, "cancelled") == 0) {
             qobject_unref(ret);
             break;
@@ -1437,6 +1458,7 @@ static void test_migrate_off_abort(gconstpointer opaque)
     check_one_card(qts, true, "standby0", MAC_STANDBY0);
     check_one_card(qts, true, "primary0", MAC_PRIMARY0);
 
+out:
     qos_object_destroy((QOSGraphObject *)vdev);
     machine_stop(qts);
 }
@@ -1806,6 +1828,7 @@ static void test_multi_in(gconstpointer opaque)
 
     machine_stop(qts);
 }
+#endif /* _WIN32 */
 
 int main(int argc, char **argv)
 {
@@ -1836,7 +1859,11 @@ int main(int argc, char **argv)
     qtest_add_func("failover-virtio-net/hotplug/2_reverse",
                    test_hotplug_2_reverse);
 
-    /* migration tests */
+#ifndef _WIN32
+    /*
+     * These migration tests cases use the exec migration protocol,
+     * which is unsupported on Windows.
+     */
     qtest_add_data_func("failover-virtio-net/migrate/on/out", tmpfile,
                         test_migrate_out);
     qtest_add_data_func("failover-virtio-net/migrate/on/in", tmpfile,
@@ -1865,6 +1892,7 @@ int main(int argc, char **argv)
                         tmpfile, test_multi_out);
     qtest_add_data_func("failover-virtio-net/migrate/multi/in",
                    tmpfile, test_multi_in);
+#endif /* _WIN32 */
 
     ret = g_test_run();
 

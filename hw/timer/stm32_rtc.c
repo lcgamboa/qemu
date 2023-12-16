@@ -339,7 +339,7 @@ static void stm32_rtc_init(Object *obj)
     sysbus_init_mmio(dev, &s->iomem);
     sysbus_init_irq(dev, &s->irq);
 
-    s->ptimer = ptimer_init(stm32_rtc_tick, s,PTIMER_POLICY_DEFAULT);
+    s->ptimer = ptimer_init(stm32_rtc_tick, s,PTIMER_POLICY_LEGACY);
     
     /* Register handlers to handle updates to the RTC's peripheral clock. */
     /*clk_irq =

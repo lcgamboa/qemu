@@ -955,7 +955,9 @@ static void ati_vga_realize(PCIDevice *dev, Error **errp)
     }
 
     /* init vga bits */
-    vga_common_init(vga, OBJECT(s));
+    if (!vga_common_init(vga, OBJECT(s), errp)) {
+        return;
+    }
     vga_init(vga, OBJECT(s), pci_address_space(dev),
              pci_address_space_io(dev), true);
     vga->con = graphic_console_init(DEVICE(s), 0, s->vga.hw_ops, &s->vga);
@@ -1012,6 +1014,7 @@ static Property ati_vga_properties[] = {
     DEFINE_PROP_UINT16("x-device-id", ATIVGAState, dev_id,
                        PCI_DEVICE_ID_ATI_RAGE128_PF),
     DEFINE_PROP_BOOL("guest_hwcursor", ATIVGAState, cursor_guest_mode, false),
+    DEFINE_PROP_UINT8("x-pixman", ATIVGAState, use_pixman, 3),
     DEFINE_PROP_END_OF_LIST()
 };
 
@@ -1033,11 +1036,18 @@ static void ati_vga_class_init(ObjectClass *klass, void *data)
     k->exit = ati_vga_exit;
 }
 
+static void ati_vga_init(Object *o)
+{
+    object_property_set_description(o, "x-pixman", "Use pixman for: "
+                                    "1: fill, 2: blit");
+}
+
 static const TypeInfo ati_vga_info = {
     .name = TYPE_ATI_VGA,
     .parent = TYPE_PCI_DEVICE,
     .instance_size = sizeof(ATIVGAState),
     .class_init = ati_vga_class_init,
+    .instance_init = ati_vga_init,
     .interfaces = (InterfaceInfo[]) {
           { INTERFACE_CONVENTIONAL_PCI_DEVICE },
           { },

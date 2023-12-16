@@ -179,7 +179,11 @@ static void add_poll_remove_sqe(AioContext *ctx, AioHandler *node)
 {
     struct io_uring_sqe *sqe = get_sqe(ctx);
 
+#ifdef LIBURING_HAVE_DATA64
+    io_uring_prep_poll_remove(sqe, (__u64)(uintptr_t)node);
+#else
     io_uring_prep_poll_remove(sqe, node);
+#endif
 }
 
 /* Add a timeout that self-cancels when another cqe becomes ready */
@@ -272,11 +276,6 @@ static int fdmon_io_uring_wait(AioContext *ctx, AioHandlerList *ready_list,
     unsigned wait_nr = 1; /* block until at least one cqe is ready */
     int ret;
 
-    /* Fall back while external clients are disabled */
-    if (qatomic_read(&ctx->external_disable_cnt)) {
-        return fdmon_poll_ops.wait(ctx, ready_list, timeout);
-    }
-
     if (timeout == 0) {
         wait_nr = 0; /* non-blocking */
     } else if (timeout > 0) {
@@ -311,8 +310,7 @@ static bool fdmon_io_uring_need_wait(AioContext *ctx)
         return true;
     }
 
-    /* Are we falling back to fdmon-poll? */
-    return qatomic_read(&ctx->external_disable_cnt);
+    return false;
 }
 
 static const FDMonOps fdmon_io_uring_ops = {

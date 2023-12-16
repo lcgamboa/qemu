@@ -23,6 +23,9 @@ from avocado.utils import ssh
 @skipUnless(os.getenv('AVOCADO_TIMEOUT_EXPECTED'), 'Test might timeout')
 @skipUnless(ssh.SSH_CLIENT_BINARY, 'No SSH client available')
 class LinuxSSH(QemuSystemTest, LinuxSSHMixIn):
+    """
+    :avocado: tags=accel:tcg
+    """
 
     timeout = 150 # Not for 'configure --enable-debug --enable-debug-tcg'
 
@@ -97,14 +100,6 @@ class LinuxSSH(QemuSystemTest, LinuxSSHMixIn):
         self.ssh_command('poweroff')
         self.ssh_disconnect_vm()
         wait_for_console_pattern(self, 'Power down', 'Oops')
-
-    def ssh_command_output_contains(self, cmd, exp):
-        stdout, _ = self.ssh_command(cmd)
-        for line in stdout:
-            if exp in line:
-                break
-        else:
-            self.fail('"%s" output does not contain "%s"' % (cmd, exp))
 
     def run_common_commands(self, wordsize):
         self.ssh_command_output_contains(

@@ -37,7 +37,7 @@ struct AioHandler {
     unsigned flags; /* see fdmon-io_uring.c */
 #endif
     int64_t poll_idle_timeout; /* when to stop userspace polling */
-    bool is_external;
+    bool poll_ready; /* has polling detected an event? */
 };
 
 /* Add a handler to a ready list */

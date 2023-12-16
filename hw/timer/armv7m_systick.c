@@ -220,7 +220,6 @@ static void systick_cpuclk_update(void *opaque, ClockEvent event)
 
     if (!(s->control & SYSTICK_CLKSOURCE)) {
         /* currently using refclk, we can ignore cpuclk changes */
-        return;
     }
 
     ptimer_transaction_begin(s->ptimer);
@@ -234,7 +233,6 @@ static void systick_refclk_update(void *opaque, ClockEvent event)
 
     if (s->control & SYSTICK_CLKSOURCE) {
         /* currently using cpuclk, we can ignore refclk changes */
-        return;
     }
 
     ptimer_transaction_begin(s->ptimer);

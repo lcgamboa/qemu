@@ -353,11 +353,6 @@ void stm32_iwdg_set_rcc(Stm32Iwdg *iwdg, Stm32Rcc* rcc)
     iwdg->stm32_rcc = rcc;
 }
 
-static WatchdogTimerModel model = {
-    .wdt_name = "stm32_iwdg",
-    .wdt_description = "Independent watchdog",
-};
-
 static Property iwdg_properties[] = {
     DEFINE_PROP_PERIPH_T("periph", Stm32Iwdg, periph, STM32_PERIPH_UNDEFINED),
     //DEFINE_PROP_PTR("stm32_rcc", Stm32Iwdg, stm32_rcc_prop),
@@ -387,7 +382,6 @@ static const TypeInfo iwdg_info = {
 
 static void iwdg_register_types(void)
 {
-    watchdog_add_model(&model);
     type_register_static(&iwdg_info);
 }
 

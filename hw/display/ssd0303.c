@@ -194,9 +194,10 @@ static int ssd0303_event(I2CSlave *i2c, enum i2c_event event)
     case I2C_START_RECV:
     case I2C_START_SEND:
     case I2C_NACK:
-    case I2C_START_SEND_ASYNC:
         /* Nothing to do.  */
         break;
+    default:
+        return -1;
     }
 
     return 0;

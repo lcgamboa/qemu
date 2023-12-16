@@ -7,7 +7,8 @@ bool replay_events_enabled(void)
     return false;
 }
 
-int64_t replay_save_clock(ReplayClockKind kind, int64_t clock, int64_t raw_icount)
+int64_t replay_save_clock(ReplayClockKind kind,
+                          int64_t clock, int64_t raw_icount)
 {
     abort();
     return 0;
@@ -48,11 +49,11 @@ void replay_mutex_unlock(void)
 {
 }
 
-void replay_register_char_driver(Chardev *chr)
+void replay_register_char_driver(struct Chardev *chr)
 {
 }
 
-void replay_chr_be_write(Chardev *s, uint8_t *buf, int len)
+void replay_chr_be_write(struct Chardev *s, const uint8_t *buf, int len)
 {
     abort();
 }

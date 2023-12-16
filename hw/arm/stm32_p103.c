@@ -152,7 +152,7 @@ static void stm32_p103_init(MachineState *machine)
             
     armv7m_load_kernel(ARM_CPU(first_cpu),
                        machine->kernel_filename,
-                       FLASH_SIZE);
+                       0, FLASH_SIZE);
 }
 
 static void stm32_p103_machine_init(MachineClass *mc)

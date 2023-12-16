@@ -471,7 +471,7 @@ static void stm32_timer_realize(DeviceState *dev, Error **errp)
     stm32_rcc_set_periph_clk_irq(s->stm32_rcc, s->periph, clk_irq[0]);
 
 
-    s->timer = ptimer_init(stm32_timer_tick, s, PTIMER_POLICY_DEFAULT);
+    s->timer = ptimer_init(stm32_timer_tick, s, PTIMER_POLICY_LEGACY);
 
     s->cr1   = 0;
     s->dier  = 0;

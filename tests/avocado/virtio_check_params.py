@@ -22,7 +22,6 @@ import os
 import re
 import logging
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'python'))
 from qemu.machine import QEMUMachine
 from avocado_qemu import QemuSystemTest
 from avocado import skip
@@ -44,7 +43,7 @@ VM_DEV_PARAMS = {'virtio-scsi-pci': ['-device', 'virtio-scsi-pci,id=scsi0'],
 class VirtioMaxSegSettingsCheck(QemuSystemTest):
     @staticmethod
     def make_pattern(props):
-        pattern_items = ['{0} = \w+'.format(prop) for prop in props]
+        pattern_items = [r'{0} = \w+'.format(prop) for prop in props]
         return '|'.join(pattern_items)
 
     def query_virtqueue(self, vm, dev_type_name):

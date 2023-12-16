@@ -13,6 +13,13 @@
 
 #include "cpu.h"
 
-void hvf_arm_set_cpu_features_from_host(struct ARMCPU *cpu);
+/**
+ * hvf_arm_init_debug() - initialize guest debug capabilities
+ *
+ * Should be called only once before using guest debug capabilities.
+ */
+void hvf_arm_init_debug(void);
+
+void hvf_arm_set_cpu_features_from_host(ARMCPU *cpu);
 
 #endif

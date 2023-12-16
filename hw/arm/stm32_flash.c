@@ -139,7 +139,7 @@ static void stm32_flash_realize(DeviceState *dev, Error **errp)
     memset(s->data, 0xff, s->size);
     if (s->blks) {
         int r;
-        r = blk_pread(s->blks, 0, s->data, blk_getlength(s->blks));
+        r = blk_pread(s->blks, 0, blk_getlength(s->blks), s->data, 0);
         if (r < 0) {
             vmstate_unregister_ram(&s->iomem, dev);
             // memory_region_destroy(&s->mem);

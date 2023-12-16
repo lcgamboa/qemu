@@ -22,8 +22,6 @@
 #ifndef STM32_CLKTREE_H
 #define STM32_CLKTREE_H
 
-#include "qemu-common.h"
-
 #define CLKTREE_MAX_IRQ 16
 #define CLKTREE_MAX_OUTPUT 16
 #define CLKTREE_MAX_INPUT 16
