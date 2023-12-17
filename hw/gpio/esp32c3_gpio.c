@@ -42,7 +42,7 @@ static uint64_t esp32c3_gpio_read(void *opaque, hwaddr addr, unsigned int size)
             r = s->gpio_status;
             break;
         case 0x5C: //GPIO_PCPU_INT_REG
-            r = s->gpio_pcpu_int;
+            r = s->gpio_acpu_int; //using ESP32 GPIO support
             break;
         default:
             break;

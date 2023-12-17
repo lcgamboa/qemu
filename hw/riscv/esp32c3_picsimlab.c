@@ -280,11 +280,11 @@ void qemu_picsimlab_set_pin(int pin,int value)
    //qemu_mutex_unlock_iothread ();
 }
 
-//extern unsigned short ADC_values[31];
+extern unsigned short ADC_values[31];
 
 void qemu_picsimlab_set_apin(int chn,int value)
 {
-   //ADC_values[chn] = value;
+   ADC_values[chn] = value;
 }
 
 int qemu_picsimlab_flash_dump( int64_t offset, void *buf, int bytes)
@@ -708,6 +708,8 @@ static void esp32c3_machine_init(MachineState *machine)
         sysbus_realize(SYS_BUS_DEVICE(&ms->gpio), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->gpio), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_GPIO_BASE, mr, 0);
+        sysbus_connect_irq(SYS_BUS_DEVICE(&ms->gpio), 0,
+                           qdev_get_gpio_in(intmatrix_dev, ETS_GPIO_INTR_SOURCE));
     }
 
     /* (Extmem) Cache realization */
