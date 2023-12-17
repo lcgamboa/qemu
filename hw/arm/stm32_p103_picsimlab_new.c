@@ -24,7 +24,7 @@
 #include "hw/arm/stm32.h"
 #include "hw/sysbus.h"
 #include "hw/arm/armv7m.h"
-//#include "hw/devices.h"
+// #include "hw/devices.h"
 #include "ui/console.h"
 #include "sysemu/sysemu.h"
 #include "hw/boards.h"
@@ -61,9 +61,9 @@ extern Stm32_board *s;
 
 extern unsigned short ADC_values[31];
 
-extern void (*picsimlab_write_pin)(int pin,int value);
-extern void (*picsimlab_dir_pin)(int pin,int value);
-extern const short int * pinmap;
+extern void (*picsimlab_write_pin)(int pin, int value);
+extern void (*picsimlab_dir_pin)(int pin, int value);
+extern const short int *pinmap;
 
 static void
 pout_irq_handler(void *opaque, int n, int level)
@@ -86,7 +86,7 @@ psync_irq_handler(void *opaque, int n, int dir)
 #define FLASH_SIZE 0x00020000
 #define RAM_SIZE 0x00005000
 /* Main SYSCLK frequency in Hz (24MHz) */
-#define SYSCLK_FRQ 24000000ULL
+#define SYSCLK_FRQ 72000000ULL
 
 static void
 stm32_p103_picsimlab_init(MachineState *machine)
@@ -137,37 +137,41 @@ stm32_p103_picsimlab_init(MachineState *machine)
    qdev_connect_gpio_out_named(s->gpio_c, STM32_GPIOS_SYNC, 0, s->psync_irq[2]);
    qdev_connect_gpio_out_named(s->gpio_d, STM32_GPIOS_SYNC, 0, s->psync_irq[3]);
 
-   if(pinmap){
-      s->pdir_irq = qemu_allocate_irqs(pdir_irq_handler, NULL, pinmap[0]+1);
-      s->pout_irq = qemu_allocate_irqs(pout_irq_handler, NULL, pinmap[0]+1);
-      for(int pin = 1; pin < (pinmap[0]+1); pin++){
-        if(pinmap[pin] >= 0 ){
-           DeviceState * gport = NULL;
+   if (pinmap)
+   {
+      s->pdir_irq = qemu_allocate_irqs(pdir_irq_handler, NULL, pinmap[0] + 1);
+      s->pout_irq = qemu_allocate_irqs(pout_irq_handler, NULL, pinmap[0] + 1);
+      for (int pin = 1; pin < (pinmap[0] + 1); pin++)
+      {
+         if (pinmap[pin] >= 0)
+         {
+            DeviceState *gport = NULL;
 
-           switch ((pinmap[pin] & 0xF000) >> 12)
-           {
-           case 1:
-             gport = s->gpio_a;
-            break;
-           case 2:
-             gport = s->gpio_b;
-            break;
-           case 3:
-             gport = s->gpio_c;
-            break;
-           case 4:
-             gport = s->gpio_d;
-            break;                                 
-           } 
+            switch ((pinmap[pin] & 0xF000) >> 12)
+            {
+            case 1:
+               gport = s->gpio_a;
+               break;
+            case 2:
+               gport = s->gpio_b;
+               break;
+            case 3:
+               gport = s->gpio_c;
+               break;
+            case 4:
+               gport = s->gpio_d;
+               break;
+            }
 
-           if(gport){
-             qdev_connect_gpio_out(gport, pinmap[pin] & 0x0FFF, s->pout_irq[pin]);
-             qdev_connect_gpio_out_named(gport, STM32_GPIOS_DIR, pinmap[pin] & 0x0FFF, s->pdir_irq[pin]);
-             s->pin_irq[pin] = qdev_get_gpio_in(gport, pinmap[pin] & 0x0FFF);
-           }
-        }
-      } 
-    }
+            if (gport)
+            {
+               qdev_connect_gpio_out(gport, pinmap[pin] & 0x0FFF, s->pout_irq[pin]);
+               qdev_connect_gpio_out_named(gport, STM32_GPIOS_DIR, pinmap[pin] & 0x0FFF, s->pdir_irq[pin]);
+               s->pin_irq[pin] = qdev_get_gpio_in(gport, pinmap[pin] & 0x0FFF);
+            }
+         }
+      }
+   }
 
    /* Connect RS232 to UART */
    stm32_uart_connect(
