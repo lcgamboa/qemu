@@ -49,6 +49,7 @@
 #include "hw/display/esp_rgb.h"
 #include "hw/misc/esp32c3_iomux.h"
 #include "hw/misc/esp32c3_saradc.h"
+#include "hw/misc/esp32c3_ledc.h"
 #include "hw/irq.h"
 #include "hw/misc/unimp.h"
 
@@ -104,6 +105,7 @@ struct Esp32C3MachineState {
     ESPRgbState rgb;
     Esp32C3IomuxState iomux;
     Esp32c3SarAdcState saradc;
+    Esp32C3LEDCState ledc;
 
     Esp32WifiState wifi;
     Esp32PhyaState phya;
@@ -618,6 +620,7 @@ static void esp32c3_machine_init(MachineState *machine)
     object_initialize_child(OBJECT(machine), "rgb", &ms->rgb, TYPE_ESP_RGB);
     object_initialize_child(OBJECT(machine), "iomux", &ms->iomux, TYPE_ESP32C3_IOMUX);
     object_initialize_child(OBJECT(machine), "saradc", &ms->saradc, TYPE_ESP32C3_SARADC);
+    object_initialize_child(OBJECT(machine), "ledc", &ms->ledc, TYPE_ESP32C3_LEDC);
     object_initialize_child(OBJECT(machine), "phya", &ms->phya, TYPE_ESP32_PHYA);
     object_initialize_child(OBJECT(machine), "ana", &ms->ana, TYPE_ESP32C3_ANA);
     object_initialize_child(OBJECT(machine), "fe", &ms->fe, TYPE_ESP32_FE);
@@ -856,6 +859,12 @@ static void esp32c3_machine_init(MachineState *machine)
         memory_region_add_subregion_overlap(sys_mem, DR_REG_APB_SARADC_BASE, mr, 0);
     }
 
+    /* LEDC realization */
+    {
+        sysbus_realize(SYS_BUS_DEVICE(&ms->ledc), &error_fatal);
+        MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->ledc), 0);
+        memory_region_add_subregion_overlap(sys_mem, DR_REG_LEDC_BASE, mr, 0);
+    }
 
     //'esp32c3_wifi.c',   DR_REG_WIFI_BASE
 
@@ -932,6 +941,7 @@ static void esp32c3_machine_init(MachineState *machine)
     psync_irq = qemu_allocate_irqs (psync_irq_handler, NULL, 1);
     qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_SYNC, 0 , psync_irq[0]);
     qdev_connect_gpio_out_named(DEVICE(&ms->iomux), ESP32_IOMUX_SYNC, 0 , psync_irq[0]);
+    qdev_connect_gpio_out_named(DEVICE(&ms->ledc), ESP32C3_LEDC_SYNC, 0 , psync_irq[0]);
 
 /*
     spi_cs_irq = qemu_allocate_irqs (spi_cs_irq_handler, NULL, 8);

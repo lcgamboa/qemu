@@ -90,3 +90,4 @@ config RISCV_ESP32C3
     bool
     select OPENCORES_ETH
     select UNIMP
+    select LED
