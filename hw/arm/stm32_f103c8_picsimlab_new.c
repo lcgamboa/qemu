@@ -35,6 +35,7 @@
 
 #define STM32_GPIOS_DIR "stm32_gpios_dir"
 #define STM32_GPIOS_SYNC "stm32_gpios_sync"
+#define STM32_TIM_SYNC "stm32_tim_sync"
 
 typedef struct
 {
@@ -55,11 +56,17 @@ typedef struct
    DeviceState *spi1;
    DeviceState *spi2;
    DeviceState *afio;
+   DeviceState *tim1;
+   DeviceState *tim2;
+   DeviceState *tim3;
+   DeviceState *tim4;
+   DeviceState *tim5; 
+   DeviceState *adc1;
+   DeviceState *adc2;
 } Stm32_board;
 
 Stm32_board *s;
 
-extern unsigned short ADC_values[31];
 // prototypes
 void qemu_picsimlab_register_callbacks(void *arg);
 void qemu_picsimlab_set_apin(int chn, int value);
@@ -156,7 +163,8 @@ void qemu_picsimlab_set_pin(int pin, int value)
 
 void qemu_picsimlab_set_apin(int chn, int value)
 {
-   ADC_values[chn] = value;
+   stm32_adc_set_channel_value(STM32_ADC(s->adc1), chn, value);
+   stm32_adc_set_channel_value(STM32_ADC(s->adc2), chn, value);
 }
 
 int qemu_picsimlab_flash_dump(int64_t offset, void *buf, int bytes)
@@ -186,7 +194,7 @@ psync_irq_handler(void *opaque, int n, int dir)
 #define FLASH_SIZE 0x00020000
 #define RAM_SIZE 0x00005000
 /* Main SYSCLK frequency in Hz (24MHz) */
-#define SYSCLK_FRQ 72000000ULL
+#define SYSCLK_FRQ 24000000ULL
 
 static void
 stm32_f103c8_picsimlab_init(MachineState *machine)
@@ -217,6 +225,13 @@ stm32_f103c8_picsimlab_init(MachineState *machine)
    s->spi1 = DEVICE(object_resolve_path("/machine/stm32/spi[1]", NULL));
    s->spi2 = DEVICE(object_resolve_path("/machine/stm32/spi[2]", NULL));
    s->afio = DEVICE(object_resolve_path("/machine/stm32/afio", NULL));
+   s->tim1 = DEVICE(object_resolve_path("/machine/stm32/timer[1]", NULL));
+   s->tim2 = DEVICE(object_resolve_path("/machine/stm32/timer[2]", NULL));
+   s->tim3 = DEVICE(object_resolve_path("/machine/stm32/timer[3]", NULL));
+   s->tim4 = DEVICE(object_resolve_path("/machine/stm32/timer[4]", NULL));
+   s->tim5 = DEVICE(object_resolve_path("/machine/stm32/timer[5]", NULL));
+   s->adc1 = DEVICE(object_resolve_path("/machine/stm32/adc[1]", NULL));
+   s->adc2 = DEVICE(object_resolve_path("/machine/stm32/adc[2]", NULL));
 
    assert(s->gpio_a);
    assert(s->gpio_b);
@@ -230,12 +245,26 @@ stm32_f103c8_picsimlab_init(MachineState *machine)
    assert(s->spi1);
    assert(s->spi2);
    assert(s->afio);
+   assert(s->tim1);
+   assert(s->tim2);
+   assert(s->tim3);
+   assert(s->tim4);
+   assert(s->tim5);
+   assert(s->adc1);
+   assert(s->adc2);
+   
 
-   s->psync_irq = qemu_allocate_irqs(psync_irq_handler, NULL, 4);
+   s->psync_irq = qemu_allocate_irqs(psync_irq_handler, NULL, 5);
    qdev_connect_gpio_out_named(s->gpio_a, STM32_GPIOS_SYNC, 0, s->psync_irq[0]);
    qdev_connect_gpio_out_named(s->gpio_b, STM32_GPIOS_SYNC, 0, s->psync_irq[1]);
    qdev_connect_gpio_out_named(s->gpio_c, STM32_GPIOS_SYNC, 0, s->psync_irq[2]);
    qdev_connect_gpio_out_named(s->gpio_d, STM32_GPIOS_SYNC, 0, s->psync_irq[3]);
+
+   qdev_connect_gpio_out_named(s->tim1, STM32_TIM_SYNC, 0, s->psync_irq[0]);
+   qdev_connect_gpio_out_named(s->tim2, STM32_TIM_SYNC, 0, s->psync_irq[1]);
+   qdev_connect_gpio_out_named(s->tim3, STM32_TIM_SYNC, 0, s->psync_irq[2]);
+   qdev_connect_gpio_out_named(s->tim4, STM32_TIM_SYNC, 0, s->psync_irq[3]);
+   qdev_connect_gpio_out_named(s->tim5, STM32_TIM_SYNC, 0, s->psync_irq[4]);
 
    if (pinmap)
    {

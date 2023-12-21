@@ -761,7 +761,7 @@ static void stm32_rcc_hclk_upd_irq_handler(void *opaque, int n, int level)
          * system/external clock ticks.
          */
         //external_ref_clock_scale = NANOSECONDS_PER_SECOND / ext_ref_freq;
-        clock_set_hz(s->sysclk->source, hclk_freq*1.1);
+        clock_set_hz(s->sysclk->source, hclk_freq*3); //FIXME simulation run slow after qemu updated. 
         clock_propagate(s->sysclk->source);  
     }
 

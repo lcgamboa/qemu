@@ -108,8 +108,10 @@ struct Stm32Timer {
     /* uint32_t bdtr; Break and deadtime not supported */
     /* uint32_t dcr;  DMA mode not supported */
     /* uint32_t dmar; DMA mode not supported */
-
+    qemu_irq sync_irq[1];
 };
+
+#define STM32_TIM_SYNC "stm32_tim_sync"
 
 static void stm32_timer_freq(Stm32Timer *s)
 {
@@ -412,18 +414,22 @@ static void stm32_timer_write(void * opaque, hwaddr offset,
     case TIMER_CCR1_OFFSET:
         s->ccr1 = value & 0xffff;
         DPRINTF("%s ccr1 = %x\n", stm32_periph_name(s->periph), s->ccr1);
+        qemu_set_irq( s->sync_irq[0], (0xC00000|  ((s->ccr1*100/s->arr)<<4) | (0<< 2)));
         break;
     case TIMER_CCR2_OFFSET:
         s->ccr2 = value & 0xffff;
         DPRINTF("%s ccr2 = %x\n", stm32_periph_name(s->periph), s->ccr2);
+        qemu_set_irq( s->sync_irq[0], (0xC00000|  ((s->ccr2*100/s->arr)<<4) | (1<< 2)));
         break;
     case TIMER_CCR3_OFFSET:
         s->ccr3 = value & 0xffff;
         DPRINTF("%s ccr3 = %x\n", stm32_periph_name(s->periph), s->ccr3);
+        qemu_set_irq( s->sync_irq[0], (0xC00000|  ((s->ccr3*100/s->arr)<<4) | (2<< 2)));
         break;
     case TIMER_CCR4_OFFSET:
         s->ccr4 = value & 0xffff;
         DPRINTF("%s ccr4 = %x\n", stm32_periph_name(s->periph), s->ccr4);
+        qemu_set_irq( s->sync_irq[0], (0xC00000|  ((s->ccr4*100/s->arr)<<4) | (3<< 2)));
         break;
     case TIMER_BDTR_OFFSET:
         qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: BDTR not supported");
@@ -458,6 +464,8 @@ static void stm32_timer_init(Object *obj)
     sysbus_init_mmio(dev, &s->iomem);
 
     sysbus_init_irq(dev, &s->irq);
+
+    qdev_init_gpio_out_named(DEVICE(dev), s->sync_irq, STM32_TIM_SYNC, 1);
 
     return ;
 }

@@ -584,9 +584,6 @@ and ADC2
 
 
 
-unsigned short ADC_values[31]={31,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,
-                               24,25,26,27,28,29,30};
-
 /* --- Function prototypes ------------------------------------------------- */
 
 struct Stm32Adc {
@@ -648,6 +645,7 @@ struct Stm32Adc {
     int curr_irq_level;
     int Vref; //mv
     int Vdda; //mv
+    unsigned short ADC_values[32];
 };
 /* functions added to adc*/ 
 static void stm32_ADC_GPIO_check(Stm32Adc *s,int channel);
@@ -724,7 +722,7 @@ static void stm32_adc_start_conv(Stm32Adc *s)
       }
       else{
           //s->ADC_DR=((int)(1024.*(sin(2*M_PI*qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL)/1e9)+1.))&0xfff);
-          s->ADC_DR=ADC_values[channel_number]&0xFFF;
+          s->ADC_DR=s->ADC_values[channel_number]&0xFFF;
       }
       s->ADC_SR &= ~ADC_SR_EOC; 
 
@@ -1052,6 +1050,7 @@ static void stm32_adc_init(Object *obj)
     s->conv_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, (QEMUTimerCB *)stm32_adc_conv_timer_expire, s);
     s->conv_timer_cont = timer_new_ns(QEMU_CLOCK_VIRTUAL, (QEMUTimerCB *)stm32_adc_conv_timer_expire_cont, s);
 
+    memset(s->ADC_values, 0, sizeof(s->ADC_values));
 
     return ;
 }
@@ -1079,6 +1078,10 @@ void stm32_adc_set_gpio(Stm32Adc *adc, Stm32Gpio** gpio)
     adc->stm32_gpio = gpio;
 }
 
+void stm32_adc_set_channel_value(Stm32Adc *adc, const unsigned int channel, const unsigned short value)
+{
+    adc->ADC_values[channel]=value;
+}
 
 static Property stm32_adc_properties[] = {
     DEFINE_PROP_PERIPH_T("periph", Stm32Adc, periph, STM32_PERIPH_UNDEFINED),

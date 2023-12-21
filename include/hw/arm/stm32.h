@@ -458,6 +458,7 @@ void stm32_init(
             
 void stm32_adc_set_rcc(Stm32Adc *adc, Stm32Rcc* rcc);
 void stm32_adc_set_gpio(Stm32Adc *adc, Stm32Gpio** gpio);
+void stm32_adc_set_channel_value(Stm32Adc *adc, const unsigned int channel, const unsigned short value);
 
 void stm32_iwdg_set_rcc(Stm32Iwdg *iwdg, Stm32Rcc* rcc);
 
