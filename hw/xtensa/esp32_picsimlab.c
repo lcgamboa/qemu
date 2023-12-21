@@ -213,11 +213,10 @@ void qemu_picsimlab_set_pin(int pin,int value)
    //qemu_mutex_unlock_iothread ();
 }
 
-extern unsigned short ADC_values[31];
-
 void qemu_picsimlab_set_apin(int chn,int value)
 {
-   ADC_values[chn] = value;
+   Esp32SensState *s = ESP32_SENS(&(global_s->sens));  
+   s->ADC_values[chn] = value;
 }
 
 int qemu_picsimlab_flash_dump( int64_t offset, void *buf, int bytes)

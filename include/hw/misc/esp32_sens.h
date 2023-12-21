@@ -11,6 +11,10 @@
 typedef struct Esp32SensState {
     SysBusDevice parent_obj;
     MemoryRegion iomem;
+    int touch_sensor[10];
+    short ADC_values[32];
+    int channel1;
+    int channel2;
 } Esp32SensState;
 
 //#define ESP32_RNG_BASE (DR_REG_WDEV_BASE + 0x144)

@@ -15,12 +15,6 @@
 
 #define DEBUG 0
 
-unsigned short ADC_values[31]={31,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,
-                               24,25,26,27,28,29,30};
-
-static int channel1=0;
-static int channel2=0;
-
 static uint64_t esp32c3_saradc_read(void *opaque, hwaddr addr, unsigned int size)
 {   
     Esp32c3SarAdcState *s = ESP32C3_SARADC(opaque);
@@ -33,10 +27,10 @@ static uint64_t esp32c3_saradc_read(void *opaque, hwaddr addr, unsigned int size
             r=FIELD_DP32(r, APB_SARADC_INT_RAW_REG, APB_SARADC_ADC2_DONE_INT_RAW, 1);
             break;
         case A_APB_SARADC_1_DATA_STATUS_REG:   
-            r= ADC_values[channel1];
+            r= s->ADC_values[s->channel1];
             break; 
         case A_APB_SARADC_2_DATA_STATUS_REG:   
-            r= ADC_values[channel2];
+            r= s->ADC_values[s->channel2];
             break;     
     }
     
@@ -56,11 +50,11 @@ static void esp32c3_saradc_write(void *opaque, hwaddr addr,
         case A_APB_SARADC_ONETIME_SAMPLE_REG:   
             if(FIELD_EX32(value, APB_SARADC_ONETIME_SAMPLE_REG, APB_SARADC1_ONETIME_SAMPLE))
             {
-                channel1=FIELD_EX32(value, APB_SARADC_ONETIME_SAMPLE_REG, APB_SARADC_ONETIME_CHANNEL);
+                s->channel1=FIELD_EX32(value, APB_SARADC_ONETIME_SAMPLE_REG, APB_SARADC_ONETIME_CHANNEL);
             } 
             if(FIELD_EX32(value, APB_SARADC_ONETIME_SAMPLE_REG, APB_SARADC2_ONETIME_SAMPLE))
             {
-                channel2=FIELD_EX32(value, APB_SARADC_ONETIME_SAMPLE_REG, APB_SARADC_ONETIME_CHANNEL);
+                s->channel2=FIELD_EX32(value, APB_SARADC_ONETIME_SAMPLE_REG, APB_SARADC_ONETIME_CHANNEL);
             } 
             break; 
     }
@@ -81,6 +75,10 @@ static void esp32c3_saradc_init(Object *obj)
 
     memory_region_init_io(&s->iomem, obj, &esp32c3_saradc_ops, s, TYPE_ESP32C3_SARADC, 0x1000);
     sysbus_init_mmio(sbd, &s->iomem);
+
+    memset(s->ADC_values, 0, sizeof(s->ADC_values));
+    s->channel1 = 0;
+    s->channel2 = 0;
 }
 
 static const TypeInfo esp32c3_saradc_info = {

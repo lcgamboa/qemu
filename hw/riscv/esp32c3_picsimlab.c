@@ -282,11 +282,10 @@ void qemu_picsimlab_set_pin(int pin,int value)
    //qemu_mutex_unlock_iothread ();
 }
 
-extern unsigned short ADC_values[31];
-
 void qemu_picsimlab_set_apin(int chn,int value)
 {
-   ADC_values[chn] = value;
+   Esp32c3SarAdcState *s = ESP32C3_SARADC(&(global_s->saradc));
+   s->ADC_values[chn] = value;
 }
 
 int qemu_picsimlab_flash_dump( int64_t offset, void *buf, int bytes)

@@ -12,6 +12,9 @@ typedef struct Esp32c3SarAdcState {
     SysBusDevice parent_obj;
     MemoryRegion iomem;
     uint32_t mem[1024];
+    unsigned short ADC_values[32];
+    int channel1;
+    int channel2;
 } Esp32c3SarAdcState;
 
 REG32(APB_SARADC_INT_RAW_REG , 0x044);
