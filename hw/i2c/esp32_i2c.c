@@ -6,6 +6,7 @@
 #include "hw/irq.h"
 
 static void esp32_i2c_do_transaction(Esp32I2CState * s);
+static void esp32c3_i2c_do_transaction(Esp32I2CState * s);
 static void esp32_i2c_update_irq(Esp32I2CState * s);
 
 static void esp32_i2c_reset(DeviceState * dev)
@@ -106,7 +107,12 @@ static void esp32_i2c_write(void * opaque, hwaddr addr, uint64_t value, unsigned
             error_report("esp32_i2c: slave mode not implemented");
         }
         if (FIELD_EX32(value, I2C_CTR, TRANS_START)) {
-            esp32_i2c_do_transaction(s);
+            if(s->model == I2C_MODEL_ESP32){
+               esp32_i2c_do_transaction(s);
+            }
+            else{
+               esp32c3_i2c_do_transaction(s);
+            }
             value &= ~ R_I2C_CTR_TRANS_START_MASK;
         }
         s->ctr_reg = value;
@@ -240,6 +246,74 @@ static void esp32_i2c_do_transaction(Esp32I2CState * s)
     esp32_i2c_update_irq(s);
 }
 
+static void esp32c3_i2c_do_transaction(Esp32I2CState * s)
+{
+    bool stop_or_end = false;
+    for (int i_cmd = 0; i_cmd < ESP32_I2C_CMD_COUNT && !stop_or_end; ++i_cmd) {
+        uint32_t cmd = s->cmd_reg[i_cmd];
+        char opcode = FIELD_EX32(cmd, I2C_CMD, OPCODE);
+        switch (opcode) {
+            case I2C_C3_OPCODE_RSTART:
+                i2c_end_transfer(s->bus);
+                s->trans_ongoing = false;
+                break;
+            case I2C_C3_OPCODE_WRITE: {
+                size_t length = FIELD_EX32(cmd, I2C_CMD, BYTE_NUM);
+                if (!s->trans_ongoing) {
+                    s->trans_ongoing = true;
+                    uint8_t data = fifo8_pop(&s->tx_fifo);
+                    uint8_t addr = data >> 1;
+                    uint8_t is_read = data & 0x1;
+                    if (i2c_start_transfer(s->bus, addr, is_read) != 0) {
+                        /* NACK */
+                        if (FIELD_EX32(cmd, I2C_CMD, ACK_CHECK_EN)
+                            && FIELD_EX32(cmd, I2C_CMD, ACK_EXP) == 0) {
+                            s->int_raw_reg = FIELD_DP32(s->int_raw_reg, I2C_INT_RAW, ACK_ERR, 1);
+                            stop_or_end = true;
+                        }
+                        s->trans_ongoing = false;
+                        break;
+                    }
+                    s->int_raw_reg = FIELD_DP32(s->int_raw_reg, I2C_INT_RAW, ACK_ERR, 0);
+                    length -= 1;
+                }
+                for (size_t nbytes = 0; nbytes < length; ++nbytes) {
+                    uint8_t data = fifo8_pop(&s->tx_fifo);
+                    i2c_send(s->bus, data);
+                }
+                break;
+            }
+            case I2C_C3_OPCODE_READ: {
+                size_t length = FIELD_EX32(cmd, I2C_CMD, BYTE_NUM);
+                for (size_t nbytes = 0; nbytes < length; ++nbytes) {
+                    if (fifo8_num_free(&s->rx_fifo) == 0) {
+                        error_report("esp32_i2c: RX FIFO overflow");
+                    } else {
+                        uint8_t data = i2c_recv(s->bus);
+                        fifo8_push(&s->rx_fifo, data);
+                    }
+                }
+                break;
+            }
+            case I2C_C3_OPCODE_STOP:
+                i2c_end_transfer(s->bus);
+                s->trans_ongoing = false;
+                s->int_raw_reg = FIELD_DP32(s->int_raw_reg, I2C_INT_RAW, TRANS_COMPLETE, 1);
+                stop_or_end = true;
+                break;
+            case I2C_C3_OPCODE_END:
+                s->int_raw_reg = FIELD_DP32(s->int_raw_reg, I2C_INT_RAW, END_DETECT, 1);
+                stop_or_end = true;
+                break;
+            default:
+                error_report("esp32c3_i2c: Invalid command %d opcode %d", i_cmd, opcode);
+                break;
+        }
+        s->cmd_reg[i_cmd] = FIELD_DP32(s->cmd_reg[i_cmd], I2C_CMD, DONE, 1);
+    }
+    esp32_i2c_update_irq(s);
+}
+
 static const MemoryRegionOps esp32_i2c_ops = {
     .read = esp32_i2c_read,
     .write = esp32_i2c_write,
@@ -259,6 +333,8 @@ static void esp32_i2c_init(Object * obj)
 
     fifo8_create(&s->tx_fifo, ESP32_I2C_FIFO_LENGTH);
     fifo8_create(&s->rx_fifo, ESP32_I2C_FIFO_LENGTH);
+
+    s->model = I2C_MODEL_ESP32;
 }
 
 static void esp32_i2c_class_init(ObjectClass * klass, void * data)

@@ -38,6 +38,7 @@ typedef struct Esp32I2CState {
     uint32_t stop_hold_reg;
     uint32_t stop_setup_reg;
     uint32_t cmd_reg[ESP32_I2C_CMD_COUNT];
+    uint32_t model;
 } Esp32I2CState;
 
 
@@ -105,5 +106,19 @@ typedef enum {
     I2C_OPCODE_STOP   = 3,
     I2C_OPCODE_END    = 4,
 } i2c_opcode_t;
+
+
+/* I2C_CMD.OPCODE values for ESP32C3*/
+typedef enum {
+    I2C_C3_OPCODE_WRITE  = 1,
+    I2C_C3_OPCODE_STOP   = 2,    
+    I2C_C3_OPCODE_READ   = 3,
+    I2C_C3_OPCODE_END    = 4,
+    I2C_C3_OPCODE_RSTART = 6,
+} i2c_opcode_c3_t;
+
+#define I2C_MODEL_ESP32   0
+#define I2C_MODEL_ESP32C3 1
+
 
 #endif /* ESP32_I2C_H */

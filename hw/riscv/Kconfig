@@ -91,3 +91,4 @@ config RISCV_ESP32C3
     select OPENCORES_ETH
     select UNIMP
     select LED
+    select PICSIMLAB_I2C

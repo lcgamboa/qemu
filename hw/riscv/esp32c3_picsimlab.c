@@ -52,6 +52,7 @@
 #include "hw/misc/esp32c3_ledc.h"
 #include "hw/irq.h"
 #include "hw/misc/unimp.h"
+#include "hw/i2c/esp32_i2c.h"
 
 #include "hw/misc/esp32c3_wifi.h"
 #include "hw/misc/esp32_phya.h"
@@ -106,6 +107,7 @@ struct Esp32C3MachineState {
     Esp32C3IomuxState iomux;
     Esp32c3SarAdcState saradc;
     Esp32C3LEDCState ledc;
+    Esp32I2CState i2c;
 
     Esp32WifiState wifi;
     Esp32PhyaState phya;
@@ -518,6 +520,21 @@ static void esp32c3_init_openeth(Esp32C3MachineState *ms)
     }
 }
 
+static void esp32c3_init_i2c(Esp32C3MachineState *ms)
+{
+    /* It mshould be possible to create an I2C device from the command line,
+     * however for this to work the I2C bus must be reachable from sysbus-default.
+     * At the moment the peripherals are added to an unrelated bus, to avoid being
+     * reset on CPU reset.
+     * If we find a way to decouple peripheral reset from sysbus reset,
+     * we can move them to the sysbus and thus enable creation of i2c devices.
+     */
+    DeviceState *i2c_master = DEVICE(&ms->i2c);
+    I2CBus* i2c_bus = I2C_BUS(qdev_get_child_bus(i2c_master, "i2c"));
+    i2c_slave_create_simple(i2c_bus, "picsimlab_i2c", 0x00);
+
+}
+
 
 static void esp32c3_machine_init(MachineState *machine)
 {
@@ -624,6 +641,8 @@ static void esp32c3_machine_init(MachineState *machine)
     object_initialize_child(OBJECT(machine), "ana", &ms->ana, TYPE_ESP32C3_ANA);
     object_initialize_child(OBJECT(machine), "fe", &ms->fe, TYPE_ESP32_FE);
     object_initialize_child(OBJECT(machine), "pwrmng", &ms->pwrmng, TYPE_ESP32C3_PWR_MANAGER);
+    object_initialize_child(OBJECT(machine), "i2c", &ms->i2c, TYPE_ESP32_I2C);
+    ms->i2c.model = I2C_MODEL_ESP32C3;
 
     for(int i=0;i<nb_nics;i++)
         if (nd_table[i].used && nd_table[i].model && strcmp(nd_table[i].model, TYPE_ESP32C3_WIFI) == 0){
@@ -895,6 +914,18 @@ static void esp32c3_machine_init(MachineState *machine)
         memory_region_add_subregion_overlap(sys_mem, DR_REG_PWR_MANAGER_BASE, mr, 0);
     }
 
+    /* I2C realization */
+    {
+        qdev_realize(DEVICE(&ms->i2c), &ms->periph_bus, &error_fatal);
+        MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->i2c), 0);
+        memory_region_add_subregion_overlap(sys_mem, DR_REG_I2C_EXT_BASE, mr, 0);
+        sysbus_connect_irq(SYS_BUS_DEVICE(&ms->i2c), 0,
+                           qdev_get_gpio_in(intmatrix_dev, ETS_I2C_EXT0_INTR_SOURCE));
+    }
+
+    /* Initialize I2C support */ 
+    esp32c3_init_i2c(ms);
+
     esp32c3_add_unimp_device(sys_mem, "esp32c3.sensitive", DR_REG_SENSITIVE_BASE, 0x1000,0);
     esp32c3_add_unimp_device(sys_mem, "esp32c3.mmu", DR_REG_MMU_TABLE, 0x1000,0);
     esp32c3_add_unimp_device(sys_mem, "esp32c3.dedicategpio", DR_REG_DEDICATED_GPIO_BASE, 0x1000,0);
@@ -902,7 +933,6 @@ static void esp32c3_machine_init(MachineState *machine)
 
     esp32c3_add_unimp_device(sys_mem, "esp32c3.spi0", DR_REG_SPI0_BASE, 0x1000,0);
     esp32c3_add_unimp_device(sys_mem, "esp32c3.fe2", DR_REG_FE2_BASE, 0x1000,0);
-    esp32c3_add_unimp_device(sys_mem, "esp32c3.i2c", DR_REG_I2C_EXT_BASE, 0x1000,0);
     esp32c3_add_unimp_device(sys_mem, "esp32c3.uhci0", DR_REG_UHCI0_BASE, 0x1000,0);
     esp32c3_add_unimp_device(sys_mem, "esp32c3.rmt", DR_REG_RMT_BASE, 0x1000,0);
     esp32c3_add_unimp_device(sys_mem, "esp32c3.ledc", DR_REG_LEDC_BASE, 0x1000,0);
