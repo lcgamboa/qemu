@@ -875,6 +875,8 @@ static void esp32c3_machine_init(MachineState *machine)
         qdev_realize(DEVICE(&ms->saradc), &ms->periph_bus, &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->saradc), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_APB_SARADC_BASE, mr, 0);
+        sysbus_connect_irq(SYS_BUS_DEVICE(&ms->saradc), 0,
+                           qdev_get_gpio_in(intmatrix_dev, ETS_APB_ADC_INTR_SOURCE));
     }
 
     /* LEDC realization */
