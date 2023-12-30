@@ -733,7 +733,6 @@ static void esp32_soc_register_types(void)
 type_init(esp32_soc_register_types)
 
 
-
 static uint64_t translate_phys_addr(void *opaque, uint64_t addr)
 {
     XtensaCPU *cpu = opaque;
@@ -788,7 +787,6 @@ static void esp32_machine_init_psram(Esp32SocState *ss, uint32_t size_mbytes)
     qdev_connect_gpio_out_named(spi_master, SSI_GPIO_CS, 1,
                                 qdev_get_gpio_in_named(psram, SSI_GPIO_CS, 0));
 }
-
 
 static void esp32_machine_init_i2c(Esp32SocState *s)
 {
@@ -900,8 +898,6 @@ static void esp32_machine_init(MachineState *machine)
 
     esp32_machine_init_sd(ss);
 
-
-
     /* Need MMU initialized prior to ELF loading,
      * so that ELF gets loaded into virtual addresses
      */
@@ -972,7 +968,6 @@ static void esp32_machine_init(MachineState *machine)
             exit(1);
         }
         g_free(rom_binary);
-        
     }
 }
 

@@ -29,9 +29,6 @@
 #define SET_BIT(reg, bit)   do { (reg) |= BIT(bit); } while(0)
 
 
-extern long esp32c3_get_real_int_cause(CPUState *cs);
-
-
 /* Because the interrupts are asynchronous, there is a small chance that multiple interrupts
  * are triggered at the same time, overlapping the first one. Use a FIFO structure to store
  * all the events. This may not be required once the custom RISC-V core is implemented (which
@@ -224,6 +221,18 @@ static void esp32c3_intmatrix_irq_status_changed(ESP32C3IntMatrixState* s, uint3
 }
 
 
+/**
+ * Function called as soon as the MIE bit is (re)enabled
+ */
+static void esp32c3_intmatrix_mie_enabled(void* opaque)
+{
+    ESP32C3IntMatrixState *s = ESP32C3_INTMATRIX(opaque);
+    /* We need to check if any interrupt is pending and trigger it. We have such function already, triggered when
+     * the core priority changes, let's reuse this function by giving the same core priority */
+    esp32c3_intmatrix_core_prio_changed(s, s->irq_thres);
+}
+
+
 static uint64_t esp32c3_intmatrix_read(void* opaque, hwaddr addr, unsigned int size)
 {
     ESP32C3IntMatrixState *s = ESP32C3_INTMATRIX(opaque);
@@ -233,7 +242,8 @@ static uint64_t esp32c3_intmatrix_read(void* opaque, hwaddr addr, unsigned int s
     if (index < ESP32C3_INT_MATRIX_INPUTS) {
         r = s->irq_map[index];
     } else if (index >= ESP32C3_INTMATRIX_IO_PRIO_START && index < ESP32C3_INTMATRIX_IO_PRIO_END) {
-        const uint32_t line = index - ESP32C3_INTMATRIX_IO_PRIO_START;
+        /* Interrupts start at 1, omit the first entry */
+        const uint32_t line = index - ESP32C3_INTMATRIX_IO_PRIO_START + 1;
         r = s->irq_prio[line];
     } else if (index == ESP32C3_INTMATRIX_IO_THRESH_REG) {
         r = s->irq_thres;
@@ -356,7 +366,15 @@ static void esp32c3_intmatrix_reset(DeviceState *dev)
 
 static void esp32c3_intmatrix_realize(DeviceState *dev, Error **errp)
 {
+    ESP32C3IntMatrixState *s = ESP32C3_INTMATRIX(dev);
+    EspRISCVCPU *cpu = s->cpu;
+    EspRISCVCPUClass *cpu_klass = ESP_CPU_GET_CLASS(cpu);
+
     esp32c3_intmatrix_reset(dev);
+
+    /* Register MIE callback */
+    assert(cpu);
+    cpu_klass->esp_cpu_register_mie_callback(cpu, esp32c3_intmatrix_mie_enabled, s);
 }
 
 

@@ -70,9 +70,10 @@ static void esp32c3_systimer_notify(ESP32C3SysTimerComp* comparator)
         esp32c3_systimer_update_counter(counter);
     }
 
-    /* Set the IRQ line if anything changed */
-    comparator->cur_irq_level = 1;
-    qemu_irq_raise(comparator->irq);
+    /* Set raw status to 1 to show the application that the interrupts pending.
+     * If this is omitted, clearing any comparator interrupt would clear all comparators status! */
+    comparator->raw_st = 1;
+    esp32c3_systimer_set_irqs(s);
 
     /* Check if we have to reload the comparator's timer */
     if (counter->enabled && comparator->period_mode) {

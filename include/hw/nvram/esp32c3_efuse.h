@@ -18,6 +18,8 @@
 
 #define TYPE_ESP32C3_EFUSE "nvram.esp32c3.efuse"
 #define ESP32C3_EFUSE(obj) OBJECT_CHECK(ESP32C3EfuseState, (obj), TYPE_ESP32C3_EFUSE)
+#define ESP32C3_EFUSE_GET_CLASS(obj) OBJECT_GET_CLASS(ESP32C3EfuseClass, obj, TYPE_ESP32C3_EFUSE)
+#define ESP32C3_EFUSE_CLASS(klass) OBJECT_CLASS_CHECK(ESP32C3EfuseClass, klass, TYPE_ESP32C3_EFUSE)
 
 #define ESP32C3_EFUSE_IO_RANGE_SIZE (sizeof(ESP32C3EfuseRegs))
 
@@ -535,6 +537,12 @@ typedef struct ESP32C3EfuseState {
     ESP32C3EfuseRegs efuses;
 } ESP32C3EfuseState;
 
+typedef struct ESP32C3EfuseClass {
+    SysBusDeviceClass parent_class;
+    /* Virtual methods */
+    uint32_t (*get_spi_boot_crypt_cnt)(ESP32C3EfuseState *s);
+    uint32_t (*get_dis_downlaod_man_encrypt)(ESP32C3EfuseState *s);
+} ESP32C3EfuseClass;
 
 /**
  * Define a few helpers for the efuse blocks

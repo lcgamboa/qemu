@@ -44,6 +44,7 @@
 #include "hw/misc/esp32c3_rsa.h"
 #include "hw/misc/esp32c3_hmac.h"
 #include "hw/misc/esp32c3_ds.h"
+#include "hw/misc/esp32c3_xts_aes.h"
 #include "hw/misc/esp32c3_jtag.h"
 #include "hw/dma/esp32c3_gdma.h"
 #include "hw/display/esp_rgb.h"
@@ -79,6 +80,7 @@ struct Esp32C3MachineState {
     ESP32C3RsaState rsa;
     ESP32C3HmacState hmac;
     ESP32C3DsState ds;
+    ESP32C3XtsAesState xts_aes;
     ESP32C3TimgState timg[2];
     ESP32C3SysTimerState systimer;
     ESP32C3SpiState spi1;
@@ -142,6 +144,9 @@ static uint64_t esp32c3_io_read(void *opaque, hwaddr addr, unsigned int size)
 {
     if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_RTC_I2C_BASE, DR_REG_RTC_I2C_BASE + 0x100)) {
         return (uint32_t) 0xffffff;
+     } else if (addr + ESP32C3_IO_START_ADDR == DR_REG_APB_SARADC_BASE + 0x44 /*APB_SARADC_INT_RAW_REG*/) {
+        /* Mock saradc interrupts to work with arduino framework*/
+        return 0xC0000000;    
     } else if (addr + ESP32C3_IO_START_ADDR == DR_REG_SYSCON_BASE + A_SYSCON_ORIGIN_REG) {
         /* Return "QEMU" as a 32-bit value */
         return 0x51454d55;
@@ -347,6 +352,7 @@ static void esp32c3_machine_init(MachineState *machine)
     object_initialize_child(OBJECT(machine), "rsa", &ms->rsa, TYPE_ESP32C3_RSA);
     object_initialize_child(OBJECT(machine), "hmac", &ms->hmac, TYPE_ESP32C3_HMAC);
     object_initialize_child(OBJECT(machine), "ds", &ms->ds, TYPE_ESP32C3_DS);
+    object_initialize_child(OBJECT(machine), "xts_aes", &ms->xts_aes, TYPE_ESP32C3_XTS_AES);
     object_initialize_child(OBJECT(machine), "timg0", &ms->timg[0], TYPE_ESP32C3_TIMG);
     object_initialize_child(OBJECT(machine), "timg1", &ms->timg[1], TYPE_ESP32C3_TIMG);
     object_initialize_child(OBJECT(machine), "systimer", &ms->systimer, TYPE_ESP32C3_SYSTIMER);
@@ -397,6 +403,7 @@ static void esp32c3_machine_init(MachineState *machine)
 
     /* SPI1 controller (SPI Flash) */
     {
+        ms->spi1.xts_aes = &ms->xts_aes;
         sysbus_realize(SYS_BUS_DEVICE(&ms->spi1), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->spi1), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_SPI1_BASE, mr, 0);
@@ -426,6 +433,7 @@ static void esp32c3_machine_init(MachineState *machine)
         if (blk) {
             ms->cache.flash_blk = blk;
         }
+        ms->cache.xts_aes = &ms->xts_aes;
         sysbus_realize(SYS_BUS_DEVICE(&ms->cache), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->cache), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_EXTMEM_BASE, mr, 0);
@@ -555,6 +563,15 @@ static void esp32c3_machine_init(MachineState *machine)
         qdev_realize(DEVICE(&ms->ds), &ms->periph_bus, &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->ds), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_DIGITAL_SIGNATURE_BASE, mr, 0);
+    }
+
+    /* XTS-AES realization */
+    {
+        ms->xts_aes.efuse = &ms->efuse;
+        ms->xts_aes.clock = &ms->clock;
+        qdev_realize(DEVICE(&ms->xts_aes), &ms->periph_bus, &error_fatal);
+        MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->xts_aes), 0);
+        memory_region_add_subregion_overlap(sys_mem, DR_REG_AES_XTS_BASE, mr, 0);
     }
 
     /* RGB display realization */

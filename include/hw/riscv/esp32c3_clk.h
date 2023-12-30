@@ -16,6 +16,8 @@
 
 #define TYPE_ESP32C3_CLOCK "esp32c3.soc.clk"
 #define ESP32C3_CLOCK(obj) OBJECT_CHECK(ESP32C3ClockState, (obj), TYPE_ESP32C3_CLOCK)
+#define ESP32C3_CLOCK_GET_CLASS(obj) OBJECT_GET_CLASS(ESP32C3ClockClass, obj, TYPE_ESP32C3_CLOCK)
+#define ESP32C3_CLOCK_CLASS(klass) OBJECT_CLASS_CHECK(ESP32C3ClockClass, klass, TYPE_ESP32C3_CLOCK)
 
 
 #define ESP32C3_SYSTEM_CPU_INTR_COUNT   4
@@ -54,8 +56,15 @@ typedef struct ESP32C3ClockState {
 
     /* Bitmap that keeps the level of the IRQs */
     uint32_t levels;
+
+    uint32_t sys_ext_dev_enc_dec_ctrl;
 } ESP32C3ClockState;
 
+typedef struct ESP32C3ClockClass {
+    SysBusDeviceClass parent_class;
+    /* Virtual methods */
+    uint32_t (*get_ext_dev_enc_dec_ctrl)(ESP32C3ClockState *s);
+} ESP32C3ClockClass;
 
 REG32(SYSTEM_CPU_PERI_CLK_EN, 0x000)
     FIELD(SYSTEM_CPU_PERI_CLK_EN, CLK_EN_DEDICATED_GPIO, 7, 1)

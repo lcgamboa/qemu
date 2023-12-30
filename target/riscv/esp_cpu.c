@@ -113,6 +113,33 @@ static RISCVException esp_cpu_csr_write(CPURISCVState *env, int csrno, target_ul
 }
 
 
+static RISCVException esp_cpu_write_mstatus(CPURISCVState *env, int csrno, target_ulong val) {
+    EspRISCVCPU *s = esp_cpu_riscv_to_cpu(env);
+    EspRISCVCPUClass *klass = ESP_CPU_GET_CLASS(s);
+
+    const int previous_mie = env->mstatus & MSTATUS_MIE;
+
+    RISCVException excp = klass->parent_mstatus_write(env, csrno, val);
+
+    const int new_mie = env->mstatus & MSTATUS_MIE;
+
+    /* Check if the MIE bit of MSTATUS has just been enabled by the application.
+     * If that's the case, the interrupts are enabled again, notify the interrupt matrix. */
+    if (new_mie && !previous_mie && s->mie_enabled_callback) {
+        s->mie_enabled_callback(s->mie_enabled_opaque);
+    }
+
+    return excp;
+}
+
+
+static void esp_cpu_register_mie_callback(EspRISCVCPU *env, EspRISCVCallback callback, void* opaque)
+{
+    assert(env != NULL);
+    env->mie_enabled_callback = callback;
+    env->mie_enabled_opaque = opaque;
+}
+
 riscv_csr_operations esp_cpu_csr_ops = {
     .predicate = esp_cpu_csr_predicate,
     .read = esp_cpu_csr_read,
@@ -294,6 +321,16 @@ static void esp_cpu_class_init(ObjectClass *klass, void *data)
     /* Replace it with our overriden implementation */
     tcg_ops.cpu_exec_interrupt = esp_cpu_exec_interrupt;
     cc->tcg_ops = &tcg_ops;
+
+    /* Function to register MIE callback */
+    cpuclass->esp_cpu_register_mie_callback = esp_cpu_register_mie_callback;
+
+    /* Override the CSR write for mstatus */
+    riscv_csr_operations ops;
+    riscv_get_csr_ops(CSR_MSTATUS, &ops);
+    cpuclass->parent_mstatus_write = ops.write;
+    ops.write = esp_cpu_write_mstatus;
+    riscv_set_csr_ops(CSR_MSTATUS, &ops);
 }
 
 static const TypeInfo esp_cpu_info = {

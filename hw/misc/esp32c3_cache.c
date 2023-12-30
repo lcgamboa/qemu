@@ -20,6 +20,7 @@
 #include "hw/irq.h"
 #include "hw/qdev-properties.h"
 #include "hw/misc/esp32c3_cache.h"
+#include "hw/misc/esp32c3_xts_aes.h"
 #include "sysemu/block-backend-io.h"
 
 
@@ -56,6 +57,7 @@ static inline uint32_t esp32c3_read_mmu_value(ESP32C3CacheState *s, hwaddr reg_a
 
 static inline void esp32c3_write_mmu_value(ESP32C3CacheState *s, hwaddr reg_addr, uint32_t value)
 {
+    ESP32C3XtsAesClass *xts_aes_class = ESP32C3_XTS_AES_GET_CLASS(s->xts_aes);
     /* Make the assumption that the address is aligned on sizeof(uint32_t) */
     const uint32_t index = reg_addr / sizeof(uint32_t);
     /* Reserved bits shall always be 0 */
@@ -78,6 +80,9 @@ static inline void esp32c3_write_mmu_value(ESP32C3CacheState *s, hwaddr reg_addr
         } else {
             if (s->flash_blk != NULL) {
                 blk_pread(s->flash_blk, physical_address, ESP32C3_PAGE_SIZE, cache_data, 0);
+            }
+            if (xts_aes_class->is_flash_enc_enabled(s->xts_aes)) {
+                xts_aes_class->decrypt(s->xts_aes, physical_address, cache_data, ESP32C3_PAGE_SIZE);
             }
         }
         s->mmu[index].val = e.val;
@@ -218,6 +223,13 @@ static void esp32c3_cache_realize(DeviceState *dev, Error **errp)
 {
     /* Initialize the registers */
     esp32c3_cache_reset(dev);
+
+    ESP32C3CacheState *s = ESP32C3_CACHE(dev);
+
+    /* Make sure XTS_AES was set or issue an error */
+    if (s->xts_aes == NULL) {
+        error_report("[CACHE] XTS_AES controller must be set!");
+    }
 }
 
 static void esp32c3_cache_init(Object *obj)

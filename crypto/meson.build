@@ -71,3 +71,4 @@ else
   util_ss.add(files('random-platform.c'))
 endif
 
+util_ss.add(when: 'CONFIG_RISCV_ESP32C3', if_true: files('xts.c'))

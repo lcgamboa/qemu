@@ -296,6 +296,15 @@ static void esp32c3_efuse_op_timer_start(ESP32C3EfuseState *s)
     timer_mod_anticipate_ns(&s->op_timer, ns_now + interval_ns);
 }
 
+static uint32_t esp32c3_efuse_dis_download_manual_encrypt(ESP32C3EfuseState *s)
+{
+    return s->efuses.rd_repeat_data0.dis_download_manual_encrypt;
+}
+
+static uint32_t esp32c3_efuse_get_spi_boot_crypt_cnt(ESP32C3EfuseState *s)
+{
+    return s->efuses.rd_repeat_data1.spi_boot_crypt_cnt;
+}
 
 static void esp32c3_efuse_write(void *opaque, hwaddr addr,
                        uint64_t value, unsigned int size)
@@ -505,10 +514,14 @@ static Property esp32c3_efuse_properties[] = {
 static void esp32c3_efuse_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
+    ESP32C3EfuseClass* esp32c3_efuse = ESP32C3_EFUSE_CLASS(klass);
 
     dc->reset = esp32c3_efuse_reset;
     dc->realize = esp32c3_efuse_realize;
     device_class_set_props(dc, esp32c3_efuse_properties);
+
+    esp32c3_efuse->get_spi_boot_crypt_cnt = esp32c3_efuse_get_spi_boot_crypt_cnt;
+    esp32c3_efuse->get_dis_downlaod_man_encrypt = esp32c3_efuse_dis_download_manual_encrypt;
 }
 
 static const TypeInfo esp32c3_efuse_info = {
@@ -516,7 +529,8 @@ static const TypeInfo esp32c3_efuse_info = {
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(ESP32C3EfuseState),
     .instance_init = esp32c3_efuse_init,
-    .class_init = esp32c3_efuse_class_init
+    .class_init = esp32c3_efuse_class_init,
+    .class_size = sizeof(ESP32C3EfuseClass)
 };
 
 static void esp32c3_efuse_register_types(void)

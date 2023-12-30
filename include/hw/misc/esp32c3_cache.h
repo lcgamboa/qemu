@@ -4,6 +4,7 @@
 #include "hw/sysbus.h"
 #include "hw/hw.h"
 #include "hw/registerfields.h"
+#include "hw/misc/esp32c3_xts_aes.h"
 
 #define TYPE_ESP32C3_CACHE "esp32c3.cache"
 #define ESP32C3_CACHE(obj)           OBJECT_CHECK(ESP32C3CacheState, (obj), TYPE_ESP32C3_CACHE)
@@ -80,12 +81,13 @@ typedef struct {
     /* Registers for controlling the cache */
     uint32_t regs[ESP32C3_CACHE_REG_COUNT];
 
+    ESP32C3XtsAesState *xts_aes;
     /* Define the MMU itself as an array, it shall be accessible from address ESP32C3_MMU_TABLE */
     ESP32C3MMUEntry mmu[ESP32C3_MMU_TABLE_ENTRY_COUNT];
 } ESP32C3CacheState;
 
 /* Assert that the size of the MMU table in the structure is of size ESP32C3_MMU_SIZE */
-_Static_assert(sizeof(ESP32C3CacheState) - offsetof(ESP32C3CacheState, mmu) == ESP32C3_MMU_SIZE,
+_Static_assert(sizeof(((ESP32C3CacheState*)0)->mmu) == ESP32C3_MMU_SIZE,
                "The size of `mmu` field in structure ESP32C3CacheState must be equal to ESP32C3_MMU_SIZE");
 
 

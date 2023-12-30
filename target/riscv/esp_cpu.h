@@ -40,6 +40,10 @@ typedef struct {
     uint64_t divider;
 } ESPCPUCycleCounter;
 
+/**
+ * @brief Callback type called when MIE status bit is re-enabled
+ */
+typedef void (*EspRISCVCallback)(void*);
 
 /**
  * Espressif's RISC-V core is different from standard RISC-V because of the way interrupts are handled.
@@ -52,6 +56,10 @@ typedef struct EspRISCVCPU {
     /* Cycle counts */
     ESPCPUCycleCounter cc_user;
     ESPCPUCycleCounter cc_machine;
+
+    /* Callback called when the MIE bit is re-enabled in `mstatus` CSR */
+    EspRISCVCallback mie_enabled_callback;
+    void* mie_enabled_opaque;
 
     /*< public >*/
     /* The parent object already has a reset vector property */
@@ -70,11 +78,13 @@ typedef struct EspRISCVCPU {
 typedef struct EspRISCVCPUClass {
     /*< private >*/
     RISCVCPUClass parent_class;
-
-    /*< public >*/
     DeviceRealize parent_realize;
     DeviceReset parent_reset;
     bool (*parent_exec_interrupt)(CPUState *cpu, int interrupt_request);
+    RISCVException (*parent_mstatus_write)(CPURISCVState *env, int csrno, target_ulong val);
+
+    /*< public >*/
+    void (*esp_cpu_register_mie_callback)(EspRISCVCPU *env, EspRISCVCallback callback, void* opaque);
 } EspRISCVCPUClass;
 
 /**

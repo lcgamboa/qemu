@@ -143,8 +143,15 @@ static void esp32c3_spi_dummy_cycles(ESP32C3SpiState *s, uint32_t dummy_bytes) {
     }
 }
 
-static void esp32c3_spi_perform_transaction(ESP32C3SpiState *s, const ESP32C3SpiTransaction *t)
+static void esp32c3_spi_perform_transaction(ESP32C3SpiState *s, ESP32C3SpiTransaction *t)
 {
+    ESP32C3XtsAesClass *xts_aes_class = ESP32C3_XTS_AES_GET_CLASS(s->xts_aes);
+    bool man_enc_enabled = xts_aes_class->is_manual_enc_enabled(s->xts_aes);
+
+    if (man_enc_enabled && xts_aes_class->is_ciphertext_spi_visible(s->xts_aes) && (t->cmd == CMD_PP)) {
+        xts_aes_class->read_ciphertext(s->xts_aes, t->data, &(t->tx_bytes), &(t->addr), &(t->addr_bytes));
+    }
+
     qemu_set_irq(s->cs_gpio[0], 0);
     esp32c3_spi_txrx_buffer(s, &t->cmd, t->cmd_bytes, NULL, 0);
     esp32c3_spi_txrx_buffer(s, &t->addr, t->addr_bytes, NULL, 0);
@@ -424,6 +431,13 @@ static void esp32c3_spi_reset(DeviceState *dev)
 
 static void esp32c3_spi_realize(DeviceState *dev, Error **errp)
 {
+    ESP32C3SpiState *s = ESP32C3_SPI(dev);
+
+    /* Make sure XTS_AES was set or issue an error */
+    if (s->xts_aes == NULL) {
+        error_report("[SPI1] XTS_AES controller must be set!");
+    }
+
 }
 
 static void esp32c3_spi_init(Object *obj)
@@ -436,7 +450,7 @@ static void esp32c3_spi_init(Object *obj)
     sysbus_init_mmio(sbd, &s->iomem);
     // sysbus_init_irq(sbd, &s->irq);
 
-     esp32c3_spi_reset(DEVICE(s));
+    esp32c3_spi_reset(DEVICE(s));
 
     s->spi = ssi_create_bus(DEVICE(s), "spi");
     qdev_init_gpio_out_named(DEVICE(s), &s->cs_gpio[0], SSI_GPIO_CS, ESP32C3_SPI_CS_COUNT);

@@ -2,6 +2,7 @@
 
 #include "hw/hw.h"
 #include "hw/registerfields.h"
+#include "hw/misc/esp32c3_xts_aes.h"
 #include "hw/ssi/ssi.h"
 
 #define TYPE_ESP32C3_SPI "ssi.esp32c3.spi"
@@ -43,6 +44,7 @@ typedef struct ESP32C3SpiState {
     uint32_t mem_rd_st;
     uint32_t data_reg[ESP32C3_SPI_BUF_WORDS];
     uint32_t mem_sus_st;
+    ESP32C3XtsAesState *xts_aes;
 } ESP32C3SpiState;
 
 

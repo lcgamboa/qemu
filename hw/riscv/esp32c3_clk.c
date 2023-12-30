@@ -40,6 +40,10 @@ static void esp32c3_write_cpu_intr(ESP32C3ClockState *s, uint32_t index, uint32_
     }
 }
 
+static uint32_t esp32c3_clock_get_ext_dev_enc_dec_ctrl(ESP32C3ClockState *s)
+{
+    return s->sys_ext_dev_enc_dec_ctrl;
+}
 
 static uint64_t esp32c3_clock_read(void *opaque, hwaddr addr, unsigned int size)
 {
@@ -58,6 +62,9 @@ static uint64_t esp32c3_clock_read(void *opaque, hwaddr addr, unsigned int size)
         case A_SYSTEM_CPU_INTR_FROM_CPU_2:
         case A_SYSTEM_CPU_INTR_FROM_CPU_3:
             r = esp32c3_read_cpu_intr(s, (addr - A_SYSTEM_CPU_INTR_FROM_CPU_0) / sizeof(uint32_t));
+            break;
+        case A_SYSTEM_EXTERNAL_DEVICE_ENCRYPT_DECRYPT_CONTROL:
+            r = s->sys_ext_dev_enc_dec_ctrl;
             break;
         default:
 #if CLOCK_WARNING
@@ -79,6 +86,9 @@ static void esp32c3_clock_write(void *opaque, hwaddr addr, uint64_t value,
         case A_SYSTEM_CPU_INTR_FROM_CPU_2:
         case A_SYSTEM_CPU_INTR_FROM_CPU_3:
             esp32c3_write_cpu_intr(s, (addr - A_SYSTEM_CPU_INTR_FROM_CPU_0) / sizeof(uint32_t), value);
+            break;
+        case A_SYSTEM_EXTERNAL_DEVICE_ENCRYPT_DECRYPT_CONTROL:
+            s->sys_ext_dev_enc_dec_ctrl = value;
             break;
         default:
 #if CLOCK_WARNING
@@ -138,9 +148,12 @@ static void esp32c3_clock_init(Object *obj)
 static void esp32c3_clock_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
+    ESP32C3ClockClass* esp32c3_clock = ESP32C3_CLOCK_CLASS(klass);
 
     dc->reset = esp32c3_clock_reset;
     dc->realize = esp32c3_clock_realize;
+
+    esp32c3_clock->get_ext_dev_enc_dec_ctrl = esp32c3_clock_get_ext_dev_enc_dec_ctrl;
 }
 
 static const TypeInfo esp32c3_cache_info = {
@@ -148,7 +161,8 @@ static const TypeInfo esp32c3_cache_info = {
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(ESP32C3ClockState),
     .instance_init = esp32c3_clock_init,
-    .class_init = esp32c3_clock_class_init
+    .class_init = esp32c3_clock_class_init,
+    .class_size = sizeof(ESP32C3ClockClass)
 };
 
 static void esp32c3_cache_register_types(void)
