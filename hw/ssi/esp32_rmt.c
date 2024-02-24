@@ -20,7 +20,9 @@
 #include "hw/ssi/ssi.h"
 #include "hw/ssi/esp32_rmt.h"
 
-#define ESP32_RMT_REG_SIZE    0x1000
+#define DEBUG 0
+
+extern void (*picsimlab_rmt_event)(const uint8_t channel, const uint32_t config0, const uint32_t value);
 
 static void restart_timer(Esp32RmtState *s, int channel) {
     timer_mod_anticipate_ns(&s->rmt_timer,qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL)+1250*s->txlim[channel]);
@@ -29,36 +31,53 @@ static void restart_timer(Esp32RmtState *s, int channel) {
 // send txlim data values, stop if a value is 0
 // set the correct raw int for tx_end or tx_thr_event
 static void send_data(Esp32RmtState *s, int channel) {
-    //printf("send %d %d %d\n",channel, s->txlim[channel], s->sent);
+    if(DEBUG) printf("send ch=%d limit=%d sent=%d \n",channel, s->txlim[channel], s->sent);
     BusState *b = BUS(s->rmt);
     BusChild *ch = QTAILQ_FIRST(&b->children);
-    SSIPeripheral *slave = SSI_PERIPHERAL(ch->child);
-    SSIPeripheralClass *ssc = SSI_PERIPHERAL_GET_CLASS(slave);
+    SSIPeripheral *slave = NULL;
+    SSIPeripheralClass *ssc = NULL;
+    if(ch){
+       slave = SSI_PERIPHERAL(ch->child);
+       ssc = SSI_PERIPHERAL_GET_CLASS(slave);
+    }
+    
     // don't send data when interrupt hasn't been handled
     // a real device can't do this but it's necessary because 
     // qemu can't always keep up. 
     if(s->int_raw & (1<<(channel+24) | (1<<(channel*3)))) {
         // send data when the interrupt is cleared
         s->unsent_data=true;
+        if(DEBUG) printf("esp32_rmt_send_data waiting interrupt !!!!\n");
         return;
     } else 
         s->unsent_data=false;
+    
     int memsize=((s->conf0[channel]>>24)&0xf)*64;
+    
+
     for (int i = 0; i < s->txlim[channel] ; i++) {    
-        int v=s->data[((i+s->sent)%memsize+channel*64)%512]; 
+        int v;
+        if(s->apb_conf & R_RMT_APB_CONF_MEM_TX_WRAP_EN_MASK){
+            v = s->data[((i+s->sent)%memsize+channel*64)%memsize]; 
+        }else{
+            v = s->data[((i+s->sent)%memsize+channel*64)%ESP32_RMT_BUF_WORDS];
+        }
         if(v==0) { // stop sending when we see a zero
-            s->int_raw|=(1<<(channel*3));
-            s->int_raw&=~(1<<(channel+24));
+            s->int_raw|=(1<<(channel*3)); //set TX_END
+            s->int_raw&=~(1<<(channel+24)); //clearTHR
             s->sent=0;
-            s->conf1[channel] &= ~1;
+            s->conf1[channel] &= ~R_RMT_CHnCONF1_TX_START_MASK;
             if(s->int_en & (1<<(channel*3)))
                 qemu_irq_raise(s->irq);
             return;
         }
-        ssc->transfer(slave,v);
+        if(ssc){
+           ssc->transfer(slave,v);
+        }
+        picsimlab_rmt_event(channel, s->conf0[channel], v);
     }
     s->sent+=s->txlim[channel];
-    s->int_raw|=(1<<(channel+24));
+    s->int_raw|=(1<<(channel+24)); //set THR
     if(s->int_en & (1<<(channel+24)))
         qemu_irq_raise(s->irq);
     restart_timer(s,channel);
@@ -68,7 +87,7 @@ static void esp32_rmt_timer_cb(void *opaque) {
     Esp32RmtState *s = ESP32_RMT(opaque);
     // send data for any enabled channels 
     for(int i=0;i<8;i++) {
-        if((s->conf1[i] & 1)) {
+        if((s->conf1[i] & R_RMT_CHnCONF1_TX_START_MASK)) {
             send_data(s,i);
         }
     }    
@@ -77,7 +96,7 @@ static void esp32_rmt_timer_cb(void *opaque) {
 static uint64_t esp32_rmt_read(void *opaque, hwaddr addr, unsigned int size)
 {
     Esp32RmtState *s = ESP32_RMT(opaque);
-    uint64_t r = 0;
+    uint32_t r = 0;
     int channel=(addr-32)/8;
     switch (addr) {
     case A_RMT_CH0CONF0 ... (A_RMT_CH0CONF0+8*8)-4:
@@ -99,14 +118,14 @@ static uint64_t esp32_rmt_read(void *opaque, hwaddr addr, unsigned int size)
         channel=(addr-A_RMT_TX_LIM)/4;
         r = s->txlim[channel];
         break;
-    case A_RMT_DATA ... A_RMT_DATA+(ESP32_RMT_BUF_WORDS-1)* sizeof(uint32_t):
-        r = s->data[(addr-A_RMT_DATA)/sizeof(uint32_t)];
+    case A_RMT_DATA ... A_RMT_DATA+(ESP32_RMT_BUF_WORDS-1)* 4:
+        r = s->data[(addr-A_RMT_DATA)/4];
         break;
     case A_RMT_APB_CONF:
         r = s->apb_conf;
         break;
     }
-    //printf("rmt read %ld %ld\n",addr,r);
+    if(DEBUG) printf("esp32_rmt_read  0x%04lx= 0x%08x\n",(unsigned long) addr,r);
     return r;
 }
 
@@ -115,6 +134,9 @@ static void esp32_rmt_write(void *opaque, hwaddr addr,
                        uint64_t value, unsigned int size)
 {
     Esp32RmtState *s = ESP32_RMT(opaque);
+
+    if(DEBUG) printf("esp32_rmt_write 0x%04lx= 0x%08lx\n",(unsigned long) addr, (unsigned long) value);
+
 //    if(addr<A_RMT_DATA)
 //        printf("rmt write %ld %ld\n",addr,value);
     int channel;
@@ -125,10 +147,10 @@ static void esp32_rmt_write(void *opaque, hwaddr addr,
             s->conf0[channel]=value;
         } else {
             s->conf1[channel]=value;
-            if((value & 0x8)) {
+            if((value & 0x8 /*R_RMT_CHnCONF1_MEM_RD_RST_MASK*/)) {
                 s->sent=0;
             }
-            if((value & 0x1)) {
+            if((value & R_RMT_CHnCONF1_TX_START_MASK)) {
                 // start timer to send data
                 restart_timer(s,channel);
             }
@@ -137,7 +159,6 @@ static void esp32_rmt_write(void *opaque, hwaddr addr,
     case A_RMT_TX_LIM ... A_RMT_TX_LIM+7*4:
         channel=(addr-A_RMT_TX_LIM)/4;
         s->txlim[channel]=value;
-        
         break;
     case A_RMT_INT_ENA:
         s->int_en=value;
@@ -147,11 +168,12 @@ static void esp32_rmt_write(void *opaque, hwaddr addr,
         if((s->int_raw & s->int_en)==0) {
             qemu_irq_lower(s->irq);
         }
-        if(s->unsent_data) 
+        if(s->unsent_data){ 
             esp32_rmt_timer_cb(s);
+        }
         break;
-    case A_RMT_DATA ... A_RMT_DATA+(ESP32_RMT_BUF_WORDS-1)* sizeof(uint32_t):
-        s->data[(addr-A_RMT_DATA)/sizeof(uint32_t)]=value;
+    case A_RMT_DATA ... A_RMT_DATA+(ESP32_RMT_BUF_WORDS-1)*4:
+        s->data[(addr-A_RMT_DATA)/4]=value;
         break;
     case A_RMT_APB_CONF:
         s->apb_conf=value;
@@ -190,7 +212,7 @@ static void esp32_rmt_init(Object *obj)
     SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
 
     memory_region_init_io(&s->iomem, obj, &esp32_rmt_ops, s,
-                          TYPE_ESP32_RMT, ESP32_RMT_REG_SIZE);
+                          TYPE_ESP32_RMT, 0x1000);
     sysbus_init_mmio(sbd, &s->iomem);
     sysbus_init_irq(sbd, &s->irq);
     timer_init_ns(&s->rmt_timer, QEMU_CLOCK_VIRTUAL, esp32_rmt_timer_cb, s);

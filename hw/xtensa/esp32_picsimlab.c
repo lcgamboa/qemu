@@ -107,6 +107,7 @@ typedef struct {
     uint8_t (*picsimlab_spi_event)(const uint8_t id, const uint16_t event);
     void (*picsimlab_uart_tx_event)(const uint8_t id, const uint8_t value);
     const short int * pinmap;
+    void (*picsimlab_rmt_event)(const uint8_t channel, const uint32_t config0, const uint32_t value);
 } callbacks_t;
 
 //prototypes
@@ -181,6 +182,7 @@ static void place_holder(int pin,int value){};
 static int place_holder2(const uint8_t id, const uint8_t addr, const uint16_t event){return 0;};
 static uint8_t place_holder3(const uint8_t id, const uint16_t event){return 0;};
 static void place_holder4(const uint8_t id, const uint8_t value){};
+static void place_holder5(const uint8_t channel, const uint32_t config0, const uint32_t value){};
 
 void (*picsimlab_write_pin)(int pin,int value) = place_holder;
 void (*picsimlab_dir_pin)(int pin,int value) = place_holder;
@@ -188,6 +190,7 @@ int (*picsimlab_i2c_event)(const uint8_t id, const uint8_t addr, const uint16_t 
 uint8_t (*picsimlab_spi_event)(const uint8_t id, const uint16_t event) = place_holder3;
 void (*picsimlab_uart_tx_event)(const uint8_t id, const uint8_t value) = place_holder4;
 static const short int * pinmap = NULL;
+void (*picsimlab_rmt_event)(const uint8_t channel, const uint32_t config0, const uint32_t value) = place_holder5;
 
 void qemu_picsimlab_register_callbacks(void * arg)
 {
@@ -199,6 +202,7 @@ void qemu_picsimlab_register_callbacks(void * arg)
   picsimlab_spi_event = callbacks->picsimlab_spi_event;
   picsimlab_uart_tx_event = callbacks->picsimlab_uart_tx_event;
   pinmap = callbacks->pinmap;
+  picsimlab_rmt_event = callbacks->picsimlab_rmt_event;
 }
 
 void qemu_picsimlab_set_pin(int pin,int value)
