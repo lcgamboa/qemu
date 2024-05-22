@@ -32,21 +32,24 @@ cd build
 rm -f qemu-system-xtensa
 ninja -v > qemu-system-xtensa.rsp
 sed -i -n '$p' qemu-system-xtensa.rsp
-sed -i 's/\[.\/.\] cc -m64 -mcx16//g' qemu-system-xtensa.rsp
+CMD=$(sed  's/-o .*//' qemu-system-xtensa.rsp | sed 's/\[.\/.\] //g')
+sed -i 's/.*-o /-o /' qemu-system-xtensa.rsp
 
 #dynamic
 sed -i 's/qemu-system-xtensa.p\/softmmu_main.c.o//g' qemu-system-xtensa.rsp
 sed -i 's/-o\ qemu-system-xtensa/-shared\ -o\ libqemu-xtensa.so/g' qemu-system-xtensa.rsp
-cc -m64 -mcx16 -ggdb @qemu-system-xtensa.rsp
+eval "$CMD -ggdb @qemu-system-xtensa.rsp"
 
 
 rm -f qemu-system-riscv32
 ninja -v > qemu-system-riscv32.rsp
 sed -i -n '$p' qemu-system-riscv32.rsp
-sed -i 's/\[.\/.\] cc -m64 -mcx16//g' qemu-system-riscv32.rsp
+CMD=$(sed  's/-o .*//' qemu-system-riscv32.rsp | sed 's/\[.\/.\] //g')
+sed -i 's/.*-o /-o /' qemu-system-riscv32.rsp
+
 
 #dynamic
 sed -i 's/qemu-system-riscv32.p\/softmmu_main.c.o//g' qemu-system-riscv32.rsp
 sed -i 's/-o\ qemu-system-riscv32/-shared\ -o\ libqemu-riscv32.so/g' qemu-system-riscv32.rsp
-cc -m64 -mcx16 -ggdb @qemu-system-riscv32.rsp
+eval "$CMD -ggdb @qemu-system-riscv32.rsp"
 
