@@ -28,9 +28,12 @@ make "-j$ncpu"
 # flags.
 cd build
 rm -f qemu-system-arm
-ninja -d keeprsp
+ninja -v -d keeprsp > qemu-system-arm_cmd.rsp
+sed -i -n '$p' qemu-system-arm_cmd.rsp
+CMD=$(sed  's/\@.*//' qemu-system-arm_cmd.rsp | sed 's/\[.\/.\] //g')
+
 #dynamic
 sed -i 's/qemu-system-arm.p\/softmmu_main.c.o//g' qemu-system-arm.rsp
 sed -i 's/-o\ qemu-system-arm/-shared\ -o\ libqemu-stm32.so/g' qemu-system-arm.rsp
-c++ -m64 -mcx16 -ggdb @qemu-system-arm.rsp
+eval "$CMD  -ggdb @qemu-system-arm.rsp"
 
