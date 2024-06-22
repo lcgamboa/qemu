@@ -38,16 +38,22 @@ static uint64_t esp32_ledc_read(void *opaque, hwaddr addr, unsigned int size)
     return r;
 }
 
-static uint32_t esp32_ledc_get_percent(Esp32LEDCState *s, uint32_t value, hwaddr addr)
+static uint32_t esp32_ledc_get_percent(Esp32LEDCState *s, uint32_t value, int  channel)
 {
     uint32_t duty_val =  (value >> 4) & ((1 << 20) - 1);
-    uint32_t duty_res;
-    if (((addr - A_LEDC_HSCH0_DUTY_REG) / 0x14) < 8) {
+    uint32_t duty_res = 0;
+    if (channel < 8) {
         /* get duty res for the high speed channel from high speed timer */
-        duty_res = s->duty_res[(s->channel_conf0_reg[(addr - A_LEDC_HSCH0_DUTY_REG) / 0x14] & ((1 << 2) - 1))];
+        duty_res = s->duty_res[(s->channel_conf0_reg[channel] & ((1 << 2) - 1))];
     } else {
         /* get duty res for the low speed channel from low speed timer */
-        duty_res = s->duty_res[((s->channel_conf0_reg[(addr - A_LEDC_HSCH0_DUTY_REG) / 0x14]) & ((1 << 2) - 1)) + 4];
+        duty_res = s->duty_res[((s->channel_conf0_reg[channel]) & ((1 << 2) - 1)) + 4];
+    }
+    if(duty_res){
+        s->duty[channel] = (100.0 * (value & ((1 << 24) - 1))) / (16.0 * ((2 << (duty_res - 1)) - 1));
+    }
+    else{
+        s->duty[channel] = 0;
     }
     return duty_res ? (100 * duty_val / ((2 << (duty_res - 1)) - 1)) : 0;
 }
@@ -56,16 +62,44 @@ static void esp32_ledc_write(void *opaque, hwaddr addr,
                             uint64_t value, unsigned int size)
 {
     Esp32LEDCState *s = ESP32_LEDC(opaque);
-    int ledn;
     
     switch (addr) {
-    case A_LEDC_HSTIMER0_CONF_REG ... A_LEDC_LSTIMER3_CONF_REG:
-        /* get duty resolution from timer config */
-        if (((uint32_t)value & ((1 << 4) - 1)) != 0) {
-            s->duty_res[(addr - A_LEDC_HSTIMER0_CONF_REG) / 0x8] = (uint32_t)value & ((1 << 4) - 1);
-        }
-        s->timer_conf_reg[(addr - A_LEDC_HSTIMER0_CONF_REG) / 0x8] = value;
+    case A_LEDC_CONF_REG:
+        s->conf_reg = value;
         break;
+        
+    case A_LEDC_HSTIMER0_CONF_REG ... A_LEDC_LSTIMER3_CONF_REG:{
+        int chn = (addr - A_LEDC_HSTIMER0_CONF_REG) / 0x8;
+        s->timer_conf_reg[chn] = value;
+        /* get duty resolution from timer config */
+        int duty_res = s->timer_conf_reg[chn] & ((1 << 5) - 1);
+        if (duty_res != 0) {
+            s->duty_res[chn] = duty_res;
+
+            int div = (s->timer_conf_reg[chn]  & 0x007FFFE0) >> 5;
+            int freq = 0; 
+            if(chn < 8){//HSTimer
+                if(s->timer_conf_reg[chn]  & 0x02000000){//LEDC_TICK_SEL_HSTIMER
+                    freq = 80000000L; //APB_CLK
+                }else{
+                    freq = 1000000L; //REF_TICK
+                }
+            }else{ //LSTimer
+                if(s->timer_conf_reg[chn]  & 0x02000000){//LEDC_TICK_SEL_LSTIMER
+                    if(s->conf_reg & 0x00000001){ //LEDC_APB_CLK_SEL 
+                        freq = 80000000L; //APB_CLK
+                    }else{
+                        freq = 8000000L; //RC_FAST_CLK
+                    }
+                }else{
+                    freq = 1000000L; //REF_TICK
+                }
+            }
+            
+            s->freq[chn] = freq / ((div / 256.0) * (1 << duty_res));
+        }
+        
+        }break;
 
     case A_LEDC_HSCH0_CONF0_REG:
     case A_LEDC_HSCH1_CONF0_REG:
@@ -101,11 +135,11 @@ static void esp32_ledc_write(void *opaque, hwaddr addr,
     case A_LEDC_LSCH4_DUTY_REG:
     case A_LEDC_LSCH5_DUTY_REG:
     case A_LEDC_LSCH6_DUTY_REG:
-    case A_LEDC_LSCH7_DUTY_REG:
-        ledn = (addr - A_LEDC_HSCH0_DUTY_REG) / 0x14;
-        led_set_intensity(&s->led[ledn], esp32_ledc_get_percent(s, value, addr));
+    case A_LEDC_LSCH7_DUTY_REG:{
+        int ledn = (addr - A_LEDC_HSCH0_DUTY_REG) / 0x14;
+        led_set_intensity(&s->led[ledn], esp32_ledc_get_percent(s, value, ledn));
         qemu_set_irq(s->ledc_sync[0], (0x5000 | (ledn << 8) | led_get_intensity(&s->led[ledn])));
-        break;
+        }break;
     }
 
 }

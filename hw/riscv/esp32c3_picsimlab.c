@@ -195,6 +195,11 @@ void qemu_picsimlab_uart_receive(const int id, const uint8_t *buf, int size);
 #define QEMU_INTERNAL_GPIO_IN_SEL 1
 #define QEMU_INTERNAL_GPIO_OUT_SEL 2
 #define QEMU_INTERNAL_IOMUX_GPIOS 3
+#define QEMU_INTERNAL_LEDC_CHANNEL_CONF 4
+#define QEMU_INTERNAL_LEDC_TIMER_FREQ 5
+#define QEMU_INTERNAL_LEDC_CHANNEL_DUTY 6
+#define QEMU_INTERNAL_UART0_BAUD 7
+#define QEMU_INTERNAL_UART1_BAUD 8
 
 uint32_t *qemu_picsimlab_get_internals(int cfg) {
   switch (cfg) {
@@ -210,6 +215,24 @@ uint32_t *qemu_picsimlab_get_internals(int cfg) {
   case QEMU_INTERNAL_IOMUX_GPIOS:
     return global_s->iomux.parent.muxgpios;
     break;
+
+  case QEMU_INTERNAL_LEDC_CHANNEL_CONF:
+    return global_s->ledc.channel_conf0_reg;
+    break;
+  case QEMU_INTERNAL_LEDC_TIMER_FREQ:
+    return global_s->ledc.freq;
+    break;
+  case QEMU_INTERNAL_LEDC_CHANNEL_DUTY:
+    return (uint32_t *) global_s->ledc.duty;
+    break;
+  
+  case QEMU_INTERNAL_UART0_BAUD:
+    return &global_s->uart[0].parent.baud_rate;
+    break;
+  case QEMU_INTERNAL_UART1_BAUD:
+    return &global_s->uart[1].parent.baud_rate;
+    break;
+
   default:
     printf("Invalid internal request\n"); 
     break;

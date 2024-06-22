@@ -14,9 +14,12 @@
 typedef struct Esp32LEDCState {
     SysBusDevice parent_object;
     MemoryRegion iomem;
+    uint32_t conf_reg;
     uint32_t duty_res[ESP32_LEDC_TIMER_CNT];
+    uint32_t freq[ESP32_LEDC_TIMER_CNT];
     uint32_t timer_conf_reg[ESP32_LEDC_TIMER_CNT];
     uint32_t channel_conf0_reg[ESP32_LEDC_CHANNEL_CNT];
+    float duty[ESP32_LEDC_CHANNEL_CNT];
     LEDState led[ESP32_LEDC_CHANNEL_CNT];
     qemu_irq ledc_sync[1];
 } Esp32LEDCState;
