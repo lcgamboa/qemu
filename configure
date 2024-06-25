@@ -1893,7 +1893,7 @@ if test "$skip_meson" = no; then
   test -n "$objcc" && echo "objc = [$(meson_quote $objcc $CPU_CFLAGS)]" >> $cross
   echo "ar = [$(meson_quote $ar)]" >> $cross
   echo "nm = [$(meson_quote $nm)]" >> $cross
-  echo "pkgconfig = [$(meson_quote $pkg_config_exe)]" >> $cross
+  echo "pkg-config = [$(meson_quote $pkg_config_exe)]" >> $cross
   echo "ranlib = [$(meson_quote $ranlib)]" >> $cross
   echo "libgcrypt-config = [$(meson_quote $libgcrypt_config)]" >> $cross
   if has $sdl2_config; then
