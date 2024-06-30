@@ -34,13 +34,38 @@ static uint64_t esp32c3_uart_read(void *opaque, hwaddr addr, unsigned int size)
         /* Return the mirrored conf1 */
         r = s->conf1;
         break;
-
+    case A_ESP32C3_UART_CLK_CONF:
+        r = s->parent.reg[R_ESP32C3_UART_CLK_CONF];
+        break;    
     default:
         r = class->parent_uart_read(opaque, addr, size);
         break;
     }
 
     return r;
+}
+
+static unsigned int esp32c3_uart_calc_baud(ESP32C3UARTState *s)
+{
+    unsigned clkdiv = (FIELD_EX32(s->parent.reg[R_ESP32C3_UART_CLKDIV], ESP32C3_UART_CLKDIV, CLKDIV) << 4) +
+                       FIELD_EX32(s->parent.reg[R_ESP32C3_UART_CLKDIV], ESP32C3_UART_CLKDIV, CLKDIV_FRAG);
+    unsigned baud_rate = 115200;
+    unsigned int sclk_div_num = FIELD_EX32(s->parent.reg[R_ESP32C3_UART_CLK_CONF], ESP32C3_UART_CLK_CONF, UART_SCLK_DIV_NUM);
+    if (clkdiv != 0) {
+
+        switch( FIELD_EX32(s->parent.reg[R_ESP32C3_UART_CLK_CONF], ESP32C3_UART_CLK_CONF, UART_SCLK_SEL)){
+            case 1: // APB_CLK
+                baud_rate = (unsigned) ((80000000ULL << 4) / (clkdiv * (sclk_div_num + 1 )));
+                break;
+            case 2: // RC_FAST_CLK
+                baud_rate = (unsigned) ((17500000ULL << 4) / (clkdiv * (sclk_div_num + 1 )));
+                break;
+            case 3: // XTAL_CLK
+                baud_rate = (unsigned) ((40000000ULL << 4) / (clkdiv * (sclk_div_num + 1 )));
+                break;    
+            }
+        }
+    return baud_rate;
 }
 
 static void esp32c3_uart_write(void *opaque, hwaddr addr,
@@ -60,10 +85,12 @@ static void esp32c3_uart_write(void *opaque, hwaddr addr,
             autobaud = FIELD_EX32(value, ESP32C3_UART_CONF0, AUTOBAUD_EN) ? 1 : 0;
             class->parent_uart_write(opaque, ESP32_UART_AUTOBAUD, autobaud, sizeof(uint32_t));
             class->parent_uart_write(opaque, addr, value, size);
+            s->parent.reg[addr / 4] = value;
             break;
 
         case A_ESP32C3_UART_MEM_CONF:
             s->parent.rx_tout_thres = FIELD_EX32(value, ESP32C3_UART_MEM_CONF, RX_TOUT_THRHD);
+            s->parent.reg[addr / 4] = value;
             break;
 
         case A_ESP32C3_UART_CONF1:
@@ -77,6 +104,13 @@ static void esp32c3_uart_write(void *opaque, hwaddr addr,
 
             esp32_uart_set_rx_timeout(&s->parent);
             esp32_uart_update_irq(&s->parent);
+            s->parent.reg[addr / 4] = value;
+            break;
+
+        case A_UART_CLKDIV: 
+        case A_ESP32C3_UART_CLK_CONF:       
+            s->parent.reg[addr / 4] = value;
+            s->parent.baud_rate = esp32c3_uart_calc_baud(s);
             break;
 
         default:
@@ -89,8 +123,11 @@ static void esp32c3_uart_reset(DeviceState *dev)
 {
     /* Nothing special to do at the moment here, call the parent reset */
     ESP32C3UARTClass* esp32c3_class = ESP32C3_UART_GET_CLASS(dev);
+    ESP32C3UARTState *s = ESP32C3_UART(dev);
 
     esp32c3_class->parent_reset(dev);
+
+    s->parent.reg[R_ESP32C3_UART_CLK_CONF] = 0x03700000;
 }
 
 static void esp32c3_uart_realize(DeviceState *dev, Error **errp)

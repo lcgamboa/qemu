@@ -169,7 +169,7 @@ static void uart_write(void *opaque, hwaddr addr,
         unsigned baud_rate = 115200;
         if (clkdiv != 0) {
             /* FIXME: this should depend on the APB frequency */
-            baud_rate = (unsigned) ((40000000ULL << 4) / clkdiv);
+            baud_rate = (unsigned) ((80000000ULL << 4) / clkdiv);
         }
         s->baud_rate = baud_rate;
         break;

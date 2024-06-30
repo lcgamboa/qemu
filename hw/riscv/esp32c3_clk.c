@@ -90,6 +90,12 @@ static void esp32c3_clock_write(void *opaque, hwaddr addr, uint64_t value,
         case A_SYSTEM_EXTERNAL_DEVICE_ENCRYPT_DECRYPT_CONTROL:
             s->sys_ext_dev_enc_dec_ctrl = value;
             break;
+        case A_SYSTEM_CPU_PER_CONF:
+            s->cpuperconf = value;
+            break;    
+        case A_SYSTEM_SYSCLK_CONF:
+            s->sysclk =  (s->sysclk & 0xFFFFF000) | (value & 0x00000FFF);
+            break;    
         default:
 #if CLOCK_WARNING
             warn_report("[CLOCK] Unsupported write to %08lx (%08lx)\n", addr, value);
