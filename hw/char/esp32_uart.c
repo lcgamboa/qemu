@@ -134,6 +134,23 @@ static uint64_t uart_read(void *opaque, hwaddr addr, unsigned int size)
     return r;
 }
 
+static unsigned int uart_calc_baud(ESP32UARTState *s)
+{
+    unsigned clkdiv = (FIELD_EX32(s->reg[R_UART_CLKDIV], UART_CLKDIV, CLKDIV) << 4) +
+                          FIELD_EX32(s->reg[R_UART_CLKDIV], UART_CLKDIV, CLKDIV_FRAG);
+    unsigned baud_rate = 115200;
+    if (clkdiv != 0) {
+        /* FIXME: this should depend on the APB frequency */
+        if(FIELD_EX32(s->reg[R_UART_CONF0], UART_CONF0, TICK_REF_ALWAYS_ON)){  
+            baud_rate = (unsigned) ((80000000ULL << 4) / clkdiv);
+        }
+        else{
+            baud_rate = (unsigned) ((1000000ULL << 4) / clkdiv); //REF_TICK
+        }
+    }
+    return baud_rate;
+}
+
 
 static void uart_write(void *opaque, hwaddr addr,
                        uint64_t value, unsigned int size)
@@ -162,18 +179,11 @@ static void uart_write(void *opaque, hwaddr addr,
         s->reg[addr / 4] = value;
         break;
 
-    case A_UART_CLKDIV: {
+    case A_UART_CONF0:
+    case A_UART_CLKDIV: 
         s->reg[addr / 4] = value;
-        unsigned clkdiv = (FIELD_EX32(s->reg[R_UART_CLKDIV], UART_CLKDIV, CLKDIV) << 4) +
-                          FIELD_EX32(s->reg[R_UART_CLKDIV], UART_CLKDIV, CLKDIV_FRAG);
-        unsigned baud_rate = 115200;
-        if (clkdiv != 0) {
-            /* FIXME: this should depend on the APB frequency */
-            baud_rate = (unsigned) ((80000000ULL << 4) / clkdiv);
-        }
-        s->baud_rate = baud_rate;
+        s->baud_rate = uart_calc_baud(s);
         break;
-    }
 
     case A_UART_AUTOBAUD:
         /* If autobaud is enabled, pretend that sufficient number of edges on the RXD line
@@ -336,6 +346,10 @@ static void esp32_uart_reset(DeviceState *dev)
     s->reg[R_UART_AUTOBAUD] = 0;
     /* Default baud rate divider after reset */
     s->reg[R_UART_CLKDIV] = FIELD_DP32(0, UART_CLKDIV, CLKDIV, 0x2B6);
+    s->reg[R_UART_CONF0] = FIELD_DP32(0 , UART_CONF0, TICK_REF_ALWAYS_ON, 1);
+    s->reg[R_UART_CONF0] = FIELD_DP32(s->reg[R_UART_CONF0] , UART_CONF0, STOP_BIT_NUM, 1);
+    s->reg[R_UART_CONF0] = FIELD_DP32(s->reg[R_UART_CONF0] , UART_CONF0, BIT_NUM, 3);
+    
     s->baud_rate = 115200;
     fifo8_reset(&s->tx_fifo);
     fifo8_reset(&s->rx_fifo);

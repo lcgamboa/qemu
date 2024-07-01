@@ -52,8 +52,9 @@ static unsigned int esp32c3_uart_calc_baud(ESP32C3UARTState *s)
     unsigned baud_rate = 115200;
     unsigned int sclk_div_num = FIELD_EX32(s->parent.reg[R_ESP32C3_UART_CLK_CONF], ESP32C3_UART_CLK_CONF, UART_SCLK_DIV_NUM);
     if (clkdiv != 0) {
-
-        switch( FIELD_EX32(s->parent.reg[R_ESP32C3_UART_CLK_CONF], ESP32C3_UART_CLK_CONF, UART_SCLK_SEL)){
+        int clk_sel = FIELD_EX32(s->parent.reg[R_ESP32C3_UART_CLK_CONF], ESP32C3_UART_CLK_CONF, UART_SCLK_SEL);
+        switch( clk_sel){
+            case 0: 
             case 1: // APB_CLK
                 baud_rate = (unsigned) ((80000000ULL << 4) / (clkdiv * (sclk_div_num + 1 )));
                 break;
@@ -84,7 +85,6 @@ static void esp32c3_uart_write(void *opaque, hwaddr addr,
              * register, poke that register instead */
             autobaud = FIELD_EX32(value, ESP32C3_UART_CONF0, AUTOBAUD_EN) ? 1 : 0;
             class->parent_uart_write(opaque, ESP32_UART_AUTOBAUD, autobaud, sizeof(uint32_t));
-            class->parent_uart_write(opaque, addr, value, size);
             s->parent.reg[addr / 4] = value;
             break;
 
