@@ -76,10 +76,36 @@ uint32_t qemu_picsimlab_get_TIOCM(void);
 int qemu_picsimlab_flash_dump(int64_t offset, void *buf, int bytes);
 void qemu_picsimlab_uart_receive(const int id, const uint8_t *buf, int size);
 
+#define QEMU_INTERNAL_UART0_BAUD 7
+#define QEMU_INTERNAL_UART1_BAUD 8
+#define QEMU_INTERNAL_UART2_BAUD 9
+
+uint32_t stm32_uart_baud_rate(void *opaque);
+
 static uint32_t internal;
 uint32_t *qemu_picsimlab_get_internals(int cfg)
 {
-   internal = stm32_afio_get_periph_map((Stm32Afio *)s->afio, cfg & 0x00FF);
+   if(cfg > 0x0FFF)
+   {
+     internal = stm32_afio_get_periph_map((Stm32Afio *)s->afio, cfg & 0x00FF); 
+   }
+   else{
+      switch (cfg & 0x0FFF)
+      {
+      case QEMU_INTERNAL_UART0_BAUD:
+         internal = stm32_uart_baud_rate(s->uart1);
+         break;
+      case QEMU_INTERNAL_UART1_BAUD:
+         internal = stm32_uart_baud_rate(s->uart2);
+         break;
+      case QEMU_INTERNAL_UART2_BAUD:
+         internal = stm32_uart_baud_rate(s->uart3);
+         break;              
+      default:
+         return NULL; 
+         break;
+      }
+   }
    return &internal;
 }
 

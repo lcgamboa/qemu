@@ -392,6 +392,16 @@ static void stm32_uart_event(void *opaque, QEMUChrEvent event) {
   /* Do nothing */
 }
 
+uint32_t stm32_uart_baud_rate(void *opaque) {
+  Stm32Uart *s = (Stm32Uart *)opaque;
+  if(s->bits_per_sec)
+  {
+     return s->bits_per_sec;
+  }
+  return 9600;
+}
+
+
 void stm32_uart_receive(void *opaque, const uint8_t *buf, int size) {
   Stm32Uart *s = (Stm32Uart *)opaque;
   uint64_t curr_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
