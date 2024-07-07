@@ -137,15 +137,15 @@ static void stm32_uart_baud_update(Stm32Uart *s) {
   uint64_t ns_per_bit;
 
   if ((s->USART_BRR == 0) || (clk_freq == 0)) {
-    s->bits_per_sec = 0;
+    s->bits_per_sec = 9600; //use 0 cause simulation freeze because use timer with 0 delay
   } else {
     s->bits_per_sec = clk_freq / s->USART_BRR;
-    ns_per_bit = 1000000000LL / s->bits_per_sec;
-
-    /* We assume 10 bits per character.  This may not be exactly
-     * accurate depending on settings, but it should be good enough. */
-    s->ns_per_char = ns_per_bit * 10;
   }
+  ns_per_bit = 1000000000LL / s->bits_per_sec;
+
+  /* We assume 10 bits per character.  This may not be exactly
+  * accurate depending on settings, but it should be good enough. */
+  s->ns_per_char = ns_per_bit * 10;
 
 #ifdef DEBUG_STM32_UART
   DPRINTF("%s clock is set to %lu Hz.\n", stm32_periph_name(s->periph),
@@ -352,6 +352,7 @@ static void stm32_uart_tx_dma_timer_expire(void *opaque) {
 /* CHAR DEVICE HANDLERS */
 int stm32_uart_can_receive(void *opaque);
 void stm32_uart_receive(void *opaque, const uint8_t *buf, int size);
+uint32_t stm32_uart_baud_rate(void *opaque);
 
 int stm32_uart_can_receive(void *opaque) {
   Stm32Uart *s = (Stm32Uart *)opaque;
@@ -394,11 +395,7 @@ static void stm32_uart_event(void *opaque, QEMUChrEvent event) {
 
 uint32_t stm32_uart_baud_rate(void *opaque) {
   Stm32Uart *s = (Stm32Uart *)opaque;
-  if(s->bits_per_sec)
-  {
-     return s->bits_per_sec;
-  }
-  return 9600;
+  return s->bits_per_sec;
 }
 
 
