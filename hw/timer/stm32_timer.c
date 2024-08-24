@@ -339,6 +339,7 @@ static void stm32_timer_write(void * opaque, hwaddr offset,
                         uint64_t value, unsigned size)
 {
     Stm32Timer *s = (Stm32Timer *)opaque;
+    uint32_t clk_freq;
 
     switch (offset) {
     case TIMER_CR1_OFFSET:
@@ -399,6 +400,8 @@ static void stm32_timer_write(void * opaque, hwaddr offset,
         ptimer_transaction_begin(s->timer);
         stm32_timer_freq(s);
         ptimer_transaction_commit(s->timer);
+        clk_freq = stm32_rcc_get_periph_freq(s->stm32_rcc, s->periph) / ((s->psc + 1)*(s->arr + 1));
+        qemu_set_irq( s->sync_irq[0], (0xD00000|  ((clk_freq & 0x3FFFF )<<2)));
         break;
     case TIMER_ARR_OFFSET:
         s->arr = value & 0xffff;
@@ -406,6 +409,8 @@ static void stm32_timer_write(void * opaque, hwaddr offset,
         ptimer_set_limit(s->timer, s->arr, 1);
         ptimer_transaction_commit(s->timer);
         DPRINTF("%s arr = %x\n", stm32_periph_name(s->periph), s->arr);
+        clk_freq = stm32_rcc_get_periph_freq(s->stm32_rcc, s->periph) / ((s->psc + 1)*(s->arr + 1));
+        qemu_set_irq( s->sync_irq[0], (0xD00000|  ((clk_freq & 0x3FFFF )<<2)));
         break;
     case TIMER_RCR_OFFSET:
         qemu_log_mask(LOG_GUEST_ERROR, "stm32_timer: RCR not supported");
