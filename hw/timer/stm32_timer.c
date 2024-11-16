@@ -387,8 +387,9 @@ static void stm32_timer_write(void * opaque, hwaddr offset,
         DPRINTF("%s ccmr2 = %x\n", stm32_periph_name(s->periph), s->ccmr2);
         break;
     case TIMER_CCER_OFFSET:
-        s->ccer = value & 0x3333;
+        s->ccer = value & 0xffff;
         DPRINTF("%s ccer = %x\n", stm32_periph_name(s->periph), s->ccer);
+        qemu_set_irq( s->sync_irq[0], (0xE00000|  ((s->ccer  & 0x3FFFF )<<2)));
         break;
     case TIMER_CNT_OFFSET:
         stm32_timer_set_count_safe(s, value & 0xffff);
