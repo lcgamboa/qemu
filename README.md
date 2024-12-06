@@ -2,7 +2,7 @@
 
 This fork contains a modified version of the [Espressif QEMU](https://github.com/espressif/qemu) used by the [PICSimLab](https://github.com/lcgamboa/picsimlab) simulator. This version has been altered to compile QEMU as a dynamic library using the [build_libqemu-esp32.sh](https://github.com/lcgamboa/qemu/blob/picsimlab-esp32/build_libqemu-esp32.sh) script.
 
-Additionally, this fork adds support for WIFI from the [a159x36 QEMU fork](https://github.com/a159x36/qemu) to the [Espressif QEMU](https://github.com/espressif/qemu).
+Additionally, this fork adds support for WIFI from the [a159x36 QEMU fork](https://github.com/a159x36/qemu) and ESPNOW to the [Espressif QEMU](https://github.com/espressif/qemu).
 
 Official [QEMU README](https://github.com/lcgamboa/qemu/blob/picsimlab-esp32/README.rst)
 
