@@ -468,6 +468,7 @@ static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
         return;
     }
     esp32_spi_transaction(s, &t);
+    esp32_spi_timer_cb(s);
 }
 
 
