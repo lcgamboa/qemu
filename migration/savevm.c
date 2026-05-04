@@ -1625,7 +1625,7 @@ static int qemu_savevm_state(QEMUFile *f, Error **errp)
     reset_vfio_bytes_transferred();
     ms->to_dst_file = f;
 
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
     qemu_savevm_state_header(f);
     qemu_savevm_state_setup(f);
     qemu_mutex_lock_iothread();

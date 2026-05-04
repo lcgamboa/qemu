@@ -429,7 +429,7 @@ int hvf_vcpu_exec(CPUState *cpu)
         }
         vmx_update_tpr(cpu);
 
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         if (!cpu_is_bsp(X86_CPU(cpu)) && cpu->halted) {
             qemu_mutex_lock_iothread();
             return EXCP_HLT;

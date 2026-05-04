@@ -287,7 +287,7 @@ static void *call_rcu_thread(void *opaque)
         while (n > 0) {
             node = try_dequeue();
             while (!node) {
-                qemu_mutex_unlock_iothread();
+                bql_unlock();
                 qemu_event_reset(&rcu_call_ready_event);
                 node = try_dequeue();
                 if (!node) {
@@ -300,7 +300,7 @@ static void *call_rcu_thread(void *opaque)
             n--;
             node->func(node);
         }
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
     abort();
 }
@@ -343,7 +343,7 @@ void drain_call_rcu(void)
     qemu_event_init(&rcu_drain.drain_complete_event, false);
 
     if (locked) {
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
 
 

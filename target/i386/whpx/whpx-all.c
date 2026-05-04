@@ -1450,7 +1450,7 @@ static int whpx_handle_halt(CPUState *cpu)
         cpu->halted = true;
         ret = 1;
     }
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 
     return ret;
 }
@@ -1563,7 +1563,7 @@ static void whpx_vcpu_pre_run(CPUState *cpu)
         reg_count += 1;
     }
 
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
     vcpu->ready_for_pic_interrupt = false;
 
     if (reg_count) {
@@ -1592,7 +1592,7 @@ static void whpx_vcpu_post_run(CPUState *cpu)
         vcpu->tpr = tpr;
         qemu_mutex_lock_iothread();
         cpu_set_apic_tpr(x86_cpu->apic_state, whpx_cr8_to_apic_tpr(vcpu->tpr));
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
 
     vcpu->interruption_pending =
@@ -1690,7 +1690,7 @@ static int whpx_vcpu_run(CPUState *cpu)
         }
     }
 
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 
     if (exclusive_step_mode != WHPX_STEP_NONE) {
         start_exclusive();
@@ -2030,7 +2030,7 @@ static int whpx_vcpu_run(CPUState *cpu)
             whpx_get_registers(cpu);
             qemu_mutex_lock_iothread();
             qemu_system_guest_panicked(cpu_get_crash_info(cpu));
-            qemu_mutex_unlock_iothread();
+            bql_unlock();
             break;
         }
 

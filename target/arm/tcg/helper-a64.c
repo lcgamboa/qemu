@@ -802,7 +802,7 @@ void HELPER(exception_return)(CPUARMState *env, uint64_t new_pc)
 
     qemu_mutex_lock_iothread();
     arm_call_pre_el_change_hook(env_archcpu(env));
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 
     if (!return_to_aa64) {
         env->aarch64 = false;
@@ -869,7 +869,7 @@ void HELPER(exception_return)(CPUARMState *env, uint64_t new_pc)
 
     qemu_mutex_lock_iothread();
     arm_call_el_change_hook(env_archcpu(env));
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 
     return;
 

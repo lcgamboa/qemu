@@ -857,7 +857,7 @@ MemTxAttrs kvm_arch_post_run(CPUState *cs, struct kvm_run *run)
 
         /* We also mark unknown levels as processed to not waste cycles */
         cpu->device_irq_level = run->s.regs.device_irq_level;
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
 
     return MEMTXATTRS_UNSPECIFIED;

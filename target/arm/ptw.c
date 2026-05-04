@@ -770,7 +770,7 @@ static uint64_t arm_casq_ptw(CPUARMState *env, uint64_t old_val,
         }
     }
     if (!locked) {
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
 #endif
 

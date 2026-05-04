@@ -218,7 +218,7 @@ static void *rr_cpu_thread_fn(void *arg)
         /* Only used for icount_enabled() */
         int64_t cpu_budget = 0;
 
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         replay_mutex_lock();
         qemu_mutex_lock_iothread();
 
@@ -254,7 +254,7 @@ static void *rr_cpu_thread_fn(void *arg)
             if (cpu_can_run(cpu)) {
                 int r;
 
-                qemu_mutex_unlock_iothread();
+                bql_unlock();
                 if (icount_enabled()) {
                     icount_prepare_for_run(cpu, cpu_budget);
                 }
@@ -268,7 +268,7 @@ static void *rr_cpu_thread_fn(void *arg)
                     cpu_handle_guest_debug(cpu);
                     break;
                 } else if (r == EXCP_ATOMIC) {
-                    qemu_mutex_unlock_iothread();
+                    bql_unlock();
                     cpu_exec_step_atomic(cpu);
                     qemu_mutex_lock_iothread();
                     break;

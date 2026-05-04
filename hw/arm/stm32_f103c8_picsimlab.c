@@ -179,7 +179,7 @@ remote_gpio_thread(void * arg)
          qemu_irq_lower (s->pin_irq[buff & 0x7F]);
         }
       }
-     qemu_mutex_unlock_iothread ();
+     bql_unlock ();
     }
    //qemu_mutex_unlock (&s->dat_lock);
   }

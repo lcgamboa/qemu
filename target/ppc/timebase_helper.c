@@ -175,7 +175,7 @@ target_ulong helper_load_dcr(CPUPPCState *env, target_ulong dcrn)
 
         qemu_mutex_lock_iothread();
         ret = ppc_dcr_read(env->dcr_env, (uint32_t)dcrn, &val);
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         if (unlikely(ret != 0)) {
             qemu_log_mask(LOG_GUEST_ERROR, "DCR read error %d %03x\n",
                           (uint32_t)dcrn, (uint32_t)dcrn);
@@ -198,7 +198,7 @@ void helper_store_dcr(CPUPPCState *env, target_ulong dcrn, target_ulong val)
         int ret;
         qemu_mutex_lock_iothread();
         ret = ppc_dcr_write(env->dcr_env, (uint32_t)dcrn, (uint32_t)val);
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         if (unlikely(ret != 0)) {
             qemu_log_mask(LOG_GUEST_ERROR, "DCR write error %d %03x\n",
                           (uint32_t)dcrn, (uint32_t)dcrn);

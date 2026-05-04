@@ -427,7 +427,7 @@ void HELPER(v7m_preserve_fp_state)(CPUARMState *env)
     take_exception = !stacked_ok &&
         armv7m_nvic_can_take_pending_exception(env->nvic);
 
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 
     if (take_exception) {
         raise_exception_ra(env, EXCP_LAZYFP, 0, 1, GETPC());

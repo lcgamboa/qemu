@@ -496,7 +496,7 @@ bool qemu_in_main_thread(void)
  * The BQL is taken from so many places that it is worth profiling the
  * callers directly, instead of funneling them all through a single function.
  */
-void qemu_mutex_lock_iothread_impl(const char *file, int line)
+void bql_lock_impl(const char *file, int line)
 {
     QemuMutexLockFunc bql_lock = qatomic_read(&qemu_bql_mutex_lock_func);
 
@@ -505,7 +505,7 @@ void qemu_mutex_lock_iothread_impl(const char *file, int line)
     set_iothread_locked(true);
 }
 
-void qemu_mutex_unlock_iothread(void)
+void bql_unlock(void)
 {
     g_assert(qemu_mutex_iothread_locked());
     set_iothread_locked(false);
@@ -576,7 +576,7 @@ void pause_all_vcpus(void)
         }
     }
 
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
     replay_mutex_lock();
     qemu_mutex_lock_iothread();
 }
@@ -607,7 +607,7 @@ void cpu_remove_sync(CPUState *cpu)
     cpu->stop = true;
     cpu->unplug = true;
     qemu_cpu_kick(cpu);
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
     qemu_thread_join(cpu->thread);
     qemu_mutex_lock_iothread();
 }

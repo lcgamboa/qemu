@@ -331,7 +331,7 @@ void store_40x_dbcr0(CPUPPCState *env, uint32_t val)
         break;
     }
 
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 }
 
 /* PowerPC 40x internal IRQ controller */

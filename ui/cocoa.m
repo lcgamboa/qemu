@@ -125,7 +125,7 @@ static void with_iothread_lock(CodeBlock block)
     }
     block();
     if (!locked) {
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
 }
 
@@ -139,7 +139,7 @@ static bool bool_with_iothread_lock(BoolCodeBlock block)
     }
     val = block();
     if (!locked) {
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
     return val;
 }
@@ -1826,7 +1826,7 @@ static void addRemovableDevicesMenuItems(void)
         while (info == cbinfo &&
                info->types[QEMU_CLIPBOARD_TYPE_TEXT].available &&
                info->types[QEMU_CLIPBOARD_TYPE_TEXT].data == NULL) {
-            qemu_mutex_unlock_iothread();
+            bql_unlock();
             qemu_event_wait(&cbevent);
             qemu_mutex_lock_iothread();
         }
@@ -1928,7 +1928,7 @@ static void *call_qemu_main(void *opaque)
     COCOA_DEBUG("Second thread: calling qemu_default_main()\n");
     qemu_mutex_lock_iothread();
     status = qemu_default_main();
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
     COCOA_DEBUG("Second thread: qemu_default_main() returned, exiting\n");
     [cbowner release];
     exit(status);
@@ -1940,7 +1940,7 @@ static int cocoa_main(void)
 
     COCOA_DEBUG("Entered %s()\n", __func__);
 
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
     qemu_thread_create(&thread, "qemu_main", call_qemu_main,
                        NULL, QEMU_THREAD_DETACHED);
 

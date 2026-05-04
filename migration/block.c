@@ -282,7 +282,7 @@ static int mig_save_device_bulk(QEMUFile *f, BlkMigDevState *bmds)
             cur_sector += count >> BDRV_SECTOR_BITS;
         }
         aio_context_release(blk_get_aio_context(bb));
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
 
     if (cur_sector >= total_sectors) {
@@ -328,7 +328,7 @@ static int mig_save_device_bulk(QEMUFile *f, BlkMigDevState *bmds)
     blk->aiocb = blk_aio_preadv(bb, cur_sector * BDRV_SECTOR_SIZE, &blk->qiov,
                                 0, blk_mig_read_cb, blk);
     aio_context_release(blk_get_aio_context(bmds->blk));
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 
     bmds->cur_sector = cur_sector + nr_sectors;
     return (bmds->cur_sector >= total_sectors);
@@ -732,14 +732,14 @@ static int block_save_setup(QEMUFile *f, void *opaque)
     qemu_mutex_lock_iothread();
     ret = init_blk_migration(f);
     if (ret < 0) {
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         return ret;
     }
 
     /* start track dirty blocks */
     ret = set_dirty_tracking();
 
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 
     if (ret) {
         return ret;
@@ -788,7 +788,7 @@ static int block_save_iterate(QEMUFile *f, void *opaque)
              */
             qemu_mutex_lock_iothread();
             ret = blk_mig_save_dirty_block(f, 1);
-            qemu_mutex_unlock_iothread();
+            bql_unlock();
         }
         if (ret < 0) {
             return ret;
@@ -862,7 +862,7 @@ static void block_state_pending(void *opaque, uint64_t *must_precopy,
 
     qemu_mutex_lock_iothread();
     pending = get_remaining_dirty();
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 
     blk_mig_lock();
     pending += block_mig_state.submitted * BLK_MIG_BLOCK_SIZE +

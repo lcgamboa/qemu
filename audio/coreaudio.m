@@ -557,7 +557,7 @@ static OSStatus handle_voice_change(
         update_device_playback_state(core);
     }
 
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
     return 0;
 }
 

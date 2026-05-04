@@ -34,7 +34,7 @@ void fpu_check_raise_ferr_irq(CPUX86State *env)
     if (ferr_irq && !(env->hflags2 & HF2_IGNNE_MASK)) {
         qemu_mutex_lock_iothread();
         qemu_irq_raise(ferr_irq);
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         return;
     }
 }

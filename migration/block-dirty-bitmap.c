@@ -780,7 +780,7 @@ static void dirty_bitmap_state_pending(void *opaque,
         pending += DIV_ROUND_UP(sectors * BDRV_SECTOR_SIZE, gran);
     }
 
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 
     trace_dirty_bitmap_state_pending(pending);
 
@@ -1216,7 +1216,7 @@ static int dirty_bitmap_save_setup(QEMUFile *f, void *opaque)
 
     qemu_mutex_lock_iothread();
     if (init_dirty_bitmap_migration(s) < 0) {
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         return -1;
     }
 
@@ -1224,7 +1224,7 @@ static int dirty_bitmap_save_setup(QEMUFile *f, void *opaque)
         send_bitmap_start(f, s, dbms);
     }
     qemu_put_bitmap_flags(f, DIRTY_BITMAP_MIG_FLAG_EOS);
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
     return 0;
 }
 

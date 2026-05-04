@@ -449,7 +449,7 @@ static void *hvf_cpu_thread_fn(void *arg)
 
     hvf_vcpu_destroy(cpu);
     cpu_thread_signal_destroyed(cpu);
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
     rcu_unregister_thread();
     return NULL;
 }

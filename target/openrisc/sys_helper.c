@@ -166,7 +166,7 @@ void HELPER(mtspr)(CPUOpenRISCState *env, target_ulong spr, target_ulong rb)
         } else {
             cpu_reset_interrupt(cs, CPU_INTERRUPT_HARD);
         }
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         break;
     case TO_SPR(9, 2):  /* PICSR */
         env->picsr &= ~rb;
@@ -198,7 +198,7 @@ void HELPER(mtspr)(CPUOpenRISCState *env, target_ulong spr, target_ulong rb)
                 cs->interrupt_request &= ~CPU_INTERRUPT_TIMER;
             }
             cpu_openrisc_timer_update(cpu);
-            qemu_mutex_unlock_iothread();
+            bql_unlock();
         }
         break;
 
@@ -206,7 +206,7 @@ void HELPER(mtspr)(CPUOpenRISCState *env, target_ulong spr, target_ulong rb)
         qemu_mutex_lock_iothread();
         cpu_openrisc_count_set(cpu, rb);
         cpu_openrisc_timer_update(cpu);
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         break;
     }
 #endif
@@ -349,7 +349,7 @@ target_ulong HELPER(mfspr)(CPUOpenRISCState *env, target_ulong rd,
     case TO_SPR(10, 1): /* TTCR */
         qemu_mutex_lock_iothread();
         cpu_openrisc_count_update(cpu);
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         return cpu_openrisc_count_get(cpu);
     }
 #endif

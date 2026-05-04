@@ -106,7 +106,7 @@ void HELPER(waiti)(CPUXtensaState *env, uint32_t pc, uint32_t intlevel)
 
     qemu_mutex_lock_iothread();
     check_interrupts(env);
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 
     if (env->pending_irq_level) {
         cpu_loop_exit(cpu);
@@ -121,7 +121,7 @@ void HELPER(check_interrupts)(CPUXtensaState *env)
 {
     qemu_mutex_lock_iothread();
     check_interrupts(env);
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 }
 
 void HELPER(intset)(CPUXtensaState *env, uint32_t v)

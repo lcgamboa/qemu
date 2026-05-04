@@ -3060,7 +3060,7 @@ void helper_msgsnd(target_ulong rb)
             ppc_set_irq(cpu, irq, 1);
         }
     }
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 }
 
 /* Server Processor Control */
@@ -3098,7 +3098,7 @@ static void book3s_msgsnd_common(int pir, int irq)
             ppc_set_irq(cpu, irq, 1);
         }
     }
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 }
 
 void helper_book3s_msgsnd(target_ulong rb)
@@ -3159,7 +3159,7 @@ void helper_book3s_msgsndp(CPUPPCState *env, target_ulong rb)
 
         if (ttir == thread_id) {
             ppc_set_irq(ccpu, PPC_INTERRUPT_DOORBELL, 1);
-            qemu_mutex_unlock_iothread();
+            bql_unlock();
             return;
         }
     }

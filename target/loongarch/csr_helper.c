@@ -91,7 +91,7 @@ target_ulong helper_csrwr_ticlr(CPULoongArchState *env, target_ulong val)
     if (val & 0x1) {
         qemu_mutex_lock_iothread();
         loongarch_cpu_set_irq(cpu, IRQ_TIMER, 0);
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
     return old_v;
 }

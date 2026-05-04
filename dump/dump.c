@@ -108,7 +108,7 @@ static int dump_cleanup(DumpState *s)
         }
         vm_start();
         if (s->detached) {
-            qemu_mutex_unlock_iothread();
+            bql_unlock();
         }
     }
     migrate_del_blocker(dump_migration_blocker);

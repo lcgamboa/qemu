@@ -1292,7 +1292,7 @@ bool kvm_arm_handle_debug(CPUState *cs, struct kvm_debug_exit_arch *debug_exit)
     env->exception.target_el = 1;
     qemu_mutex_lock_iothread();
     arm_cpu_do_interrupt(cs);
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 
     return false;
 }

@@ -60,7 +60,7 @@ static inline void mips_vpe_wake(MIPSCPU *c)
      */
     qemu_mutex_lock_iothread();
     cpu_interrupt(CPU(c), CPU_INTERRUPT_WAKE);
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 }
 
 static inline void mips_vpe_sleep(MIPSCPU *cpu)

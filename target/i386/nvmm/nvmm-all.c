@@ -462,7 +462,7 @@ nvmm_vcpu_pre_run(CPUState *cpu)
         }
     }
 
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 }
 
 /*
@@ -487,7 +487,7 @@ nvmm_vcpu_post_run(CPUState *cpu, struct nvmm_vcpu_exit *exit)
         qcpu->tpr = tpr;
         qemu_mutex_lock_iothread();
         cpu_set_apic_tpr(x86_cpu->apic_state, qcpu->tpr);
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
 }
 
@@ -658,7 +658,7 @@ nvmm_handle_halted(struct nvmm_machine *mach, CPUState *cpu,
         ret = 1;
     }
 
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 
     return ret;
 }
@@ -721,7 +721,7 @@ nvmm_vcpu_loop(CPUState *cpu)
         return 0;
     }
 
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
     cpu_exec_start(cpu);
 
     /*
@@ -808,7 +808,7 @@ nvmm_vcpu_loop(CPUState *cpu)
             nvmm_get_registers(cpu);
             qemu_mutex_lock_iothread();
             qemu_system_guest_panicked(cpu_get_crash_info(cpu));
-            qemu_mutex_unlock_iothread();
+            bql_unlock();
             ret = -1;
             break;
         }

@@ -185,7 +185,7 @@ void qemu_picsimlab_set_pin(int pin, int value)
    {
       qemu_irq_lower(s->pin_irq[pin]);
    }
-   // qemu_mutex_unlock_iothread ();
+   // bql_unlock ();
 }
 
 void qemu_picsimlab_set_apin(int chn, int value)

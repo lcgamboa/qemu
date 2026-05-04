@@ -2909,7 +2909,7 @@ static void ram_init_bitmaps(RAMState *rs)
         }
     }
     qemu_mutex_unlock_ramlist();
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 
     /*
      * After an eventual first bitmap sync, fixup the initial bitmap
@@ -3305,7 +3305,7 @@ static void ram_state_pending_exact(void *opaque, uint64_t *must_precopy,
         WITH_RCU_READ_LOCK_GUARD() {
             migration_bitmap_sync_precopy(rs, false);
         }
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         remaining_size = rs->migration_dirty_pages * TARGET_PAGE_SIZE;
     }
 
@@ -3549,7 +3549,7 @@ void colo_incoming_start_dirty_log(void)
     }
     ram_state->migration_dirty_pages = 0;
     qemu_mutex_unlock_ramlist();
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 }
 
 /* It is need to hold the global lock to call this helper */

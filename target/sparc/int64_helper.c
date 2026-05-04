@@ -274,7 +274,7 @@ static bool do_modify_softint(CPUSPARCState *env, uint32_t value)
         if (cpu_interrupts_enabled(env)) {
             qemu_mutex_lock_iothread();
             cpu_check_irqs(env);
-            qemu_mutex_unlock_iothread();
+            bql_unlock();
         }
 #endif
         return true;

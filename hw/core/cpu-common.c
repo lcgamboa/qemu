@@ -77,7 +77,7 @@ void cpu_reset_interrupt(CPUState *cpu, int mask)
     }
     cpu->interrupt_request &= ~mask;
     if (need_lock) {
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
 }
 

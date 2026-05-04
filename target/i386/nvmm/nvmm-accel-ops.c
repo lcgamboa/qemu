@@ -55,7 +55,7 @@ static void *qemu_nvmm_cpu_thread_fn(void *arg)
 
     nvmm_destroy_vcpu(cpu);
     cpu_thread_signal_destroyed(cpu);
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
     rcu_unregister_thread();
     return NULL;
 }

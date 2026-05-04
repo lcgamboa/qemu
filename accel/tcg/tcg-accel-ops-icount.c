@@ -128,7 +128,7 @@ void icount_prepare_for_run(CPUState *cpu, int64_t cpu_budget)
          */
         qemu_mutex_lock_iothread();
         icount_notify_aio_contexts();
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
 }
 

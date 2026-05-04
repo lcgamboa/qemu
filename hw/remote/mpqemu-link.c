@@ -64,7 +64,7 @@ bool mpqemu_msg_send(MPQemuMsg *msg, QIOChannel *ioc, Error **errp)
      * Also skip lock handling while in a co-routine in the main context.
      */
     if (iolock && !iothread && !qemu_in_coroutine()) {
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
 
     if (!qio_channel_writev_full_all(ioc, send, G_N_ELEMENTS(send),
@@ -107,7 +107,7 @@ static ssize_t mpqemu_read(QIOChannel *ioc, void *buf, size_t len, int **fds,
     assert(qemu_in_coroutine() || !iothread);
 
     if (iolock && !iothread && !qemu_in_coroutine()) {
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
 
     ret = qio_channel_readv_full_all_eof(ioc, &iov, 1, fds, nfds, errp);

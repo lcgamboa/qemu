@@ -2684,7 +2684,7 @@ static MemTxResult flatview_write_continue(FlatView *fv, hwaddr addr,
         }
 
         if (release_lock) {
-            qemu_mutex_unlock_iothread();
+            bql_unlock();
             release_lock = false;
         }
 
@@ -2751,7 +2751,7 @@ MemTxResult flatview_read_continue(FlatView *fv, hwaddr addr,
         }
 
         if (release_lock) {
-            qemu_mutex_unlock_iothread();
+            bql_unlock();
             release_lock = false;
         }
 

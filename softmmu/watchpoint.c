@@ -157,7 +157,7 @@ void cpu_check_watchpoint(CPUState *cpu, vaddr addr, vaddr len,
          */
         qemu_mutex_lock_iothread();
         cpu_interrupt(cpu, CPU_INTERRUPT_DEBUG);
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         return;
     }
 

@@ -357,7 +357,7 @@ static void *edu_fact_thread(void *opaque)
         if (qatomic_read(&edu->status) & EDU_STATUS_IRQFACT) {
             qemu_mutex_lock_iothread();
             edu_raise_irq(edu, FACT_IRQ);
-            qemu_mutex_unlock_iothread();
+            bql_unlock();
         }
     }
 

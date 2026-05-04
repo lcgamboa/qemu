@@ -344,7 +344,7 @@ static void *hpt_prepare_thread(void *opaque)
         free_pending_hpt(pending);
     }
 
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
     return NULL;
 }
 

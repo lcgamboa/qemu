@@ -233,7 +233,7 @@ target_ulong helper_load_dpdes(CPUPPCState *env)
             dpdes |= (0x1 << thread_id);
         }
     }
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 
     return dpdes;
 }
@@ -270,7 +270,7 @@ void helper_store_dpdes(CPUPPCState *env, target_ulong val)
 
         ppc_set_irq(cpu, PPC_INTERRUPT_DOORBELL, val & (0x1 << thread_id));
     }
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 }
 #endif /* defined(TARGET_PPC64) */
 

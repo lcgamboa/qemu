@@ -1703,7 +1703,7 @@ static bool vtd_switch_address_space(VTDAddressSpace *as)
     }
 
     if (take_bql) {
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
 
     return use_iommu;

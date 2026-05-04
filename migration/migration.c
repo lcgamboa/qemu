@@ -1159,7 +1159,7 @@ static void migrate_fd_cleanup(MigrationState *s)
         QEMUFile *tmp;
 
         trace_migrate_fd_cleanup();
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         if (s->migration_thread_running) {
             qemu_thread_join(&s->thread);
             s->migration_thread_running = false;
@@ -2195,7 +2195,7 @@ static int postcopy_start(MigrationState *ms, Error **errp)
 
     ms->downtime =  qemu_clock_get_ms(QEMU_CLOCK_REALTIME) - time_at_stop;
 
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 
     if (migrate_postcopy_ram()) {
         /*
@@ -2236,7 +2236,7 @@ fail:
             error_report_err(local_err);
         }
     }
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
     return -1;
 }
 
@@ -2270,7 +2270,7 @@ static int migration_maybe_pause(MigrationState *s,
      * wait for the 'pause_sem' semaphore.
      */
     if (s->state != MIGRATION_STATUS_CANCELLING) {
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         migrate_set_state(&s->state, *current_active_state,
                           MIGRATION_STATUS_PRE_SWITCHOVER);
         qemu_sem_wait(&s->pause_sem);
@@ -2320,7 +2320,7 @@ static void migration_completion(MigrationState *s)
                                                      s->block_inactive);
         }
 
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
 
         if (ret < 0) {
             goto fail;
@@ -2330,7 +2330,7 @@ static void migration_completion(MigrationState *s)
 
         qemu_mutex_lock_iothread();
         qemu_savevm_state_complete_postcopy(s->to_dst_file);
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
 
         /*
          * Shutdown the postcopy fast path thread.  This is only needed
@@ -2382,7 +2382,7 @@ fail:
         } else {
             s->block_inactive = false;
         }
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
 
     migrate_set_state(&s->state, current_active_state,
@@ -2793,7 +2793,7 @@ static void migration_iteration_finish(MigrationState *s)
         break;
     }
     migrate_fd_cleanup_schedule(s);
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 }
 
 static void bg_migration_iteration_finish(MigrationState *s)
@@ -2824,7 +2824,7 @@ static void bg_migration_iteration_finish(MigrationState *s)
     }
 
     migrate_fd_cleanup_schedule(s);
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 }
 
 /*
@@ -3139,7 +3139,7 @@ static void *bg_migration_thread(void *opaque)
     s->vm_start_bh = qemu_bh_new(bg_migration_vm_start_bh, s);
     qemu_bh_schedule(s->vm_start_bh);
 
-    qemu_mutex_unlock_iothread();
+    bql_unlock();
 
     while (migration_is_active(s)) {
         MigIterateState iter_state = bg_migration_iteration_run(s);
@@ -3168,7 +3168,7 @@ fail:
     if (early_fail) {
         migrate_set_state(&s->state, MIGRATION_STATUS_ACTIVE,
                 MIGRATION_STATUS_FAILED);
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
 
     bg_migration_iteration_finish(s);

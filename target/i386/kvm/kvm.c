@@ -4893,7 +4893,7 @@ void kvm_arch_pre_run(CPUState *cpu, struct kvm_run *run)
         if (cpu->interrupt_request & CPU_INTERRUPT_NMI) {
             qemu_mutex_lock_iothread();
             cpu->interrupt_request &= ~CPU_INTERRUPT_NMI;
-            qemu_mutex_unlock_iothread();
+            bql_unlock();
             DPRINTF("injected NMI\n");
             ret = kvm_vcpu_ioctl(cpu, KVM_NMI);
             if (ret < 0) {
@@ -4904,7 +4904,7 @@ void kvm_arch_pre_run(CPUState *cpu, struct kvm_run *run)
         if (cpu->interrupt_request & CPU_INTERRUPT_SMI) {
             qemu_mutex_lock_iothread();
             cpu->interrupt_request &= ~CPU_INTERRUPT_SMI;
-            qemu_mutex_unlock_iothread();
+            bql_unlock();
             DPRINTF("injected SMI\n");
             ret = kvm_vcpu_ioctl(cpu, KVM_SMI);
             if (ret < 0) {
@@ -4968,7 +4968,7 @@ void kvm_arch_pre_run(CPUState *cpu, struct kvm_run *run)
         DPRINTF("setting tpr\n");
         run->cr8 = cpu_get_apic_tpr(x86_cpu->apic_state);
 
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
 }
 
@@ -5021,7 +5021,7 @@ MemTxAttrs kvm_arch_post_run(CPUState *cpu, struct kvm_run *run)
     cpu_set_apic_tpr(x86_cpu->apic_state, run->cr8);
     cpu_set_apic_base(x86_cpu->apic_state, run->apic_base);
     if (!kvm_irqchip_in_kernel()) {
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
     return cpu_get_mem_attrs(env);
 }
@@ -5459,7 +5459,7 @@ int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
         DPRINTF("handle_hlt\n");
         qemu_mutex_lock_iothread();
         ret = kvm_handle_halt(cpu);
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         break;
     case KVM_EXIT_SET_TPR:
         ret = 0;
@@ -5467,7 +5467,7 @@ int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
     case KVM_EXIT_TPR_ACCESS:
         qemu_mutex_lock_iothread();
         ret = kvm_handle_tpr_access(cpu);
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         break;
     case KVM_EXIT_FAIL_ENTRY:
         code = run->fail_entry.hardware_entry_failure_reason;
@@ -5495,7 +5495,7 @@ int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
         DPRINTF("kvm_exit_debug\n");
         qemu_mutex_lock_iothread();
         ret = kvm_handle_debug(cpu, &run->debug.arch);
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         break;
     case KVM_EXIT_HYPERV:
         ret = kvm_hv_handle_exit(cpu, &run->hyperv);

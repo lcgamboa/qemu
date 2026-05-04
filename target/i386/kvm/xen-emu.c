@@ -411,7 +411,7 @@ void kvm_xen_maybe_deassert_callback(CPUState *cs)
             X86_CPU(cs)->env.xen_callback_asserted = false;
             xen_evtchn_set_callback_level(0);
         }
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
     }
 }
 
@@ -773,7 +773,7 @@ static bool handle_set_param(struct kvm_xen_exit *exit, X86CPU *cpu,
     case HVM_PARAM_CALLBACK_IRQ:
         qemu_mutex_lock_iothread();
         err = xen_evtchn_set_callback_param(hp.value);
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         xen_set_long_mode(exit->u.hcall.longmode);
         break;
     default:
@@ -1464,7 +1464,7 @@ static int schedop_shutdown(CPUState *cs, uint64_t arg)
     case SHUTDOWN_soft_reset:
         qemu_mutex_lock_iothread();
         ret = kvm_xen_soft_reset();
-        qemu_mutex_unlock_iothread();
+        bql_unlock();
         break;
 
     default:
