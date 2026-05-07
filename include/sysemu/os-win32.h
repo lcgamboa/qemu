@@ -137,9 +137,11 @@ static inline int os_mlock(void)
 
 int qemu_ftruncate64(int, int64_t);
 
+/*
 #if !defined(ftruncate)
 # define ftruncate qemu_ftruncate64
 #endif
+*/
 
 static inline char *realpath(const char *path, char *resolved_path)
 {

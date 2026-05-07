@@ -220,7 +220,9 @@ static void stm32_uart_start_tx(Stm32Uart *s, uint32_t value) {
   s->USART_SR_TC = 0;
 
   /* Write the character out. */
-  qemu_chr_fe_write(&s->chr, &ch, 1);
+  if (qemu_chr_fe_backend_open(&s->chr)){ 
+    qemu_chr_fe_write(&s->chr, &ch, 1);
+  }
   picsimlab_uart_tx_event(s->id, ch);
 
 #ifdef STM32_UART_NO_BAUD_DELAY
