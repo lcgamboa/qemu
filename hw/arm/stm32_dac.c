@@ -389,9 +389,9 @@ static void stm32_dac_conv_DACC2(void *opaque)
 }
 
 
-static void stm32_dac_reset(DeviceState *dev)
+static void stm32_dac_reset_enter(Object *obj, ResetType type)
 {
-   Stm32Dac *s = STM32_DAC(dev);
+   Stm32Dac *s = STM32_DAC(obj);
    s->LFSR_VALUE=0xAAA;
    s->Vref=2400;
    s->inc_cnt2=true;
@@ -581,7 +581,7 @@ static void stm32_dac_realize(DeviceState *dev, Error **errp)
           qemu_allocate_irqs(stm32_dac_clk_irq_handler, (void *)s, 1);
     stm32_rcc_set_periph_clk_irq(s->stm32_rcc, s->periph, clk_irq[0]);
     
-    stm32_dac_reset((DeviceState *)s);
+    stm32_dac_reset_enter((Object *)s, 0);
 }
 
 void stm32_dac_set_gpio(Stm32Dac *dac, Stm32Gpio** gpio)
@@ -607,13 +607,15 @@ static Property stm32_dac_properties[] = {
 static void stm32_dac_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
+    ResettablePhases rp;
     //SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
     //k->init = stm32_dac_init;
-    dc->reset = stm32_dac_reset;
     dc->realize = stm32_dac_realize;
     //dc->props = stm32_dac_properties;
     device_class_set_props(dc, stm32_dac_properties);
+    ResettableClass *rc = RESETTABLE_CLASS(klass);
+    resettable_class_set_parent_phases(rc, stm32_dac_reset_enter, NULL, NULL, &rp);
 }
 
 static TypeInfo stm32_dac_info = {

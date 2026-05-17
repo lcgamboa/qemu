@@ -153,9 +153,9 @@ static const MemoryRegionOps stm32_spi_ops = {
 };
 
 static void
-stm32_spi_reset(DeviceState *dev)
+stm32_spi_reset_enter(Object *obj, ResetType type)
 {
-    struct stm32_spi_state *s = STM32_SPI(dev);
+    struct stm32_spi_state *s = STM32_SPI(obj);
 
     s->regs[R_SR] = R_SR_RESET;
     switch (s->periph) {
@@ -191,9 +191,11 @@ static void
 stm32_spi_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
+    ResettablePhases rp;
     
-    dc->reset = stm32_spi_reset;
     device_class_set_props(dc, stm32_spi_properties);
+    ResettableClass *rc = RESETTABLE_CLASS(klass);
+    resettable_class_set_parent_phases(rc, stm32_spi_reset_enter, NULL, NULL, &rp);
 }
 
 static const TypeInfo stm32_spi_info = {

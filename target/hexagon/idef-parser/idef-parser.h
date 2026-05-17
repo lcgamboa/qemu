@@ -23,16 +23,6 @@
 #include <stdbool.h>
 #include <glib.h>
 
-#define TCGV_NAME_SIZE 7
-#define MAX_WRITTEN_REGS 32
-#define OFFSET_STR_LEN 32
-#define ALLOC_LIST_LEN 32
-#define ALLOC_NAME_SIZE 32
-#define INIT_LIST_LEN 32
-#define OUT_BUF_LEN (1024 * 1024)
-#define SIGNATURE_BUF_LEN (128 * 1024)
-#define HEADER_BUF_LEN (128 * 1024)
-
 /* Variadic macros to wrap the buffer printing functions */
 #define EMIT(c, ...)                                                           \
     do {                                                                       \
@@ -73,7 +63,7 @@ typedef struct HexTmp {
 } HexTmp;
 
 /**
- * Enum of the possible immediated, an immediate is a value which is known
+ * Enum of the possible immediate, an immediate is a value which is known
  * at tinycode generation time, e.g. an integer value, not a TCGv
  */
 enum ImmUnionTag {

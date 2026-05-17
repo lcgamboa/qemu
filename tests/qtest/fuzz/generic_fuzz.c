@@ -11,6 +11,7 @@
  */
 
 #include "qemu/osdep.h"
+#include "qemu/range.h"
 
 #include <wordexp.h>
 
@@ -211,7 +212,7 @@ void fuzz_dma_read_cb(size_t addr, size_t len, MemoryRegion *mr)
          i < dma_regions->len && (avoid_double_fetches || qtest_log_enabled);
          ++i) {
         region = g_array_index(dma_regions, address_range, i);
-        if (addr < region.addr + region.size && addr + len > region.addr) {
+        if (ranges_overlap(addr, len, region.addr, region.size)) {
             double_fetch = true;
             if (addr < region.addr
                 && avoid_double_fetches) {
@@ -846,9 +847,9 @@ static void generic_pre_fuzz(QTestState *s)
  *          functionality B
  *
  * This function attempts to produce an input that:
- * Ouptut: maps a device's BARs, set up three DMA patterns, triggers
- *          functionality A device, replaces the DMA patterns with a single
- *          patten, and triggers device functionality B.
+ * Output: maps a device's BARs, set up three DMA patterns, triggers
+ *          device functionality A, replaces the DMA patterns with a single
+ *          pattern, and triggers device functionality B.
  */
 static size_t generic_fuzz_crossover(const uint8_t *data1, size_t size1, const
                                      uint8_t *data2, size_t size2, uint8_t *out,

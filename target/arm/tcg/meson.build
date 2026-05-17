@@ -24,6 +24,7 @@ arm_ss.add(when: 'TARGET_AARCH64', if_true: gen_a64)
 
 arm_ss.add(files(
   'cpu32.c',
+  'gengvec.c',
   'translate.c',
   'translate-m-nocp.c',
   'translate-mve.c',
@@ -42,6 +43,7 @@ arm_ss.add(files(
 
 arm_ss.add(when: 'TARGET_AARCH64', if_true: files(
   'cpu64.c',
+  'gengvec64.c',
   'translate-a64.c',
   'translate-sve.c',
   'translate-sme.c',
@@ -55,3 +57,6 @@ arm_ss.add(when: 'TARGET_AARCH64', if_true: files(
 arm_system_ss.add(files(
   'psci.c',
 ))
+
+arm_system_ss.add(when: 'CONFIG_ARM_V7M', if_true: files('cpu-v7m.c'))
+arm_user_ss.add(when: 'TARGET_AARCH64', if_false: files('cpu-v7m.c'))

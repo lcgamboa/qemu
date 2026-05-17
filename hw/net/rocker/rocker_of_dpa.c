@@ -1043,7 +1043,7 @@ static void of_dpa_flow_ig_tbl(OfDpaFlowContext *fc, uint32_t tbl_id)
 static ssize_t of_dpa_ig(World *world, uint32_t pport,
                          const struct iovec *iov, int iovcnt)
 {
-    struct iovec iov_copy[iovcnt + 2];
+    g_autofree struct iovec *iov_copy = g_new(struct iovec, iovcnt + 2);
     OfDpaFlowContext fc = {
         .of_dpa = world_private(world),
         .in_pport = pport,
@@ -1635,8 +1635,8 @@ static int of_dpa_cmd_add_multicast_routing(OfDpaFlow *flow,
     return ROCKER_OK;
 }
 
-static int of_dpa_cmd_add_acl_ip(OfDpaFlowKey *key, OfDpaFlowKey *mask,
-                                 RockerTlv **flow_tlvs)
+static void of_dpa_cmd_add_acl_ip(OfDpaFlowKey *key, OfDpaFlowKey *mask,
+                                  RockerTlv **flow_tlvs)
 {
     key->width = FLOW_KEY_WIDTH(ip.tos);
 
@@ -1669,8 +1669,6 @@ static int of_dpa_cmd_add_acl_ip(OfDpaFlowKey *key, OfDpaFlowKey *mask,
         mask->ip.tos |=
             rocker_tlv_get_u8(flow_tlvs[ROCKER_TLV_OF_DPA_IP_ECN_MASK]) << 6;
     }
-
-    return ROCKER_OK;
 }
 
 static int of_dpa_cmd_add_acl(OfDpaFlow *flow, RockerTlv **flow_tlvs)
@@ -1689,7 +1687,6 @@ static int of_dpa_cmd_add_acl(OfDpaFlow *flow, RockerTlv **flow_tlvs)
         ACL_MODE_ANY_VLAN,
         ACL_MODE_ANY_TENANT,
     } mode = ACL_MODE_UNKNOWN;
-    int err = ROCKER_OK;
 
     if (!flow_tlvs[ROCKER_TLV_OF_DPA_IN_PPORT] ||
         !flow_tlvs[ROCKER_TLV_OF_DPA_ETHERTYPE]) {
@@ -1776,12 +1773,8 @@ static int of_dpa_cmd_add_acl(OfDpaFlow *flow, RockerTlv **flow_tlvs)
     switch (ntohs(key->eth.type)) {
     case 0x0800:
     case 0x86dd:
-        err = of_dpa_cmd_add_acl_ip(key, mask, flow_tlvs);
+        of_dpa_cmd_add_acl_ip(key, mask, flow_tlvs);
         break;
-    }
-
-    if (err) {
-        return err;
     }
 
     if (flow_tlvs[ROCKER_TLV_OF_DPA_GROUP_ID]) {

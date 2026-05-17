@@ -31,6 +31,7 @@
 #include "qemu/error-report.h"
 #include "qemu/module.h"
 #include "hw/ide/pci.h"
+#include "ide-internal.h"
 #include "trace.h"
 
 #define BMDMA_PAGE_SIZE 4096
@@ -104,6 +105,90 @@ const MemoryRegionOps pci_ide_data_le_ops = {
     .endianness = DEVICE_LITTLE_ENDIAN,
 };
 
+void pci_ide_update_mode(PCIIDEState *s)
+{
+    PCIDevice *d = PCI_DEVICE(s);
+    uint8_t mode = d->config[PCI_CLASS_PROG];
+
+    /*
+     * This function only configures the BARs/ioports for now: PCI IDE
+     * controllers must manage their own IRQ routing
+     */
+
+    switch (mode & 0xf) {
+    case 0xa:
+        /* Both channels legacy mode */
+
+        /*
+         * TODO: according to the PCI IDE specification the BARs should
+         * be completely disabled, however Linux for the pegasos2
+         * machine stil accesses the BAR addresses after switching to legacy
+         * mode. Hence we leave them active for now.
+         */
+
+        /* Clear interrupt pin */
+        pci_config_set_interrupt_pin(d->config, 0);
+
+        /* Add legacy IDE ports */
+        if (!s->bus[0].portio_list.owner) {
+            portio_list_init(&s->bus[0].portio_list, OBJECT(d),
+                             ide_portio_list, &s->bus[0], "ide");
+            portio_list_add(&s->bus[0].portio_list,
+                            pci_address_space_io(d), 0x1f0);
+        }
+
+        if (!s->bus[0].portio2_list.owner) {
+            portio_list_init(&s->bus[0].portio2_list, OBJECT(d),
+                             ide_portio2_list, &s->bus[0], "ide");
+            portio_list_add(&s->bus[0].portio2_list,
+                            pci_address_space_io(d), 0x3f6);
+        }
+
+        if (!s->bus[1].portio_list.owner) {
+            portio_list_init(&s->bus[1].portio_list, OBJECT(d),
+                                ide_portio_list, &s->bus[1], "ide");
+            portio_list_add(&s->bus[1].portio_list,
+                            pci_address_space_io(d), 0x170);
+        }
+
+        if (!s->bus[1].portio2_list.owner) {
+            portio_list_init(&s->bus[1].portio2_list, OBJECT(d),
+                             ide_portio2_list, &s->bus[1], "ide");
+            portio_list_add(&s->bus[1].portio2_list,
+                            pci_address_space_io(d), 0x376);
+        }
+        break;
+
+    case 0xf:
+        /* Both channels native mode */
+
+        /* Set interrupt pin */
+        pci_config_set_interrupt_pin(d->config, 1);
+
+        /* Remove legacy IDE ports */
+        if (s->bus[0].portio_list.owner) {
+            portio_list_del(&s->bus[0].portio_list);
+            portio_list_destroy(&s->bus[0].portio_list);
+        }
+
+        if (s->bus[0].portio2_list.owner) {
+            portio_list_del(&s->bus[0].portio2_list);
+            portio_list_destroy(&s->bus[0].portio2_list);
+        }
+
+        if (s->bus[1].portio_list.owner) {
+            portio_list_del(&s->bus[1].portio_list);
+            portio_list_destroy(&s->bus[1].portio_list);
+        }
+
+        if (s->bus[1].portio2_list.owner) {
+            portio_list_del(&s->bus[1].portio2_list);
+            portio_list_destroy(&s->bus[1].portio2_list);
+        }
+        break;
+    }
+}
+
 static IDEState *bmdma_active_if(BMDMAState *bmdma)
 {
     assert(bmdma->bus->retry_unit != (uint8_t)-1);
@@ -152,7 +237,7 @@ static int32_t bmdma_prepare_buf(const IDEDMA *dma, int32_t limit)
             /* end of table (with a fail safe of one page) */
             if (bm->cur_prd_last ||
                 (bm->cur_addr - bm->addr) >= BMDMA_PAGE_SIZE) {
-                return s->sg.size;
+                break;
             }
             pci_dma_read(pci_dev, bm->cur_addr, &prd, 8);
             bm->cur_addr += 8;
@@ -181,10 +266,7 @@ static int32_t bmdma_prepare_buf(const IDEDMA *dma, int32_t limit)
             s->io_buffer_size += l;
         }
     }
-
-    qemu_sglist_destroy(&s->sg);
-    s->io_buffer_size = 0;
-    return -1;
+    return s->sg.size;
 }
 
 /* return 0 if buffer completed */
@@ -417,7 +499,7 @@ static const VMStateDescription vmstate_bmdma_current = {
     .version_id = 1,
     .minimum_version_id = 1,
     .needed = ide_bmdma_current_needed,
-    .fields = (VMStateField[]) {
+    .fields = (const VMStateField[]) {
         VMSTATE_UINT32(cur_addr, BMDMAState),
         VMSTATE_UINT32(cur_prd_last, BMDMAState),
         VMSTATE_UINT32(cur_prd_addr, BMDMAState),
@@ -431,7 +513,7 @@ static const VMStateDescription vmstate_bmdma_status = {
     .version_id = 1,
     .minimum_version_id = 1,
     .needed = ide_bmdma_status_needed,
-    .fields = (VMStateField[]) {
+    .fields = (const VMStateField[]) {
         VMSTATE_UINT8(status, BMDMAState),
         VMSTATE_END_OF_LIST()
     }
@@ -442,7 +524,7 @@ static const VMStateDescription vmstate_bmdma = {
     .version_id = 3,
     .minimum_version_id = 0,
     .pre_save  = ide_bmdma_pre_save,
-    .fields = (VMStateField[]) {
+    .fields = (const VMStateField[]) {
         VMSTATE_UINT8(cmd, BMDMAState),
         VMSTATE_UINT8(migration_compat_status, BMDMAState),
         VMSTATE_UINT32(addr, BMDMAState),
@@ -451,7 +533,7 @@ static const VMStateDescription vmstate_bmdma = {
         VMSTATE_UINT8(migration_retry_unit, BMDMAState),
         VMSTATE_END_OF_LIST()
     },
-    .subsections = (const VMStateDescription*[]) {
+    .subsections = (const VMStateDescription * const []) {
         &vmstate_bmdma_current,
         &vmstate_bmdma_status,
         NULL
@@ -478,7 +560,7 @@ const VMStateDescription vmstate_ide_pci = {
     .version_id = 3,
     .minimum_version_id = 0,
     .post_load = ide_pci_post_load,
-    .fields = (VMStateField[]) {
+    .fields = (const VMStateField[]) {
         VMSTATE_PCI_DEVICE(parent_obj, PCIIDEState),
         VMSTATE_STRUCT_ARRAY(bmdma, PCIIDEState, 2, 0,
                              vmstate_bmdma, BMDMAState),

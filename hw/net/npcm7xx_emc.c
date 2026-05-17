@@ -29,8 +29,7 @@
 
 #include "qemu/osdep.h"
 
-/* For crc32 */
-#include <zlib.h>
+#include <zlib.h> /* for crc32 */
 
 #include "hw/irq.h"
 #include "hw/qdev-clock.h"
@@ -821,7 +820,8 @@ static void npcm7xx_emc_realize(DeviceState *dev, Error **errp)
 
     qemu_macaddr_default_if_unset(&emc->conf.macaddr);
     emc->nic = qemu_new_nic(&net_npcm7xx_emc_info, &emc->conf,
-                            object_get_typename(OBJECT(dev)), dev->id, emc);
+                            object_get_typename(OBJECT(dev)), dev->id,
+                            &dev->mem_reentrancy_guard, emc);
     qemu_format_nic_info_str(qemu_get_queue(emc->nic), emc->conf.macaddr.a);
 }
 
@@ -836,7 +836,7 @@ static const VMStateDescription vmstate_npcm7xx_emc = {
     .name = TYPE_NPCM7XX_EMC,
     .version_id = 0,
     .minimum_version_id = 0,
-    .fields = (VMStateField[]) {
+    .fields = (const VMStateField[]) {
         VMSTATE_UINT8(emc_num, NPCM7xxEMCState),
         VMSTATE_UINT32_ARRAY(regs, NPCM7xxEMCState, NPCM7XX_NUM_EMC_REGS),
         VMSTATE_BOOL(tx_active, NPCM7xxEMCState),
@@ -858,7 +858,7 @@ static void npcm7xx_emc_class_init(ObjectClass *klass, void *data)
     dc->desc = "NPCM7xx EMC Controller";
     dc->realize = npcm7xx_emc_realize;
     dc->unrealize = npcm7xx_emc_unrealize;
-    dc->reset = npcm7xx_emc_reset;
+    device_class_set_legacy_reset(dc, npcm7xx_emc_reset);
     dc->vmsd = &vmstate_npcm7xx_emc;
     device_class_set_props(dc, npcm7xx_emc_properties);
 }

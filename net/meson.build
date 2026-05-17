@@ -20,6 +20,8 @@ if get_option('replication').allowed() or \
     get_option('colo_proxy').allowed()
   system_ss.add(files('colo-compare.c'))
   system_ss.add(files('colo.c'))
+else
+  system_ss.add(files('colo-stubs.c'))
 endif
 
 if get_option('colo_proxy').allowed()
@@ -36,23 +38,26 @@ system_ss.add(when: vde, if_true: files('vde.c'))
 if have_netmap
   system_ss.add(files('netmap.c'))
 endif
+
+system_ss.add(when: [libxdp, libbpf], if_true: files('af-xdp.c'))
+
 if have_vhost_net_user
   system_ss.add(when: 'CONFIG_VIRTIO_NET', if_true: files('vhost-user.c'), if_false: files('vhost-user-stub.c'))
-  system_ss.add(when: 'CONFIG_ALL', if_true: files('vhost-user-stub.c'))
 endif
 
-system_ss.add(when: 'CONFIG_LINUX', if_true: files('tap-linux.c'))
-system_ss.add(when: 'CONFIG_BSD', if_true: files('tap-bsd.c'))
-system_ss.add(when: 'CONFIG_SOLARIS', if_true: files('tap-solaris.c'))
-tap_posix = ['tap.c']
-if not config_host.has_key('CONFIG_LINUX') and not config_host.has_key('CONFIG_BSD') and not config_host.has_key('CONFIG_SOLARIS')
-  tap_posix += 'tap-stub.c'
+if host_os == 'windows'
+  system_ss.add(files('tap-win32.c'))
+elif host_os == 'linux'
+  system_ss.add(files('tap.c', 'tap-linux.c'))
+elif host_os in bsd_oses
+  system_ss.add(files('tap.c', 'tap-bsd.c'))
+elif host_os == 'sunos'
+  system_ss.add(files('tap.c', 'tap-solaris.c'))
+else
+  system_ss.add(files('tap.c', 'tap-stub.c'))
 endif
-system_ss.add(when: 'CONFIG_POSIX', if_true: files(tap_posix))
-system_ss.add(when: 'CONFIG_WIN32', if_true: files('tap-win32.c'))
 if have_vhost_net_vdpa
   system_ss.add(when: 'CONFIG_VIRTIO_NET', if_true: files('vhost-vdpa.c'), if_false: files('vhost-vdpa-stub.c'))
-  system_ss.add(when: 'CONFIG_ALL', if_true: files('vhost-vdpa-stub.c'))
 endif
 
 vmnet_files = files(

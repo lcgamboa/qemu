@@ -33,8 +33,9 @@
 #include "migration/vmstate.h"
 #include "qemu/cutils.h"
 #include "qemu/module.h"
+#include "qemu/error-report.h"
 #include "trace.h"
-#include <zlib.h>
+#include <zlib.h> /* for adler32 */
 
 #define DEF_SYSTEM_SIZE 0xc10
 
@@ -48,7 +49,10 @@ static void macio_nvram_writeb(void *opaque, hwaddr addr,
     trace_macio_nvram_write(addr, value);
     s->data[addr] = value;
     if (s->blk) {
-        blk_pwrite(s->blk, addr, 1, &s->data[addr], 0);
+        if (blk_pwrite(s->blk, addr, 1, &s->data[addr], 0) < 0) {
+            error_report("%s: write of NVRAM data to backing store failed",
+                         blk_name(s->blk));
+        }
     }
 }
 
@@ -79,7 +83,7 @@ static const VMStateDescription vmstate_macio_nvram = {
     .name = "macio_nvram",
     .version_id = 1,
     .minimum_version_id = 1,
-    .fields = (VMStateField[]) {
+    .fields = (const VMStateField[]) {
         VMSTATE_VBUFFER_UINT32(data, MacIONVRAMState, 0, NULL, size),
         VMSTATE_END_OF_LIST()
     }
@@ -143,7 +147,7 @@ static void macio_nvram_class_init(ObjectClass *oc, void *data)
 
     dc->realize = macio_nvram_realizefn;
     dc->unrealize = macio_nvram_unrealizefn;
-    dc->reset = macio_nvram_reset;
+    device_class_set_legacy_reset(dc, macio_nvram_reset);
     dc->vmsd = &vmstate_macio_nvram;
     device_class_set_props(dc, macio_nvram_properties);
     set_bit(DEVICE_CATEGORY_MISC, dc->categories);

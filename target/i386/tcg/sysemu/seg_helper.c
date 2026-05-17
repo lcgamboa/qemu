@@ -20,6 +20,7 @@
 
 #include "qemu/osdep.h"
 #include "qemu/log.h"
+#include "qemu/main-loop.h"
 #include "cpu.h"
 #include "exec/helper-proto.h"
 #include "exec/cpu_ldst.h"
@@ -125,6 +126,40 @@ void x86_cpu_do_interrupt(CPUState *cs)
         /* successfully delivered */
         env->old_exception = -1;
     }
+}
+
+bool x86_cpu_exec_halt(CPUState *cpu)
+{
+    X86CPU *x86_cpu = X86_CPU(cpu);
+    CPUX86State *env = &x86_cpu->env;
+
+    if (cpu->interrupt_request & CPU_INTERRUPT_POLL) {
+        bql_lock();
+        apic_poll_irq(x86_cpu->apic_state);
+        cpu_reset_interrupt(cpu, CPU_INTERRUPT_POLL);
+        bql_unlock();
+    }
+
+    if (!cpu_has_work(cpu)) {
+        return false;
+    }
+
+    /* Complete HLT instruction.  */
+    if (env->eflags & TF_MASK) {
+        env->dr[6] |= DR6_BS;
+        do_interrupt_all(x86_cpu, EXCP01_DB, 0, 0, env->eip, 0);
+    }
+    return true;
+}
+
+bool x86_need_replay_interrupt(int interrupt_request)
+{
+    /*
+     * CPU_INTERRUPT_POLL is a virtual event which gets converted into a
+     * "real" interrupt event later. It does not need to be recorded for
+     * replay purposes.
+     */
+    return !(interrupt_request & CPU_INTERRUPT_POLL);
 }
 
 bool x86_cpu_exec_interrupt(CPUState *cs, int interrupt_request)

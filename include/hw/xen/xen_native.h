@@ -464,10 +464,11 @@ static inline void xen_unmap_pcidev(domid_t dom,
 }
 
 static inline int xen_create_ioreq_server(domid_t dom,
+                                          int handle_bufioreq,
                                           ioservid_t *ioservid)
 {
     int rc = xendevicemodel_create_ioreq_server(xen_dmod, dom,
-                                                HVM_IOREQSRV_BUFIOREQ_ATOMIC,
+                                                handle_bufioreq,
                                                 ioservid);
 
     if (rc == 0) {
@@ -522,5 +523,29 @@ static inline int xen_set_ioreq_server_state(domid_t dom,
     return xendevicemodel_set_ioreq_server_state(xen_dmod, dom, ioservid,
                                                  enable);
 }
+
+#if CONFIG_XEN_CTRL_INTERFACE_VERSION < 41500
+static inline int xendevicemodel_set_irq_level(xendevicemodel_handle *dmod,
+                                               domid_t domid, uint32_t irq,
+                                               unsigned int level)
+{
+    return -1;
+}
+#endif
+
+#if CONFIG_XEN_CTRL_INTERFACE_VERSION < 41700
+#define GUEST_VIRTIO_MMIO_BASE   xen_mk_ullong(0x02000000)
+#define GUEST_VIRTIO_MMIO_SIZE   xen_mk_ullong(0x00100000)
+#define GUEST_VIRTIO_MMIO_SPI_FIRST   33
+#define GUEST_VIRTIO_MMIO_SPI_LAST    43
+#endif
+
+#if defined(__i386__) || defined(__x86_64__)
+#define GUEST_RAM_BANKS   2
+#define GUEST_RAM0_BASE   0x40000000ULL /* 3GB of low RAM @ 1GB */
+#define GUEST_RAM0_SIZE   0xc0000000ULL
+#define GUEST_RAM1_BASE   0x0200000000ULL /* 1016GB of RAM @ 8GB */
+#define GUEST_RAM1_SIZE   0xfe00000000ULL
+#endif
 
 #endif /* QEMU_HW_XEN_NATIVE_H */

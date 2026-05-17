@@ -22,6 +22,7 @@
 #include "qapi/qapi-visit-sockets.h"
 #include "qemu/module.h"
 #include "io/channel-socket.h"
+#include "io/channel-util.h"
 #include "io/channel-watch.h"
 #include "trace.h"
 #include "qapi/clone-visitor.h"
@@ -781,6 +782,11 @@ static int qio_channel_socket_flush(QIOChannel *ioc,
                              "Error not from zero copy");
             return -1;
         }
+        if (serr->ee_data < serr->ee_info) {
+            error_setg_errno(errp, serr->ee_origin,
+                             "Wrong notification bounds");
+            return -1;
+        }
 
         /* No errors, count successfully finished sendmsg()*/
         sioc->zero_copy_sent += serr->ee_data - serr->ee_info + 1;
@@ -835,6 +841,33 @@ qio_channel_socket_set_cork(QIOChannel *ioc,
     socket_set_cork(sioc->fd, v);
 }
 
+static int
+qio_channel_socket_get_peerpid(QIOChannel *ioc,
+                               unsigned int *pid,
+                               Error **errp)
+{
+#ifdef CONFIG_LINUX
+    QIOChannelSocket *sioc = QIO_CHANNEL_SOCKET(ioc);
+    Error *err = NULL;
+    socklen_t len = sizeof(struct ucred);
+
+    struct ucred cred;
+    if (getsockopt(sioc->fd,
+               SOL_SOCKET, SO_PEERCRED,
+               &cred, &len) == -1) {
+        error_setg_errno(&err, errno, "Unable to get peer credentials");
+        error_propagate(errp, err);
+        *pid = -1;
+        return -1;
+    }
+    *pid = (unsigned int)cred.pid;
+    return 0;
+#else
+    error_setg(errp, "Unsupported feature");
+    *pid = -1;
+    return -1;
+#endif
+}
 
 static int
 qio_channel_socket_close(QIOChannel *ioc,
@@ -893,13 +926,17 @@ qio_channel_socket_shutdown(QIOChannel *ioc,
 }
 
 static void qio_channel_socket_set_aio_fd_handler(QIOChannel *ioc,
-                                                  AioContext *ctx,
+                                                  AioContext *read_ctx,
                                                   IOHandler *io_read,
+                                                  AioContext *write_ctx,
                                                   IOHandler *io_write,
                                                   void *opaque)
 {
     QIOChannelSocket *sioc = QIO_CHANNEL_SOCKET(ioc);
-    aio_set_fd_handler(ctx, sioc->fd, io_read, io_write, NULL, NULL, opaque);
+
+    qio_channel_util_set_aio_fd_handler(sioc->fd, read_ctx, io_read,
+                                        sioc->fd, write_ctx, io_write,
+                                        opaque);
 }
 
 static GSource *qio_channel_socket_create_watch(QIOChannel *ioc,
@@ -928,6 +965,7 @@ static void qio_channel_socket_class_init(ObjectClass *klass,
 #ifdef QEMU_MSG_ZEROCOPY
     ioc_klass->io_flush = qio_channel_socket_flush;
 #endif
+    ioc_klass->io_peerpid = qio_channel_socket_get_peerpid;
 }
 
 static const TypeInfo qio_channel_socket_info = {

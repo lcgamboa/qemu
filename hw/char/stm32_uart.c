@@ -601,8 +601,8 @@ static void stm32_uart_USART_CR3_write(Stm32Uart *s, uint32_t new_value,
   }
 }
 
-static void stm32_uart_reset(DeviceState *dev) {
-  Stm32Uart *s = STM32_UART(dev);
+static void stm32_uart_reset_enter(Object *obj, ResetType type){
+  Stm32Uart *s = STM32_UART(obj);
 
   /* Initialize the status registers.  These are mostly
    * read-only, so we do not call the "write" routine
@@ -759,7 +759,7 @@ static void stm32_uart_realize(DeviceState *dev, Error **errp) {
 
   clk_irq = qemu_allocate_irqs(stm32_uart_clk_irq_handler, (void *)s, 1);
   stm32_rcc_set_periph_clk_irq(s->stm32_rcc, s->periph, clk_irq[0]);
-  stm32_uart_reset((DeviceState *)s);
+  stm32_uart_reset_enter((Object *)s, 0);
 }
 
 void stm32_uart_set_gpio(Stm32Uart *uart, Stm32Gpio **gpio) {
@@ -788,13 +788,15 @@ static Property stm32_uart_properties[] = {
 
 static void stm32_uart_class_init(ObjectClass *klass, void *data) {
   DeviceClass *dc = DEVICE_CLASS(klass);
+  ResettablePhases rp;
   // SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
   // k->init = stm32_uart_init;
   dc->realize = stm32_uart_realize;
-  dc->reset = stm32_uart_reset;
   // dc->props = stm32_uart_properties;
   device_class_set_props(dc, stm32_uart_properties);
+  ResettableClass *rc = RESETTABLE_CLASS(klass);
+  resettable_class_set_parent_phases(rc, stm32_uart_reset_enter, NULL, NULL, &rp);
 }
 
 static TypeInfo stm32_uart_info = {.name = "stm32-uart",

@@ -1,6 +1,8 @@
 Introduction
 ============
 
+.. _Accelerators:
+
 Virtualisation Accelerators
 ---------------------------
 
@@ -21,9 +23,6 @@ Tiny Code Generator (TCG) capable of emulating many CPUs.
   * - Xen
     - Linux (as dom0)
     - Arm, x86
-  * - Intel HAXM (hax)
-    - Linux, Windows
-    - x86
   * - Hypervisor Framework (hvf)
     - MacOS
     - x86 (64 bit only), Arm (64 bit only)

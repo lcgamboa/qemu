@@ -146,7 +146,7 @@ static const VMStateDescription vmstate_xio3130_downstream = {
     .version_id = 1,
     .minimum_version_id = 1,
     .post_load = pcie_cap_slot_post_load,
-    .fields = (VMStateField[]) {
+    .fields = (const VMStateField[]) {
         VMSTATE_PCI_DEVICE(parent_obj.parent_obj.parent_obj, PCIESlot),
         VMSTATE_STRUCT(parent_obj.parent_obj.parent_obj.exp.aer_log,
                        PCIESlot, 0, vmstate_pcie_aer_log, PCIEAERLog),
@@ -167,7 +167,7 @@ static void xio3130_downstream_class_init(ObjectClass *klass, void *data)
     k->revision = XIO3130_REVISION;
     set_bit(DEVICE_CATEGORY_BRIDGE, dc->categories);
     dc->desc = "TI X3130 Downstream Port of PCI Express Switch";
-    dc->reset = xio3130_downstream_reset;
+    device_class_set_legacy_reset(dc, xio3130_downstream_reset);
     dc->vmsd = &vmstate_xio3130_downstream;
     device_class_set_props(dc, xio3130_downstream_props);
 }

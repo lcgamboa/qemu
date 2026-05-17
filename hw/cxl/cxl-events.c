@@ -7,11 +7,9 @@
  * COPYING file in the top-level directory.
  */
 
-#include <stdint.h>
-
 #include "qemu/osdep.h"
+
 #include "qemu/bswap.h"
-#include "qemu/typedefs.h"
 #include "qemu/error-report.h"
 #include "hw/pci/msi.h"
 #include "hw/pci/msix.h"
@@ -141,9 +139,22 @@ bool cxl_event_insert(CXLDeviceState *cxlds, CXLEventLogType log_type,
     return cxl_event_count(log) == 1;
 }
 
+void cxl_discard_all_event_records(CXLDeviceState *cxlds)
+{
+    CXLEventLogType log_type;
+    CXLEventLog *log;
+
+    for (log_type = 0; log_type < CXL_EVENT_TYPE_MAX; log_type++) {
+        log = &cxlds->event_logs[log_type];
+        while (!cxl_event_empty(log)) {
+            cxl_event_delete_head(cxlds, log_type, log);
+        }
+    }
+}
+
 CXLRetCode cxl_event_get_records(CXLDeviceState *cxlds, CXLGetEventPayload *pl,
                                  uint8_t log_type, int max_recs,
-                                 uint16_t *len)
+                                 size_t *len)
 {
     CXLEventLog *log;
     CXLEvent *entry;
@@ -170,8 +181,10 @@ CXLRetCode cxl_event_get_records(CXLDeviceState *cxlds, CXLGetEventPayload *pl,
     if (log->overflow_err_count) {
         pl->flags |= CXL_GET_EVENT_FLAG_OVERFLOW;
         pl->overflow_err_count = cpu_to_le16(log->overflow_err_count);
-        pl->first_overflow_timestamp = cpu_to_le64(log->first_overflow_timestamp);
-        pl->last_overflow_timestamp = cpu_to_le64(log->last_overflow_timestamp);
+        pl->first_overflow_timestamp =
+            cpu_to_le64(log->first_overflow_timestamp);
+        pl->last_overflow_timestamp =
+            cpu_to_le64(log->last_overflow_timestamp);
     }
 
     pl->record_count = cpu_to_le16(nr);
@@ -180,7 +193,8 @@ CXLRetCode cxl_event_get_records(CXLDeviceState *cxlds, CXLGetEventPayload *pl,
     return CXL_MBOX_SUCCESS;
 }
 
-CXLRetCode cxl_event_clear_records(CXLDeviceState *cxlds, CXLClearEventPayload *pl)
+CXLRetCode cxl_event_clear_records(CXLDeviceState *cxlds,
+                                   CXLClearEventPayload *pl)
 {
     CXLEventLog *log;
     uint8_t log_type;
@@ -197,13 +211,13 @@ CXLRetCode cxl_event_clear_records(CXLDeviceState *cxlds, CXLClearEventPayload *
 
     QEMU_LOCK_GUARD(&log->lock);
     /*
-     * Must itterate the queue twice.
+     * Must iterate the queue twice.
      * "The device shall verify the event record handles specified in the input
      * payload are in temporal order. If the device detects an older event
      * record that will not be cleared when Clear Event Records is executed,
      * the device shall return the Invalid Handle return code and shall not
      * clear any of the specified event records."
-     *   -- CXL 3.0 8.2.9.2.3
+     *   -- CXL r3.1 Section 8.2.9.2.3: Clear Event Records (0101h)
      */
     entry = cxl_event_get_head(log);
     for (nr = 0; entry && nr < pl->nr_recs; nr++) {

@@ -661,7 +661,7 @@ static uint32_t stm32_ADC_DR_read(Stm32Adc *s);
 static void stm32_adc_clk_irq_handler(void *opaque, int n, int level);
 static void stm32_ADC_update_irq(Stm32Adc *s);
 static void stm32_adc_start_conv(Stm32Adc *s);
-static void stm32_adc_reset(DeviceState *dev);
+static void stm32_adc_reset_enter(Object *obj, ResetType type);
 
 /* HELPER FUNCTIONS */
 
@@ -911,9 +911,9 @@ static uint32_t stm32_ADC_DR_read(Stm32Adc *s)
 
 
 
-static void stm32_adc_reset(DeviceState *dev)
+static void stm32_adc_reset_enter(Object *obj, ResetType type)
 {
-    Stm32Adc *s = STM32_ADC(dev);
+    Stm32Adc *s = STM32_ADC(obj);
     s->ADC_SR=0x00000000;
     s->ADC_CR1=0x00000000;
     s->ADC_CR2=0x00000000;
@@ -1063,7 +1063,7 @@ static void stm32_adc_realize(DeviceState *dev, Error **errp)
     clk_irq = qemu_allocate_irqs(stm32_adc_clk_irq_handler, (void *)s, 1);   // jmf : segfault
     
     stm32_rcc_set_periph_clk_irq(s->stm32_rcc, s->periph, clk_irq[0]);
-    stm32_adc_reset((DeviceState *)s);
+    stm32_adc_reset_enter((Object *)s, 0);
     s->Vdda=rand()%(1200+1) +2400; //Vdda belongs to the interval [2400 3600] mv
     s->Vref=rand()%(s->Vdda-2400+1) +2400; //Vref belongs to the interval [2400 Vdda] mv
 }
@@ -1091,11 +1091,13 @@ static Property stm32_adc_properties[] = {
 static void stm32_adc_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
+    ResettablePhases rp;
     //SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
-    dc->reset = stm32_adc_reset;
     dc->realize = stm32_adc_realize;
     device_class_set_props(dc, stm32_adc_properties);
+    ResettableClass *rc = RESETTABLE_CLASS(klass);
+    resettable_class_set_parent_phases(rc, stm32_adc_reset_enter, NULL, NULL, &rp);
 }
 
 static TypeInfo stm32_adc_info = {

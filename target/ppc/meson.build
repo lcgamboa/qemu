@@ -30,7 +30,6 @@ gen = [
 ]
 ppc_ss.add(when: 'CONFIG_TCG', if_true: gen)
 
-ppc_ss.add(when: 'CONFIG_KVM', if_true: files('kvm.c'), if_false: files('kvm-stub.c'))
 ppc_ss.add(when: 'CONFIG_USER_ONLY', if_true: files('user_only_helper.c'))
 
 ppc_system_ss = ss.source_set()
@@ -38,6 +37,7 @@ ppc_system_ss.add(files(
   'arch_dump.c',
   'machine.c',
   'mmu-hash32.c',
+  'mmu-booke.c',
   'mmu_common.c',
   'ppc-qmp-cmds.c',
 ))
@@ -46,6 +46,7 @@ ppc_system_ss.add(when: 'CONFIG_TCG', if_true: files(
 ), if_false: files(
   'tcg-stub.c',
 ))
+ppc_system_ss.add(when: 'CONFIG_KVM', if_true: files('kvm.c'))
 
 ppc_system_ss.add(when: 'TARGET_PPC64', if_true: files(
   'compat.c',
@@ -55,4 +56,4 @@ ppc_system_ss.add(when: 'TARGET_PPC64', if_true: files(
 ))
 
 target_arch += {'ppc': ppc_ss}
-target_softmmu_arch += {'ppc': ppc_system_ss}
+target_system_arch += {'ppc': ppc_system_ss}

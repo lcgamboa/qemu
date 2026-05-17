@@ -344,9 +344,9 @@ static const MemoryRegionOps stm32_i2c_ops = {
 };
 
 static void
-stm32_i2c_reset(DeviceState *dev)
+stm32_i2c_reset_enter(Object *obj, ResetType type)
 {
-    stm32_i2c_state *s = STM32_I2C(dev);
+    stm32_i2c_state *s = STM32_I2C(obj);
 //    s->regs[R_SR] = R_SR_RESET;
       s->clrseq = 0;
       s->needstop = 0;
@@ -379,8 +379,10 @@ static void
 stm32_i2c_class_init(ObjectClass *c, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(c);
-    dc->reset = stm32_i2c_reset;
+    ResettablePhases rp;
     device_class_set_props(dc, stm32_i2c_properties);
+	ResettableClass *rc = RESETTABLE_CLASS(dc);
+    resettable_class_set_parent_phases(rc, stm32_i2c_reset_enter, NULL, NULL, &rp);	
 }
 
 static const TypeInfo stm32_i2c_info = {

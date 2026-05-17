@@ -10,7 +10,7 @@
 
 struct QemuInputHandlerState {
     DeviceState       *dev;
-    QemuInputHandler  *handler;
+    const QemuInputHandler *handler;
     int               id;
     int               events;
     QemuConsole       *con;
@@ -46,7 +46,7 @@ static uint32_t queue_count;
 static uint32_t queue_limit = 1024;
 
 QemuInputHandlerState *qemu_input_handler_register(DeviceState *dev,
-                                                   QemuInputHandler *handler)
+                                            const QemuInputHandler *handler)
 {
     QemuInputHandlerState *s = g_new0(QemuInputHandlerState, 1);
     static int id = 1;
@@ -56,7 +56,7 @@ QemuInputHandlerState *qemu_input_handler_register(DeviceState *dev,
     s->id = id++;
     QTAILQ_INSERT_TAIL(&handlers, s, node);
 
-    qemu_input_check_mode_change();
+    notifier_list_notify(&mouse_mode_notifiers, NULL);
     return s;
 }
 
@@ -64,21 +64,21 @@ void qemu_input_handler_activate(QemuInputHandlerState *s)
 {
     QTAILQ_REMOVE(&handlers, s, node);
     QTAILQ_INSERT_HEAD(&handlers, s, node);
-    qemu_input_check_mode_change();
+    notifier_list_notify(&mouse_mode_notifiers, NULL);
 }
 
 void qemu_input_handler_deactivate(QemuInputHandlerState *s)
 {
     QTAILQ_REMOVE(&handlers, s, node);
     QTAILQ_INSERT_TAIL(&handlers, s, node);
-    qemu_input_check_mode_change();
+    notifier_list_notify(&mouse_mode_notifiers, NULL);
 }
 
 void qemu_input_handler_unregister(QemuInputHandlerState *s)
 {
     QTAILQ_REMOVE(&handlers, s, node);
     g_free(s);
-    qemu_input_check_mode_change();
+    notifier_list_notify(&mouse_mode_notifiers, NULL);
 }
 
 void qemu_input_handler_bind(QemuInputHandlerState *s,
@@ -172,37 +172,6 @@ void qmp_input_send_event(const char *device,
     }
 
     qemu_input_event_sync();
-}
-
-static int qemu_input_transform_invert_abs_value(int value)
-{
-  return (int64_t)INPUT_EVENT_ABS_MAX - value + INPUT_EVENT_ABS_MIN;
-}
-
-static void qemu_input_transform_abs_rotate(InputEvent *evt)
-{
-    InputMoveEvent *move = evt->u.abs.data;
-    switch (graphic_rotate) {
-    case 90:
-        if (move->axis == INPUT_AXIS_X) {
-            move->axis = INPUT_AXIS_Y;
-        } else if (move->axis == INPUT_AXIS_Y) {
-            move->axis = INPUT_AXIS_X;
-            move->value = qemu_input_transform_invert_abs_value(move->value);
-        }
-        break;
-    case 180:
-        move->value = qemu_input_transform_invert_abs_value(move->value);
-        break;
-    case 270:
-        if (move->axis == INPUT_AXIS_X) {
-            move->axis = INPUT_AXIS_Y;
-            move->value = qemu_input_transform_invert_abs_value(move->value);
-        } else if (move->axis == INPUT_AXIS_Y) {
-            move->axis = INPUT_AXIS_X;
-        }
-        break;
-    }
 }
 
 static void qemu_input_event_trace(QemuConsole *src, InputEvent *evt)
@@ -339,11 +308,6 @@ void qemu_input_event_send_impl(QemuConsole *src, InputEvent *evt)
     QemuInputHandlerState *s;
 
     qemu_input_event_trace(src, evt);
-
-    /* pre processing */
-    if (graphic_rotate && (evt->type == INPUT_EVENT_KIND_ABS)) {
-            qemu_input_transform_abs_rotate(evt);
-    }
 
     /* send event */
     s = qemu_input_find_handler(1 << evt->type, src);
@@ -494,12 +458,12 @@ void qemu_input_update_buttons(QemuConsole *src, uint32_t *button_map,
     }
 }
 
-bool qemu_input_is_absolute(void)
+bool qemu_input_is_absolute(QemuConsole *con)
 {
     QemuInputHandlerState *s;
 
     s = qemu_input_find_handler(INPUT_EVENT_MASK_REL | INPUT_EVENT_MASK_ABS,
-                                NULL);
+                                con);
     return (s != NULL) && (s->handler->mask & INPUT_EVENT_MASK_ABS);
 }
 
@@ -583,21 +547,6 @@ void qemu_input_queue_mtt_abs(QemuConsole *src, InputAxis axis, int value,
     qemu_input_event_send(src, &evt);
 }
 
-void qemu_input_check_mode_change(void)
-{
-    static int current_is_absolute;
-    int is_absolute;
-
-    is_absolute = qemu_input_is_absolute();
-
-    if (is_absolute != current_is_absolute) {
-        trace_input_mouse_mode(is_absolute);
-        notifier_list_notify(&mouse_mode_notifiers, NULL);
-    }
-
-    current_is_absolute = is_absolute;
-}
-
 void qemu_add_mouse_mode_change_notifier(Notifier *notify)
 {
     notifier_list_add(&mouse_mode_notifiers, notify);
@@ -657,6 +606,6 @@ bool qemu_mouse_set(int index, Error **errp)
     }
 
     qemu_input_handler_activate(s);
-    qemu_input_check_mode_change();
+    notifier_list_notify(&mouse_mode_notifiers, NULL);
     return true;
 }

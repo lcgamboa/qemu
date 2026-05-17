@@ -24,7 +24,6 @@
 #include "cpu.h"
 #include "exec/exec-all.h"
 #include "tcg/tcg-op.h"
-#include "exec/cpu_ldst.h"
 #include "exec/helper-proto.h"
 #include "exec/helper-gen.h"
 #include "exec/log.h"
@@ -127,25 +126,25 @@ void avr_cpu_tcg_init(void)
     int i;
 
 #define AVR_REG_OFFS(x) offsetof(CPUAVRState, x)
-    cpu_pc = tcg_global_mem_new_i32(cpu_env, AVR_REG_OFFS(pc_w), "pc");
-    cpu_Cf = tcg_global_mem_new_i32(cpu_env, AVR_REG_OFFS(sregC), "Cf");
-    cpu_Zf = tcg_global_mem_new_i32(cpu_env, AVR_REG_OFFS(sregZ), "Zf");
-    cpu_Nf = tcg_global_mem_new_i32(cpu_env, AVR_REG_OFFS(sregN), "Nf");
-    cpu_Vf = tcg_global_mem_new_i32(cpu_env, AVR_REG_OFFS(sregV), "Vf");
-    cpu_Sf = tcg_global_mem_new_i32(cpu_env, AVR_REG_OFFS(sregS), "Sf");
-    cpu_Hf = tcg_global_mem_new_i32(cpu_env, AVR_REG_OFFS(sregH), "Hf");
-    cpu_Tf = tcg_global_mem_new_i32(cpu_env, AVR_REG_OFFS(sregT), "Tf");
-    cpu_If = tcg_global_mem_new_i32(cpu_env, AVR_REG_OFFS(sregI), "If");
-    cpu_rampD = tcg_global_mem_new_i32(cpu_env, AVR_REG_OFFS(rampD), "rampD");
-    cpu_rampX = tcg_global_mem_new_i32(cpu_env, AVR_REG_OFFS(rampX), "rampX");
-    cpu_rampY = tcg_global_mem_new_i32(cpu_env, AVR_REG_OFFS(rampY), "rampY");
-    cpu_rampZ = tcg_global_mem_new_i32(cpu_env, AVR_REG_OFFS(rampZ), "rampZ");
-    cpu_eind = tcg_global_mem_new_i32(cpu_env, AVR_REG_OFFS(eind), "eind");
-    cpu_sp = tcg_global_mem_new_i32(cpu_env, AVR_REG_OFFS(sp), "sp");
-    cpu_skip = tcg_global_mem_new_i32(cpu_env, AVR_REG_OFFS(skip), "skip");
+    cpu_pc = tcg_global_mem_new_i32(tcg_env, AVR_REG_OFFS(pc_w), "pc");
+    cpu_Cf = tcg_global_mem_new_i32(tcg_env, AVR_REG_OFFS(sregC), "Cf");
+    cpu_Zf = tcg_global_mem_new_i32(tcg_env, AVR_REG_OFFS(sregZ), "Zf");
+    cpu_Nf = tcg_global_mem_new_i32(tcg_env, AVR_REG_OFFS(sregN), "Nf");
+    cpu_Vf = tcg_global_mem_new_i32(tcg_env, AVR_REG_OFFS(sregV), "Vf");
+    cpu_Sf = tcg_global_mem_new_i32(tcg_env, AVR_REG_OFFS(sregS), "Sf");
+    cpu_Hf = tcg_global_mem_new_i32(tcg_env, AVR_REG_OFFS(sregH), "Hf");
+    cpu_Tf = tcg_global_mem_new_i32(tcg_env, AVR_REG_OFFS(sregT), "Tf");
+    cpu_If = tcg_global_mem_new_i32(tcg_env, AVR_REG_OFFS(sregI), "If");
+    cpu_rampD = tcg_global_mem_new_i32(tcg_env, AVR_REG_OFFS(rampD), "rampD");
+    cpu_rampX = tcg_global_mem_new_i32(tcg_env, AVR_REG_OFFS(rampX), "rampX");
+    cpu_rampY = tcg_global_mem_new_i32(tcg_env, AVR_REG_OFFS(rampY), "rampY");
+    cpu_rampZ = tcg_global_mem_new_i32(tcg_env, AVR_REG_OFFS(rampZ), "rampZ");
+    cpu_eind = tcg_global_mem_new_i32(tcg_env, AVR_REG_OFFS(eind), "eind");
+    cpu_sp = tcg_global_mem_new_i32(tcg_env, AVR_REG_OFFS(sp), "sp");
+    cpu_skip = tcg_global_mem_new_i32(tcg_env, AVR_REG_OFFS(skip), "skip");
 
     for (i = 0; i < NUMBER_OF_CPU_REGISTERS; i++) {
-        cpu_r[i] = tcg_global_mem_new_i32(cpu_env, AVR_REG_OFFS(r[i]),
+        cpu_r[i] = tcg_global_mem_new_i32(tcg_env, AVR_REG_OFFS(r[i]),
                                           reg_names[i]);
     }
 #undef AVR_REG_OFFS
@@ -173,7 +172,7 @@ static int to_regs_00_30_by_two(DisasContext *ctx, int indx)
 
 static uint16_t next_word(DisasContext *ctx)
 {
-    return cpu_lduw_code(ctx->env, ctx->npc++ * 2);
+    return translator_lduw(ctx->env, &ctx->base, ctx->npc++ * 2);
 }
 
 static int append_16(DisasContext *ctx, int x)
@@ -184,7 +183,7 @@ static int append_16(DisasContext *ctx, int x)
 static bool avr_have_feature(DisasContext *ctx, int feature)
 {
     if (!avr_feature(ctx->env, feature)) {
-        gen_helper_unsupported(cpu_env);
+        gen_helper_unsupported(tcg_env);
         ctx->base.is_jmp = DISAS_NORETURN;
         return false;
     }
@@ -1295,7 +1294,7 @@ static bool trans_SBIC(DisasContext *ctx, arg_SBIC *a)
     TCGv data = tcg_temp_new_i32();
     TCGv port = tcg_constant_i32(a->reg);
 
-    gen_helper_inb(data, cpu_env, port);
+    gen_helper_inb(data, tcg_env, port);
     tcg_gen_andi_tl(data, data, 1 << a->bit);
     ctx->skip_cond = TCG_COND_EQ;
     ctx->skip_var0 = data;
@@ -1313,7 +1312,7 @@ static bool trans_SBIS(DisasContext *ctx, arg_SBIS *a)
     TCGv data = tcg_temp_new_i32();
     TCGv port = tcg_constant_i32(a->reg);
 
-    gen_helper_inb(data, cpu_env, port);
+    gen_helper_inb(data, tcg_env, port);
     tcg_gen_andi_tl(data, data, 1 << a->bit);
     ctx->skip_cond = TCG_COND_NE;
     ctx->skip_var0 = data;
@@ -1494,7 +1493,7 @@ static TCGv gen_get_zaddr(void)
 static void gen_data_store(DisasContext *ctx, TCGv data, TCGv addr)
 {
     if (ctx->base.tb->flags & TB_FLAGS_FULL_ACCESS) {
-        gen_helper_fullwr(cpu_env, data, addr);
+        gen_helper_fullwr(tcg_env, data, addr);
     } else {
         tcg_gen_qemu_st_tl(data, addr, MMU_DATA_IDX, MO_UB);
     }
@@ -1503,7 +1502,7 @@ static void gen_data_store(DisasContext *ctx, TCGv data, TCGv addr)
 static void gen_data_load(DisasContext *ctx, TCGv data, TCGv addr)
 {
     if (ctx->base.tb->flags & TB_FLAGS_FULL_ACCESS) {
-        gen_helper_fullrd(data, cpu_env, addr);
+        gen_helper_fullrd(data, tcg_env, addr);
     } else {
         tcg_gen_qemu_ld_tl(data, addr, MMU_DATA_IDX, MO_UB);
     }
@@ -2130,7 +2129,7 @@ static bool trans_IN(DisasContext *ctx, arg_IN *a)
     TCGv Rd = cpu_r[a->rd];
     TCGv port = tcg_constant_i32(a->imm);
 
-    gen_helper_inb(Rd, cpu_env, port);
+    gen_helper_inb(Rd, tcg_env, port);
     return true;
 }
 
@@ -2143,7 +2142,7 @@ static bool trans_OUT(DisasContext *ctx, arg_OUT *a)
     TCGv Rd = cpu_r[a->rd];
     TCGv port = tcg_constant_i32(a->imm);
 
-    gen_helper_outb(cpu_env, port, Rd);
+    gen_helper_outb(tcg_env, port, Rd);
     return true;
 }
 
@@ -2411,9 +2410,9 @@ static bool trans_SBI(DisasContext *ctx, arg_SBI *a)
     TCGv data = tcg_temp_new_i32();
     TCGv port = tcg_constant_i32(a->reg);
 
-    gen_helper_inb(data, cpu_env, port);
+    gen_helper_inb(data, tcg_env, port);
     tcg_gen_ori_tl(data, data, 1 << a->bit);
-    gen_helper_outb(cpu_env, port, data);
+    gen_helper_outb(tcg_env, port, data);
     return true;
 }
 
@@ -2426,9 +2425,9 @@ static bool trans_CBI(DisasContext *ctx, arg_CBI *a)
     TCGv data = tcg_temp_new_i32();
     TCGv port = tcg_constant_i32(a->reg);
 
-    gen_helper_inb(data, cpu_env, port);
+    gen_helper_inb(data, tcg_env, port);
     tcg_gen_andi_tl(data, data, ~(1 << a->bit));
-    gen_helper_outb(cpu_env, port, data);
+    gen_helper_outb(tcg_env, port, data);
     return true;
 }
 
@@ -2551,7 +2550,7 @@ static bool trans_BREAK(DisasContext *ctx, arg_BREAK *a)
 
 #ifdef BREAKPOINT_ON_BREAK
     tcg_gen_movi_tl(cpu_pc, ctx->npc - 1);
-    gen_helper_debug(cpu_env);
+    gen_helper_debug(tcg_env);
     ctx->base.is_jmp = DISAS_EXIT;
 #else
     /* NOP */
@@ -2577,7 +2576,7 @@ static bool trans_NOP(DisasContext *ctx, arg_NOP *a)
  */
 static bool trans_SLEEP(DisasContext *ctx, arg_SLEEP *a)
 {
-    gen_helper_sleep(cpu_env);
+    gen_helper_sleep(tcg_env);
     ctx->base.is_jmp = DISAS_NORETURN;
     return true;
 }
@@ -2589,7 +2588,7 @@ static bool trans_SLEEP(DisasContext *ctx, arg_SLEEP *a)
  */
 static bool trans_WDR(DisasContext *ctx, arg_WDR *a)
 {
-    gen_helper_wdr(cpu_env);
+    gen_helper_wdr(tcg_env);
 
     return true;
 }
@@ -2608,7 +2607,7 @@ static void translate(DisasContext *ctx)
     uint32_t opcode = next_word(ctx);
 
     if (!decode_insn(ctx, opcode)) {
-        gen_helper_unsupported(cpu_env);
+        gen_helper_unsupported(tcg_env);
         ctx->base.is_jmp = DISAS_NORETURN;
     }
 }
@@ -2657,11 +2656,10 @@ static bool canonicalize_skip(DisasContext *ctx)
 static void avr_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
 {
     DisasContext *ctx = container_of(dcbase, DisasContext, base);
-    CPUAVRState *env = cs->env_ptr;
     uint32_t tb_flags = ctx->base.tb->flags;
 
     ctx->cs = cs;
-    ctx->env = env;
+    ctx->env = cpu_env(cs);
     ctx->npc = ctx->base.pc_first / 2;
 
     ctx->skip_cond = TCG_COND_NEVER;
@@ -2788,24 +2786,16 @@ static void avr_tr_tb_stop(DisasContextBase *dcbase, CPUState *cs)
     }
 }
 
-static void avr_tr_disas_log(const DisasContextBase *dcbase,
-                             CPUState *cs, FILE *logfile)
-{
-    fprintf(logfile, "IN: %s\n", lookup_symbol(dcbase->pc_first));
-    target_disas(logfile, cs, dcbase->pc_first, dcbase->tb->size);
-}
-
 static const TranslatorOps avr_tr_ops = {
     .init_disas_context = avr_tr_init_disas_context,
     .tb_start           = avr_tr_tb_start,
     .insn_start         = avr_tr_insn_start,
     .translate_insn     = avr_tr_translate_insn,
     .tb_stop            = avr_tr_tb_stop,
-    .disas_log          = avr_tr_disas_log,
 };
 
 void gen_intermediate_code(CPUState *cs, TranslationBlock *tb, int *max_insns,
-                           target_ulong pc, void *host_pc)
+                           vaddr pc, void *host_pc)
 {
     DisasContext dc = { };
     translator_loop(cs, tb, max_insns, pc, host_pc, &avr_tr_ops, &dc.base);

@@ -55,7 +55,7 @@ bool mve_skip_vmov(DisasContext *s, int vn, int index, int size);
 static inline TCGv_i32 load_cpu_offset(int offset)
 {
     TCGv_i32 tmp = tcg_temp_new_i32();
-    tcg_gen_ld_i32(tmp, cpu_env, offset);
+    tcg_gen_ld_i32(tmp, tcg_env, offset);
     return tmp;
 }
 
@@ -81,6 +81,13 @@ void store_cpu_offset(TCGv_i32 var, int offset, int size);
                           && sizeof_field(CPUARMState, name) != 1);     \
         store_cpu_offset(val, offsetof(CPUARMState, name),              \
                          sizeof_field(CPUARMState, name));              \
+    })
+
+/* Store to the low half of a 64-bit field from a TCGv_i32 */
+#define store_cpu_field_low32(val, name)                                \
+    ({                                                                  \
+        QEMU_BUILD_BUG_ON(sizeof_field(CPUARMState, name) != 8);        \
+        store_cpu_offset(val, offsetoflow32(CPUARMState, name), 4);     \
     })
 
 #define store_cpu_field_constant(val, name) \

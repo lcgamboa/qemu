@@ -272,9 +272,9 @@ static const MemoryRegionOps stm32_exti_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN
 };
 
-static void stm32_exti_reset(DeviceState *dev)
+static void stm32_exti_reset_enter(Object *obj, ResetType type)
 {
-    Stm32Exti *s = STM32_EXTI(dev);
+    Stm32Exti *s = STM32_EXTI(obj);
 
     s->EXTI_IMR = 0x00000000;
     s->EXTI_RTSR = 0x00000000;
@@ -309,11 +309,13 @@ static void stm32_exti_init(Object *obj)
 
 static void stm32_exti_class_init(ObjectClass *klass, void *data)
 {
-    DeviceClass *dc = DEVICE_CLASS(klass);
+    //DeviceClass *dc = DEVICE_CLASS(klass);
+    ResettablePhases rp;
     //SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
     //k->init = stm32_exti_init;
-    dc->reset = stm32_exti_reset;
+    ResettableClass *rc = RESETTABLE_CLASS(klass);
+    resettable_class_set_parent_phases(rc, stm32_exti_reset_enter, NULL, NULL, &rp);
 }
 
 static TypeInfo stm32_exti_info = {

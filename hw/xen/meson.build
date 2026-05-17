@@ -12,6 +12,11 @@ system_ss.add(when: ['CONFIG_XEN', xen], if_true: files(
 ))
 
 xen_specific_ss = ss.source_set()
+xen_specific_ss.add(files(
+  'xen-mapcache.c',
+  'xen-hvm-common.c',
+  'xen-pvh-common.c',
+))
 if have_xen_pci_passthrough
   xen_specific_ss.add(files(
     'xen-host-pci-device.c',
@@ -26,10 +31,3 @@ else
 endif
 
 specific_ss.add_all(when: ['CONFIG_XEN', xen], if_true: xen_specific_ss)
-
-xen_ss = ss.source_set()
-
-xen_ss.add(when: 'CONFIG_XEN', if_true: files(
-  'xen-mapcache.c',
-  'xen-hvm-common.c',
-))

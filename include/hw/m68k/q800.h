@@ -36,6 +36,9 @@
 #include "hw/block/swim.h"
 #include "hw/nubus/mac-nubus-bridge.h"
 #include "hw/display/macfb.h"
+#include "hw/misc/djmemc.h"
+#include "hw/misc/iosb.h"
+#include "hw/audio/asc.h"
 
 /*
  * The main Q800 machine
@@ -44,20 +47,29 @@
 struct Q800MachineState {
     MachineState parent_obj;
 
+    bool easc;
     M68kCPU cpu;
     MemoryRegion rom;
+    MemoryRegion rom_alias;
     GLUEState glue;
     MOS6522Q800VIA1State via1;
     MOS6522Q800VIA2State via2;
     dp8393xState dp8393x;
+    MemoryRegion dp8393x_prom;
     ESCCState escc;
     OrIRQState escc_orgate;
     SysBusESPState esp;
     Swim swim;
     MacNubusBridge mac_nubus_bridge;
     MacfbNubusState macfb;
+    DJMEMCState djmemc;
+    IOSBState iosb;
+    ASCState asc;
+    MemoryRegion ramio;
     MemoryRegion macio;
     MemoryRegion macio_alias;
+    MemoryRegion machine_id;
+    MemoryRegion escc_alias;
 };
 
 #define TYPE_Q800_MACHINE MACHINE_TYPE_NAME("q800")

@@ -170,9 +170,9 @@ static void iwdg_disable_timer(Stm32Iwdg *d)
  * @return none
  * @remarks This function is called when the machine is initialized.
 */
-static void iwdg_reset(DeviceState *dev)
+static void iwdg_reset_enter(Object *obj, ResetType type)
 {
-   Stm32Iwdg *d = STM32_IWDG(dev);
+   Stm32Iwdg *d = STM32_IWDG(obj);
 
     iwdg_disable_timer(d);
 
@@ -201,7 +201,7 @@ static void iwdg_timer_expired(void *vp)
 	stm32_RCC_CSR_write((Stm32Rcc *)d->stm32_rcc, 1<<RCC_CSR_IWDGRSTF_BIT, 0);
 	/* This reboots, exits, etc */
 	watchdog_perform_action();
-	iwdg_reset((DeviceState *)d);
+	iwdg_reset_enter((Object *)d, 0);
     }
 }
 
@@ -362,14 +362,16 @@ static Property iwdg_properties[] = {
 static void iwdg_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
+    ResettablePhases rp;
     //SysBusDeviceClass *sc = SYS_BUS_DEVICE_CLASS(klass);    
     
     //sc->init = iwdg_init;
-    dc->reset = iwdg_reset;
     dc->vmsd = &vmstate_iwdg;
     dc->realize = stm32_iwdg_realize;
     //dc->props = iwdg_properties;
     device_class_set_props(dc, iwdg_properties);
+    ResettableClass *rc = RESETTABLE_CLASS(klass);
+    resettable_class_set_parent_phases(rc, iwdg_reset_enter, NULL, NULL, &rp);
 }
 
 static const TypeInfo iwdg_info = {

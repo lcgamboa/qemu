@@ -131,7 +131,7 @@ static void stm32_p103_init(MachineState *machine)
 
     /* Connect button to GPIO A pin 0 */
     s->button_irq = qdev_get_gpio_in(gpio_a, 0);
-    qemu_add_kbd_event_handler(stm32_p103_key_event, s);
+    //qemu_add_kbd_event_handler(stm32_p103_key_event, s);
 
     /* Connect RS232 to UART */
     stm32_uart_connect(

@@ -95,6 +95,7 @@ typedef void (*DeviceUnrealize)(DeviceState *dev);
 typedef void (*DeviceReset)(DeviceState *dev);
 typedef void (*BusRealize)(BusState *bus, Error **errp);
 typedef void (*BusUnrealize)(BusState *bus);
+typedef int (*DeviceSyncConfig)(DeviceState *dev, Error **errp);
 
 /**
  * struct DeviceClass - The base class for all devices.
@@ -103,6 +104,9 @@ typedef void (*BusUnrealize)(BusState *bus);
  * property is changed to %true.
  * @unrealize: Callback function invoked when the #DeviceState:realized
  * property is changed to %false.
+ * @sync_config: Callback function invoked when QMP command device-sync-config
+ * is called. Should synchronize device configuration from host to guest part
+ * and notify the guest about the change.
  * @hotpluggable: indicates if #DeviceClass is hotpluggable, available
  * as readonly "hotpluggable" property of #DeviceState instance
  *
@@ -132,7 +136,7 @@ struct DeviceClass {
      * ensures a compile-time error if someone attempts to assign
      * dc->props directly.
      */
-    Property *props_;
+    const Property *props_;
 
     /**
      * @user_creatable: Can user instantiate with -device / device_add?
@@ -152,16 +156,17 @@ struct DeviceClass {
 
     /* callbacks */
     /**
-     * @reset: deprecated device reset method pointer
+     * @legacy_reset: deprecated device reset method pointer
      *
      * Modern code should use the ResettableClass interface to
      * implement a multi-phase reset.
      *
      * TODO: remove once every reset callback is unused
      */
-    DeviceReset reset;
+    DeviceReset legacy_reset;
     DeviceRealize realize;
     DeviceUnrealize unrealize;
+    DeviceSyncConfig sync_config;
 
     /**
      * @vmsd: device state serialisation description for
@@ -294,6 +299,7 @@ struct DeviceState {
     MemReentrancyGuard mem_reentrancy_guard;
 };
 
+typedef struct DeviceListener DeviceListener;
 struct DeviceListener {
     void (*realize)(DeviceListener *listener, DeviceState *dev);
     void (*unrealize)(DeviceListener *listener, DeviceState *dev);
@@ -328,8 +334,6 @@ struct BusClass {
      * bindings can be found at http://playground.sun.com/1275/bindings/.
      */
     char *(*get_fw_dev_path)(DeviceState *dev);
-
-    void (*reset)(BusState *bus);
 
     /*
      * Return whether the device can be added to @bus,
@@ -548,6 +552,7 @@ bool qdev_hotplug_allowed(DeviceState *dev, Error **errp);
  */
 HotplugHandler *qdev_get_hotplug_handler(DeviceState *dev);
 void qdev_unplug(DeviceState *dev, Error **errp);
+int qdev_sync_config(DeviceState *dev, Error **errp);
 void qdev_simple_device_unplug_cb(HotplugHandler *hotplug_dev,
                                   DeviceState *dev, Error **errp);
 void qdev_machine_creation_done(void);
@@ -625,8 +630,9 @@ qemu_irq qdev_get_gpio_in(DeviceState *dev, int n);
  * @name: Name of the input GPIO array
  * @n: Number of the GPIO line in that array (which must be in range)
  *
- * Returns the qemu_irq corresponding to a named input GPIO line
- * (which the device has set up with qdev_init_gpio_in_named()).
+ * Returns the qemu_irq corresponding to a single input GPIO line
+ * in a named array of input GPIO lines on a device (which the device
+ * has set up with qdev_init_gpio_in_named()).
  * The @name string must correspond to an input GPIO array which exists on
  * the device, and the index @n of the GPIO line must be valid (i.e.
  * be at least 0 and less than the total number of input GPIOs in that
@@ -674,15 +680,15 @@ void qdev_connect_gpio_out(DeviceState *dev, int n, qemu_irq pin);
  *                              GPIO lines
  * @dev: Device whose GPIO to connect
  * @name: Name of the output GPIO array
- * @n: Number of the anonymous output GPIO line (which must be in range)
+ * @n: Number of the output GPIO line within that array (which must be in range)
  * @input_pin: qemu_irq to connect the output line to
  *
- * This function connects an anonymous output GPIO line on a device
- * up to an arbitrary qemu_irq, so that when the device asserts that
- * output GPIO line, the qemu_irq's callback is invoked.
+ * This function connects a single GPIO output in a named array of output
+ * GPIO lines on a device up to an arbitrary qemu_irq, so that when the
+ * device asserts that output GPIO line, the qemu_irq's callback is invoked.
  * The @name string must correspond to an output GPIO array which exists on
  * the device, and the index @n of the GPIO line must be valid (i.e.
- * be at least 0 and less than the total number of input GPIOs in that
+ * be at least 0 and less than the total number of output GPIOs in that
  * array); this function will assert() if passed an invalid name or index.
  *
  * Outbound GPIO lines can be connected to any qemu_irq, but the common
@@ -797,7 +803,7 @@ void qdev_init_gpio_out(DeviceState *dev, qemu_irq *pins, int n);
  * @dev: Device to create output GPIOs for
  * @pins: Pointer to qemu_irq or qemu_irq array for the GPIO lines
  * @name: Name to give this array of GPIO lines
- * @n: Number of GPIO lines to create
+ * @n: Number of GPIO lines to create in this array
  *
  * Like qdev_init_gpio_out(), but creates an array of GPIO output lines
  * with a name. Code using the device can then connect these GPIO lines
@@ -935,23 +941,7 @@ char *qdev_get_own_fw_dev_path_from_handler(BusState *bus, DeviceState *dev);
  * you attempt to add an existing property defined by a parent class.
  * To modify an inherited property you need to use????
  */
-void device_class_set_props(DeviceClass *dc, Property *props);
-
-/**
- * device_class_set_parent_reset() - legacy set device reset handlers
- * @dc: device class
- * @dev_reset: function pointer to reset handler
- * @parent_reset: function pointer to parents reset handler
- *
- * Modern code should use the ResettableClass interface to
- * implement a multi-phase reset instead.
- *
- * TODO: remove the function when DeviceClass's reset method
- * is not used anymore.
- */
-void device_class_set_parent_reset(DeviceClass *dc,
-                                   DeviceReset dev_reset,
-                                   DeviceReset *parent_reset);
+void device_class_set_props(DeviceClass *dc, const Property *props);
 
 /**
  * device_class_set_parent_realize() - set up for chaining realize fns
@@ -969,6 +959,19 @@ void device_class_set_parent_realize(DeviceClass *dc,
                                      DeviceRealize dev_realize,
                                      DeviceRealize *parent_realize);
 
+/**
+ * device_class_set_legacy_reset(): set the DeviceClass::reset method
+ * @dc: The device class
+ * @dev_reset: the reset function
+ *
+ * This function sets the DeviceClass::reset method. This is widely
+ * used in existing code, but new code should prefer to use the
+ * Resettable API as documented in docs/devel/reset.rst.
+ * In addition, devices which need to chain to their parent class's
+ * reset methods or which need to be subclassed must use Resettable.
+ */
+void device_class_set_legacy_reset(DeviceClass *dc,
+                                   DeviceReset dev_reset);
 
 /**
  * device_class_set_parent_unrealize() - set up for chaining unrealize fns
@@ -992,6 +995,20 @@ const char *qdev_fw_name(DeviceState *dev);
 
 void qdev_assert_realized_properly(void);
 Object *qdev_get_machine(void);
+
+/**
+ * qdev_get_human_name() - Return a human-readable name for a device
+ * @dev: The device. Must be a valid and non-NULL pointer.
+ *
+ * .. note::
+ *    This function is intended for user friendly error messages.
+ *
+ * Returns: A newly allocated string containing the device id if not null,
+ * else the object canonical path.
+ *
+ * Use g_free() to free it.
+ */
+char *qdev_get_human_name(DeviceState *dev);
 
 /* FIXME: make this a link<> */
 bool qdev_set_parent_bus(DeviceState *dev, BusState *bus, Error **errp);
@@ -1072,6 +1089,11 @@ typedef enum MachineInitPhase {
     PHASE_ACCEL_CREATED,
 
     /*
+     * Late backend objects have been created and initialized.
+     */
+    PHASE_LATE_BACKENDS_CREATED,
+
+    /*
      * machine_class->init has been called, thus creating any embedded
      * devices and validating machine properties.  Devices created at
      * this time are considered to be cold-plugged.
@@ -1086,7 +1108,7 @@ typedef enum MachineInitPhase {
     PHASE_MACHINE_READY,
 } MachineInitPhase;
 
-extern bool phase_check(MachineInitPhase phase);
-extern void phase_advance(MachineInitPhase phase);
+bool phase_check(MachineInitPhase phase);
+void phase_advance(MachineInitPhase phase);
 
 #endif

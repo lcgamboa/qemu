@@ -172,8 +172,8 @@ void vec_gen_4(TCGOpcode opc, TCGType type, unsigned vece,
     op->args[3] = c;
 }
 
-static void vec_gen_6(TCGOpcode opc, TCGType type, unsigned vece, TCGArg r,
-                      TCGArg a, TCGArg b, TCGArg c, TCGArg d, TCGArg e)
+void vec_gen_6(TCGOpcode opc, TCGType type, unsigned vece, TCGArg r,
+               TCGArg a, TCGArg b, TCGArg c, TCGArg d, TCGArg e)
 {
     TCGOp *op = tcg_emit_op(opc, 6);
     TCGOP_VECL(op) = type - TCG_TYPE_V64;
@@ -391,12 +391,11 @@ static bool do_op2(unsigned vece, TCGv_vec r, TCGv_vec a, TCGOpcode opc)
 
 void tcg_gen_not_vec(unsigned vece, TCGv_vec r, TCGv_vec a)
 {
-    const TCGOpcode *hold_list = tcg_swap_vecop_list(NULL);
-
-    if (!TCG_TARGET_HAS_not_vec || !do_op2(vece, r, a, INDEX_op_not_vec)) {
+    if (TCG_TARGET_HAS_not_vec) {
+        vec_gen_op2(INDEX_op_not_vec, 0, r, a);
+    } else {
         tcg_gen_xor_vec(0, r, a, tcg_constant_vec_matching(r, 0, -1));
     }
-    tcg_swap_vecop_list(hold_list);
 }
 
 void tcg_gen_neg_vec(unsigned vece, TCGv_vec r, TCGv_vec a)
@@ -509,9 +508,11 @@ void tcg_gen_cmp_vec(TCGCond cond, unsigned vece,
     TCGTemp *rt = tcgv_vec_temp(r);
     TCGTemp *at = tcgv_vec_temp(a);
     TCGTemp *bt = tcgv_vec_temp(b);
+    TCGTemp *tt = NULL;
     TCGArg ri = temp_arg(rt);
     TCGArg ai = temp_arg(at);
     TCGArg bi = temp_arg(bt);
+    TCGArg ti;
     TCGType type = rt->base_type;
     int can;
 
@@ -519,6 +520,18 @@ void tcg_gen_cmp_vec(TCGCond cond, unsigned vece,
     tcg_debug_assert(bt->base_type >= type);
     tcg_assert_listed_vecop(INDEX_op_cmp_vec);
     can = tcg_can_emit_vec_op(INDEX_op_cmp_vec, type, vece);
+
+    if (!TCG_TARGET_HAS_tst_vec && is_tst_cond(cond)) {
+        tt = tcg_temp_new_internal(type, TEMP_EBB);
+        ti = temp_arg(tt);
+        vec_gen_3(INDEX_op_and_vec, type, 0, ti, ai, bi);
+        at = tt;
+        ai = ti;
+        bt = tcg_constant_internal(type, 0);
+        bi = temp_arg(bt);
+        cond = tcg_tst_eqne_cond(cond);
+    }
+
     if (can > 0) {
         vec_gen_4(INDEX_op_cmp_vec, type, vece, ri, ai, bi, cond);
     } else {
@@ -526,6 +539,10 @@ void tcg_gen_cmp_vec(TCGCond cond, unsigned vece,
         tcg_debug_assert(can < 0);
         tcg_expand_vec_op(INDEX_op_cmp_vec, type, vece, ri, ai, bi, cond);
         tcg_swap_vecop_list(hold_list);
+    }
+
+    if (tt) {
+        tcg_temp_free_internal(tt);
     }
 }
 

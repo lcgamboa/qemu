@@ -180,10 +180,11 @@ static void add_poll_remove_sqe(AioContext *ctx, AioHandler *node)
     struct io_uring_sqe *sqe = get_sqe(ctx);
 
 #ifdef LIBURING_HAVE_DATA64
-    io_uring_prep_poll_remove(sqe, (__u64)(uintptr_t)node);
+    io_uring_prep_poll_remove(sqe, (uintptr_t)node);
 #else
     io_uring_prep_poll_remove(sqe, node);
 #endif
+    io_uring_sqe_set_data(sqe, NULL);
 }
 
 /* Add a timeout that self-cancels when another cqe becomes ready */
@@ -197,6 +198,7 @@ static void add_timeout_sqe(AioContext *ctx, int64_t ns)
 
     sqe = get_sqe(ctx);
     io_uring_prep_timeout(sqe, &ts, 1, 0);
+    io_uring_sqe_set_data(sqe, NULL);
 }
 
 /* Add sqes from ctx->submit_list for submission */

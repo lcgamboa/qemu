@@ -95,9 +95,9 @@ end:
     return ret;
 }
 
-static int raw_apply_options(BlockDriverState *bs, BDRVRawState *s,
-                             uint64_t offset, bool has_size, uint64_t size,
-                             Error **errp)
+static int GRAPH_RDLOCK
+raw_apply_options(BlockDriverState *bs, BDRVRawState *s, uint64_t offset,
+                  bool has_size, uint64_t size, Error **errp)
 {
     int64_t real_size = 0;
 
@@ -111,7 +111,7 @@ static int raw_apply_options(BlockDriverState *bs, BDRVRawState *s,
     if (offset > real_size) {
         error_setg(errp, "Offset (%" PRIu64 ") cannot be greater than "
                    "size of the containing file (%" PRId64 ")",
-                   s->offset, real_size);
+                   offset, real_size);
         return -EINVAL;
     }
 
@@ -119,7 +119,7 @@ static int raw_apply_options(BlockDriverState *bs, BDRVRawState *s,
         error_setg(errp, "The sum of offset (%" PRIu64 ") and size "
                    "(%" PRIu64 ") has to be smaller or equal to the "
                    " actual size of the containing file (%" PRId64 ")",
-                   s->offset, s->size, real_size);
+                   offset, size, real_size);
         return -EINVAL;
     }
 
@@ -144,6 +144,9 @@ static int raw_reopen_prepare(BDRVReopenState *reopen_state,
     bool has_size;
     uint64_t offset, size;
     int ret;
+
+    GLOBAL_STATE_CODE();
+    GRAPH_RDLOCK_GUARD_MAINLOOP();
 
     assert(reopen_state != NULL);
     assert(reopen_state->bs != NULL);
@@ -279,11 +282,10 @@ fail:
     return ret;
 }
 
-static int coroutine_fn raw_co_block_status(BlockDriverState *bs,
-                                            bool want_zero, int64_t offset,
-                                            int64_t bytes, int64_t *pnum,
-                                            int64_t *map,
-                                            BlockDriverState **file)
+static int coroutine_fn GRAPH_RDLOCK
+raw_co_block_status(BlockDriverState *bs, bool want_zero, int64_t offset,
+                    int64_t bytes, int64_t *pnum, int64_t *map,
+                    BlockDriverState **file)
 {
     BDRVRawState *s = bs->opaque;
     *pnum = bytes;
@@ -397,7 +399,7 @@ raw_co_get_info(BlockDriverState *bs, BlockDriverInfo *bdi)
     return bdrv_co_get_info(bs->file->bs, bdi);
 }
 
-static void raw_refresh_limits(BlockDriverState *bs, Error **errp)
+static void GRAPH_RDLOCK raw_refresh_limits(BlockDriverState *bs, Error **errp)
 {
     bs->bl.has_variable_length = bs->file->bs->bl.has_variable_length;
 
@@ -452,7 +454,7 @@ raw_co_ioctl(BlockDriverState *bs, unsigned long int req, void *buf)
     return bdrv_co_ioctl(bs->file->bs, req, buf);
 }
 
-static int raw_has_zero_init(BlockDriverState *bs)
+static int GRAPH_RDLOCK raw_has_zero_init(BlockDriverState *bs)
 {
     return bdrv_has_zero_init(bs->file->bs);
 }
@@ -468,11 +470,12 @@ static int raw_open(BlockDriverState *bs, QDict *options, int flags,
                     Error **errp)
 {
     BDRVRawState *s = bs->opaque;
-    AioContext *ctx;
     bool has_size;
     uint64_t offset, size;
     BdrvChildRole file_role;
     int ret;
+
+    GLOBAL_STATE_CODE();
 
     ret = raw_read_options(options, &offset, &has_size, &size, errp);
     if (ret < 0) {
@@ -491,6 +494,8 @@ static int raw_open(BlockDriverState *bs, QDict *options, int flags,
 
     bdrv_open_child(NULL, options, "file", bs, &child_of_bds,
                     file_role, false, errp);
+
+    GRAPH_RDLOCK_GUARD_MAINLOOP();
     if (!bs->file) {
         return -EINVAL;
     }
@@ -516,11 +521,7 @@ static int raw_open(BlockDriverState *bs, QDict *options, int flags,
                 bs->file->bs->filename);
     }
 
-    ctx = bdrv_get_aio_context(bs);
-    aio_context_acquire(ctx);
     ret = raw_apply_options(bs, s, offset, has_size, size, errp);
-    aio_context_release(ctx);
-
     if (ret < 0) {
         return ret;
     }
@@ -541,7 +542,8 @@ static int raw_probe(const uint8_t *buf, int buf_size, const char *filename)
     return 1;
 }
 
-static int raw_probe_blocksizes(BlockDriverState *bs, BlockSizes *bsz)
+static int GRAPH_RDLOCK
+raw_probe_blocksizes(BlockDriverState *bs, BlockSizes *bsz)
 {
     BDRVRawState *s = bs->opaque;
     int ret;
@@ -558,7 +560,8 @@ static int raw_probe_blocksizes(BlockDriverState *bs, BlockSizes *bsz)
     return 0;
 }
 
-static int raw_probe_geometry(BlockDriverState *bs, HDGeometry *geo)
+static int GRAPH_RDLOCK
+raw_probe_geometry(BlockDriverState *bs, HDGeometry *geo)
 {
     BDRVRawState *s = bs->opaque;
     if (s->offset || s->has_size) {
@@ -608,7 +611,7 @@ static const char *const raw_strong_runtime_opts[] = {
     NULL
 };
 
-static void raw_cancel_in_flight(BlockDriverState *bs)
+static void GRAPH_RDLOCK raw_cancel_in_flight(BlockDriverState *bs)
 {
     bdrv_cancel_in_flight(bs->file->bs);
 }

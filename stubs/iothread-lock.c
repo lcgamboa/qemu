@@ -1,7 +1,7 @@
 #include "qemu/osdep.h"
 #include "qemu/main-loop.h"
 
-bool qemu_mutex_iothread_locked(void)
+bool bql_locked(void)
 {
     return false;
 }

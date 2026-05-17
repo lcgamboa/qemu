@@ -214,9 +214,9 @@ static const MemoryRegionOps stm32_afio_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN
 };
 
-static void stm32_afio_reset(DeviceState *dev)
+static void stm32_afio_reset_enter(Object *obj, ResetType type)
 {
-    Stm32Afio *s = STM32_AFIO(dev);
+    Stm32Afio *s = STM32_AFIO(obj);
 
     stm32_afio_AFIO_MAPR_write(s, 0x00000000, true);
     stm32_afio_AFIO_EXTICR_write(s, 0, 0x00000000, true);
@@ -296,12 +296,14 @@ static void stm32_afio_instance_init(Object *obj)
 
 static void stm32_afio_class_init(ObjectClass *klass, void *data)
 {
-    DeviceClass *dc = DEVICE_CLASS(klass);
+    //DeviceClass *dc = DEVICE_CLASS(klass);
+    ResettablePhases rp;
     //SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
     //k->init = stm32_afio_init;
-    dc->reset = stm32_afio_reset;
     //dc->props = stm32_afio_properties;
+    ResettableClass *rc = RESETTABLE_CLASS(klass);
+    resettable_class_set_parent_phases(rc, stm32_afio_reset_enter, NULL, NULL, &rp);
 }
 
 static TypeInfo stm32_afio_info = {

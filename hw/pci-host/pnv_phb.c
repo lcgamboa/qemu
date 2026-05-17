@@ -25,7 +25,7 @@
  * state associated with the child has an id, use it as QOM id.
  * Otherwise use object_typename[index] as QOM id.
  *
- * This helper does both operations at the same time because seting
+ * This helper does both operations at the same time because setting
  * a new QOM child will erase the bus parent of the device. This happens
  * because object_unparent() will call object_property_del_child(),
  * which in turn calls the property release callback prop->release if
@@ -208,7 +208,7 @@ static void pnv_phb_class_init(ObjectClass *klass, void *data)
     dc->user_creatable = true;
 }
 
-static void pnv_phb_root_port_reset_hold(Object *obj)
+static void pnv_phb_root_port_reset_hold(Object *obj, ResetType type)
 {
     PCIERootPortClass *rpc = PCIE_ROOT_PORT_GET_CLASS(obj);
     PnvPHBRootPort *phb_rp = PNV_PHB_ROOT_PORT(obj);
@@ -216,7 +216,7 @@ static void pnv_phb_root_port_reset_hold(Object *obj)
     uint8_t *conf = d->config;
 
     if (rpc->parent_phases.hold) {
-        rpc->parent_phases.hold(obj);
+        rpc->parent_phases.hold(obj, type);
     }
 
     if (phb_rp->version == 3) {

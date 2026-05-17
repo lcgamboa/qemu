@@ -219,28 +219,50 @@ int16_t do_sqrdmlah_h(int16_t, int16_t, int16_t, bool, bool, uint32_t *);
 int32_t do_sqrdmlah_s(int32_t, int32_t, int32_t, bool, bool, uint32_t *);
 int64_t do_sqrdmlah_d(int64_t, int64_t, int64_t, bool, bool);
 
-/*
- * 8 x 8 -> 16 vector polynomial multiply where the inputs are
- * in the low 8 bits of each 16-bit element
-*/
-uint64_t pmull_h(uint64_t op1, uint64_t op2);
-/*
- * 16 x 16 -> 32 vector polynomial multiply where the inputs are
- * in the low 16 bits of each 32-bit element
- */
-uint64_t pmull_w(uint64_t op1, uint64_t op2);
-
 /**
  * bfdotadd:
  * @sum: addend
  * @e1, @e2: multiplicand vectors
+ * @fpst: floating-point status to use
  *
  * BFloat16 2-way dot product of @e1 & @e2, accumulating with @sum.
  * The @e1 and @e2 operands correspond to the 32-bit source vector
  * slots and contain two Bfloat16 values each.
  *
- * Corresponds to the ARM pseudocode function BFDotAdd.
+ * Corresponds to the ARM pseudocode function BFDotAdd, specialized
+ * for the FPCR.EBF == 0 case.
  */
-float32 bfdotadd(float32 sum, uint32_t e1, uint32_t e2);
+float32 bfdotadd(float32 sum, uint32_t e1, uint32_t e2, float_status *fpst);
+/**
+ * bfdotadd_ebf:
+ * @sum: addend
+ * @e1, @e2: multiplicand vectors
+ * @fpst: floating-point status to use
+ * @fpst_odd: floating-point status to use for round-to-odd operations
+ *
+ * BFloat16 2-way dot product of @e1 & @e2, accumulating with @sum.
+ * The @e1 and @e2 operands correspond to the 32-bit source vector
+ * slots and contain two Bfloat16 values each.
+ *
+ * Corresponds to the ARM pseudocode function BFDotAdd, specialized
+ * for the FPCR.EBF == 1 case.
+ */
+float32 bfdotadd_ebf(float32 sum, uint32_t e1, uint32_t e2,
+                     float_status *fpst, float_status *fpst_odd);
+
+/**
+ * is_ebf:
+ * @env: CPU state
+ * @statusp: pointer to floating point status to fill in
+ * @oddstatusp: pointer to floating point status to fill in for round-to-odd
+ *
+ * Determine whether a BFDotAdd operation should use FPCR.EBF = 0
+ * or FPCR.EBF = 1 semantics. On return, has initialized *statusp
+ * and *oddstatusp to suitable float_status arguments to use with either
+ * bfdotadd() or bfdotadd_ebf().
+ * Returns true for EBF = 1, false for EBF = 0. (The caller should use this
+ * to decide whether to call bfdotadd() or bfdotadd_ebf().)
+ */
+bool is_ebf(CPUARMState *env, float_status *statusp, float_status *oddstatusp);
 
 #endif /* TARGET_ARM_VEC_INTERNAL_H */

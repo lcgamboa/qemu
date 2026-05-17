@@ -730,9 +730,9 @@ static const MemoryRegionOps stm32_rcc_ops = {
 };
 
 
-static void stm32_rcc_reset(DeviceState *dev)
+static void stm32_rcc_reset_enter(Object *obj, ResetType type)
 {
-    Stm32Rcc *s = STM32_RCC(dev);
+    Stm32Rcc *s = STM32_RCC(obj);
 
     stm32_rcc_RCC_CR_write(s, 0x00000083, true);
     stm32_rcc_RCC_CFGR_write(s, 0x00000000, true);
@@ -965,11 +965,13 @@ static Property stm32_rcc_properties[] = {
 static void stm32_rcc_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
+    ResettablePhases rp;
     //SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
-    dc->reset = stm32_rcc_reset;
     dc->realize = stm32_rcc_realize;
     device_class_set_props(dc, stm32_rcc_properties);
+    ResettableClass *rc = RESETTABLE_CLASS(klass);
+    resettable_class_set_parent_phases(rc, stm32_rcc_reset_enter, NULL, NULL, &rp);
 }
 
 static TypeInfo stm32_rcc_info = {

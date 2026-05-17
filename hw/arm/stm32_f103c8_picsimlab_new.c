@@ -173,7 +173,7 @@ void qemu_picsimlab_register_callbacks(void *arg)
 
 void qemu_picsimlab_set_pin(int pin, int value)
 {
-   if (!qemu_mutex_iothread_locked())
+   if (!bql_locked())
       return;
 
    // qemu_mutex_lock_iothread ();

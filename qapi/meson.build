@@ -33,9 +33,11 @@ qapi_all_modules = [
   'crypto',
   'cxl',
   'dump',
+  'ebpf',
   'error',
   'introspect',
   'job',
+  'machine-common',
   'machine',
   'machine-target',
   'migration',
@@ -50,6 +52,7 @@ qapi_all_modules = [
   'stats',
   'trace',
   'transaction',
+  'vfio',
   'virtio',
   'yank',
 ]
@@ -60,7 +63,6 @@ if have_system
     'cryptodev',
     'qdev',
     'pci',
-    'rdma',
     'rocker',
     'tpm',
   ]

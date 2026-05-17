@@ -517,9 +517,9 @@ stm32_dma_init(Object *obj)
 }
 
 static void
-stm32_dma_reset(DeviceState *ds)
+stm32_dma_reset_enter(Object *obj, ResetType type)
 {
-	stm32_dma *s = STM32_DMA(ds);
+	stm32_dma *s = STM32_DMA(obj);
 
 	memset(&s->ifcr, 0, sizeof(s->ifcr));
 
@@ -540,12 +540,14 @@ static Property stm32_dma_properties[] = {
 static void
 stm32_dma_class_init(ObjectClass *klass, void *data)
 {
-	DeviceClass *dc = DEVICE_CLASS(klass);
+	//DeviceClass *dc = DEVICE_CLASS(klass);
+	ResettablePhases rp;
 	//SysBusDeviceClass *sc = SYS_BUS_DEVICE_CLASS(klass);
 	//sc->init = stm32_dma_init;
-	dc->reset = stm32_dma_reset;
 	//TODO: fix this: dc->no_user = 1;
 	//dc->props = stm32_dma_properties;
+	ResettableClass *rc = RESETTABLE_CLASS(klass);
+    resettable_class_set_parent_phases(rc, stm32_dma_reset_enter, NULL, NULL, &rp);
 }
 
 static const TypeInfo

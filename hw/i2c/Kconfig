@@ -46,6 +46,10 @@ config PMBUS
     bool
     select SMBUS
 
+config BCM2835_I2C
+    bool
+    select I2C
+
 config PICSIMLAB_I2C
     bool
     depends on I2C

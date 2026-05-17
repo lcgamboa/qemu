@@ -27,7 +27,6 @@
 #include "qemu/error-report.h"
 #include "qemu/config-file.h"
 #include "monitor/monitor.h"
-#include "trace/trace-root.h"
 
 int trace_events_enabled_count;
 
@@ -285,10 +284,10 @@ bool trace_init_backends(void)
     return true;
 }
 
-void trace_opt_parse(const char *optarg)
+void trace_opt_parse(const char *optstr)
 {
     QemuOpts *opts = qemu_opts_parse_noisily(qemu_find_opts("trace"),
-                                             optarg, true);
+                                             optstr, true);
     if (!opts) {
         exit(1);
     }

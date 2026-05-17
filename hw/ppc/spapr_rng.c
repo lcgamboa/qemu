@@ -84,7 +84,7 @@ static target_ulong h_random(PowerPCCPU *cpu, SpaprMachineState *spapr,
                                     random_recv, &hrdata);
         bql_unlock();
         qemu_sem_wait(&hrdata.sem);
-        qemu_mutex_lock_iothread();
+        bql_lock();
     }
 
     qemu_sem_destroy(&hrdata.sem);

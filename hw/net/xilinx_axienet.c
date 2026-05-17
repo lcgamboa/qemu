@@ -847,7 +847,7 @@ static ssize_t eth_rx(NetClientState *nc, const uint8_t *buf, size_t size)
     axienet_eth_rx_notify(s);
 
     enet_update_irq(s);
-    return size;
+    return s->rxpos;
 }
 
 static size_t
@@ -967,7 +967,8 @@ static void xilinx_enet_realize(DeviceState *dev, Error **errp)
 
     qemu_macaddr_default_if_unset(&s->conf.macaddr);
     s->nic = qemu_new_nic(&net_xilinx_enet_info, &s->conf,
-                          object_get_typename(OBJECT(dev)), dev->id, s);
+                          object_get_typename(OBJECT(dev)), dev->id,
+                          &dev->mem_reentrancy_guard, s);
     qemu_format_nic_info_str(qemu_get_queue(s->nic), s->conf.macaddr.a);
 
     tdk_init(&s->TEMAC.phy);
@@ -1013,7 +1014,7 @@ static void xilinx_enet_class_init(ObjectClass *klass, void *data)
 
     dc->realize = xilinx_enet_realize;
     device_class_set_props(dc, xilinx_enet_properties);
-    dc->reset = xilinx_axienet_reset;
+    device_class_set_legacy_reset(dc, xilinx_axienet_reset);
 }
 
 static void xilinx_enet_control_stream_class_init(ObjectClass *klass,

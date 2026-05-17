@@ -192,7 +192,7 @@ static dma_addr_t mptsas_ld_sg_base(MPTSASState *s, uint32_t flags_and_length,
     return addr;
 }
 
-static int mptsas_build_sgl(MPTSASState *s, MPTSASRequest *req, hwaddr addr)
+static int mptsas_build_sgl(MPTSASState *s, MPTSASRequest *req, hwaddr req_addr)
 {
     PCIDevice *pci = (PCIDevice *) s;
     hwaddr next_chain_addr;
@@ -201,8 +201,8 @@ static int mptsas_build_sgl(MPTSASState *s, MPTSASRequest *req, hwaddr addr)
     uint32_t chain_offset;
 
     chain_offset = req->scsi_io.ChainOffset;
-    next_chain_addr = addr + chain_offset * sizeof(uint32_t);
-    sgaddr = addr + sizeof(MPIMsgSCSIIORequest);
+    next_chain_addr = req_addr + chain_offset * sizeof(uint32_t);
+    sgaddr = req_addr + sizeof(MPIMsgSCSIIORequest);
     pci_dma_sglist_init(&req->qsg, pci, 4);
     left = req->scsi_io.DataLength;
 
@@ -1366,7 +1366,7 @@ static const VMStateDescription vmstate_mptsas = {
     .version_id = 0,
     .minimum_version_id = 0,
     .post_load = mptsas_post_load,
-    .fields      = (VMStateField[]) {
+    .fields = (const VMStateField[]) {
         VMSTATE_PCI_DEVICE(dev, MPTSASState),
         VMSTATE_BOOL(msi_in_use, MPTSASState),
         VMSTATE_UINT32(state, MPTSASState),
@@ -1431,7 +1431,7 @@ static void mptsas1068_class_init(ObjectClass *oc, void *data)
     pc->subsystem_id = 0x8000;
     pc->class_id = PCI_CLASS_STORAGE_SCSI;
     device_class_set_props(dc, mptsas_properties);
-    dc->reset = mptsas_reset;
+    device_class_set_legacy_reset(dc, mptsas_reset);
     dc->vmsd = &vmstate_mptsas;
     dc->desc = "LSI SAS 1068";
     set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);

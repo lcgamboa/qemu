@@ -120,7 +120,7 @@ static const VMStateDescription vmstate_ohci = {
     .name = "ohci",
     .version_id = 1,
     .minimum_version_id = 1,
-    .fields = (VMStateField[]) {
+    .fields = (const VMStateField[]) {
         VMSTATE_PCI_DEVICE(parent_obj, OHCIPCIState),
         VMSTATE_STRUCT(state, OHCIPCIState, 1, vmstate_ohci_state, OHCIState),
         VMSTATE_END_OF_LIST()
@@ -142,7 +142,7 @@ static void ohci_pci_class_init(ObjectClass *klass, void *data)
     device_class_set_props(dc, ohci_pci_properties);
     dc->hotpluggable = false;
     dc->vmsd = &vmstate_ohci;
-    dc->reset = usb_ohci_reset_pci;
+    device_class_set_legacy_reset(dc, usb_ohci_reset_pci);
 }
 
 static const TypeInfo ohci_pci_info = {

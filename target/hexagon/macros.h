@@ -1,5 +1,5 @@
 /*
- *  Copyright(c) 2019-2023 Qualcomm Innovation Center, Inc. All Rights Reserved.
+ *  Copyright(c) 2019-2024 Qualcomm Innovation Center, Inc. All Rights Reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -21,9 +21,6 @@
 #include "cpu.h"
 #include "hex_regs.h"
 #include "reg_fields.h"
-
-#define PCALIGN 4
-#define PCALIGN_MASK (PCALIGN - 1)
 
 #define GET_FIELD(FIELD, REGIN) \
     fEXTRACTU_BITS(REGIN, reg_field_info[FIELD].width, \
@@ -93,13 +90,13 @@
 
 #define CHECK_NOSHUF_PRED(GET_EA, SIZE, PRED) \
     do { \
-        TCGLabel *label = gen_new_label(); \
-        tcg_gen_brcondi_tl(TCG_COND_EQ, PRED, 0, label); \
+        TCGLabel *noshuf_label = gen_new_label(); \
+        tcg_gen_brcondi_tl(TCG_COND_EQ, PRED, 0, noshuf_label); \
         GET_EA; \
         if (insn->slot == 0 && ctx->pkt->pkt_has_store_s1) { \
             probe_noshuf_load(EA, SIZE, ctx->mem_idx); \
         } \
-        gen_set_label(label); \
+        gen_set_label(noshuf_label); \
         if (insn->slot == 0 && ctx->pkt->pkt_has_store_s1) { \
             process_store(ctx, 1); \
         } \
@@ -147,7 +144,7 @@
         __builtin_choose_expr(TYPE_TCGV(X), \
             gen_store1, (void)0))
 #define MEM_STORE1(VA, DATA, SLOT) \
-    MEM_STORE1_FUNC(DATA)(cpu_env, VA, DATA, SLOT)
+    MEM_STORE1_FUNC(DATA)(tcg_env, VA, DATA, SLOT)
 
 #define MEM_STORE2_FUNC(X) \
     __builtin_choose_expr(TYPE_INT(X), \
@@ -155,7 +152,7 @@
         __builtin_choose_expr(TYPE_TCGV(X), \
             gen_store2, (void)0))
 #define MEM_STORE2(VA, DATA, SLOT) \
-    MEM_STORE2_FUNC(DATA)(cpu_env, VA, DATA, SLOT)
+    MEM_STORE2_FUNC(DATA)(tcg_env, VA, DATA, SLOT)
 
 #define MEM_STORE4_FUNC(X) \
     __builtin_choose_expr(TYPE_INT(X), \
@@ -163,7 +160,7 @@
         __builtin_choose_expr(TYPE_TCGV(X), \
             gen_store4, (void)0))
 #define MEM_STORE4(VA, DATA, SLOT) \
-    MEM_STORE4_FUNC(DATA)(cpu_env, VA, DATA, SLOT)
+    MEM_STORE4_FUNC(DATA)(tcg_env, VA, DATA, SLOT)
 
 #define MEM_STORE8_FUNC(X) \
     __builtin_choose_expr(TYPE_INT(X), \
@@ -171,17 +168,8 @@
         __builtin_choose_expr(TYPE_TCGV_I64(X), \
             gen_store8, (void)0))
 #define MEM_STORE8(VA, DATA, SLOT) \
-    MEM_STORE8_FUNC(DATA)(cpu_env, VA, DATA, SLOT)
+    MEM_STORE8_FUNC(DATA)(tcg_env, VA, DATA, SLOT)
 #else
-#define MEM_LOAD1s(VA) ((int8_t)mem_load1(env, pkt_has_store_s1, slot, VA))
-#define MEM_LOAD1u(VA) ((uint8_t)mem_load1(env, pkt_has_store_s1, slot, VA))
-#define MEM_LOAD2s(VA) ((int16_t)mem_load2(env, pkt_has_store_s1, slot, VA))
-#define MEM_LOAD2u(VA) ((uint16_t)mem_load2(env, pkt_has_store_s1, slot, VA))
-#define MEM_LOAD4s(VA) ((int32_t)mem_load4(env, pkt_has_store_s1, slot, VA))
-#define MEM_LOAD4u(VA) ((uint32_t)mem_load4(env, pkt_has_store_s1, slot, VA))
-#define MEM_LOAD8s(VA) ((int64_t)mem_load8(env, pkt_has_store_s1, slot, VA))
-#define MEM_LOAD8u(VA) ((uint64_t)mem_load8(env, pkt_has_store_s1, slot, VA))
-
 #define MEM_STORE1(VA, DATA, SLOT) log_store32(env, VA, DATA, 1, SLOT)
 #define MEM_STORE2(VA, DATA, SLOT) log_store32(env, VA, DATA, 2, SLOT)
 #define MEM_STORE4(VA, DATA, SLOT) log_store32(env, VA, DATA, 4, SLOT)
@@ -352,7 +340,7 @@ static inline TCGv gen_read_ireg(TCGv result, TCGv val, int shift)
 
 #define fREAD_LR() (env->gpr[HEX_REG_LR])
 
-#define fREAD_SP() (env->gpr[HEX_REG_SP])
+#define fREAD_SP() (SP)
 #define fREAD_LC0 (env->gpr[HEX_REG_LC0])
 #define fREAD_LC1 (env->gpr[HEX_REG_LC1])
 #define fREAD_SA0 (env->gpr[HEX_REG_SA0])
@@ -367,7 +355,7 @@ static inline TCGv gen_read_ireg(TCGv result, TCGv val, int shift)
 #endif
 #define fREAD_PC() (PC)
 
-#define fREAD_P0() (env->pred[0])
+#define fREAD_P0() (P0)
 
 #define fCHECK_PCALIGN(A)
 
@@ -471,8 +459,7 @@ static inline TCGv gen_read_ireg(TCGv result, TCGv val, int shift)
 #define fPM_CIRI(REG, IMM, MVAL) \
     do { \
         TCGv tcgv_siV = tcg_constant_tl(siV); \
-        gen_helper_fcircadd(REG, REG, tcgv_siV, MuV, \
-                            hex_gpr[HEX_REG_CS0 + MuN]); \
+        gen_helper_fcircadd(REG, REG, tcgv_siV, MuV, CS); \
     } while (0)
 #else
 #define fEA_IMM(IMM)        do { EA = (IMM); } while (0)
@@ -530,8 +517,16 @@ static inline TCGv gen_read_ireg(TCGv result, TCGv val, int shift)
 #ifdef QEMU_GENERATE
 #define fLOAD(NUM, SIZE, SIGN, EA, DST) MEM_LOAD##SIZE##SIGN(DST, EA)
 #else
+#define MEM_LOAD1 cpu_ldub_data_ra
+#define MEM_LOAD2 cpu_lduw_data_ra
+#define MEM_LOAD4 cpu_ldl_data_ra
+#define MEM_LOAD8 cpu_ldq_data_ra
+
 #define fLOAD(NUM, SIZE, SIGN, EA, DST) \
-    DST = (size##SIZE##SIGN##_t)MEM_LOAD##SIZE##SIGN(EA)
+    do { \
+        check_noshuf(env, pkt_has_store_s1, slot, EA, SIZE, GETPC()); \
+        DST = (size##SIZE##SIGN##_t)MEM_LOAD##SIZE(env, EA, GETPC()); \
+    } while (0)
 #endif
 
 #define fMEMOP(NUM, SIZE, SIGN, EA, FNTYPE, VALUE)

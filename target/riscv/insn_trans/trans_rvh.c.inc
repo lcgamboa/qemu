@@ -44,8 +44,8 @@ static bool do_hlv(DisasContext *ctx, arg_r2 *a,
     TCGv dest = dest_gpr(ctx, a->rd);
     TCGv addr = get_gpr(ctx, a->rs1, EXT_NONE);
 
-    decode_save_opc(ctx);
-    func(dest, cpu_env, addr);
+    decode_save_opc(ctx, 0);
+    func(dest, tcg_env, addr);
     gen_set_gpr(ctx, a->rd, dest);
     return true;
 }
@@ -56,8 +56,8 @@ static bool do_hsv(DisasContext *ctx, arg_r2_s *a,
     TCGv addr = get_gpr(ctx, a->rs1, EXT_NONE);
     TCGv data = get_gpr(ctx, a->rs2, EXT_NONE);
 
-    decode_save_opc(ctx);
-    func(cpu_env, addr, data);
+    decode_save_opc(ctx, 0);
+    func(tcg_env, addr, data);
     return true;
 }
 #endif /* CONFIG_USER_ONLY */
@@ -147,8 +147,8 @@ static bool trans_hfence_gvma(DisasContext *ctx, arg_sfence_vma *a)
 {
     REQUIRE_EXT(ctx, RVH);
 #ifndef CONFIG_USER_ONLY
-    decode_save_opc(ctx);
-    gen_helper_hyp_gvma_tlb_flush(cpu_env);
+    decode_save_opc(ctx, 0);
+    gen_helper_hyp_gvma_tlb_flush(tcg_env);
     return true;
 #endif
     return false;
@@ -158,8 +158,8 @@ static bool trans_hfence_vvma(DisasContext *ctx, arg_sfence_vma *a)
 {
     REQUIRE_EXT(ctx, RVH);
 #ifndef CONFIG_USER_ONLY
-    decode_save_opc(ctx);
-    gen_helper_hyp_tlb_flush(cpu_env);
+    decode_save_opc(ctx, 0);
+    gen_helper_hyp_tlb_flush(tcg_env);
     return true;
 #endif
     return false;

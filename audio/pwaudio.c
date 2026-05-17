@@ -11,8 +11,8 @@
 #include "qemu/osdep.h"
 #include "qemu/module.h"
 #include "audio.h"
-#include <errno.h>
 #include "qemu/error-report.h"
+#include "qapi/error.h"
 #include <spa/param/audio/format-utils.h>
 #include <spa/utils/ringbuffer.h>
 #include <spa/utils/result.h>
@@ -736,7 +736,7 @@ static const struct pw_core_events core_events = {
 };
 
 static void *
-qpw_audio_init(Audiodev *dev)
+qpw_audio_init(Audiodev *dev, Error **errp)
 {
     g_autofree pwaudio *pw = g_new0(pwaudio, 1);
 
@@ -748,19 +748,19 @@ qpw_audio_init(Audiodev *dev)
     pw->dev = dev;
     pw->thread_loop = pw_thread_loop_new("PipeWire thread loop", NULL);
     if (pw->thread_loop == NULL) {
-        error_report("Could not create PipeWire loop: %s", g_strerror(errno));
+        error_setg_errno(errp, errno, "Could not create PipeWire loop");
         goto fail;
     }
 
     pw->context =
         pw_context_new(pw_thread_loop_get_loop(pw->thread_loop), NULL, 0);
     if (pw->context == NULL) {
-        error_report("Could not create PipeWire context: %s", g_strerror(errno));
+        error_setg_errno(errp, errno, "Could not create PipeWire context");
         goto fail;
     }
 
     if (pw_thread_loop_start(pw->thread_loop) < 0) {
-        error_report("Could not start PipeWire loop: %s", g_strerror(errno));
+        error_setg_errno(errp, errno, "Could not start PipeWire loop");
         goto fail;
     }
 
@@ -769,12 +769,14 @@ qpw_audio_init(Audiodev *dev)
     pw->core = pw_context_connect(pw->context, NULL, 0);
     if (pw->core == NULL) {
         pw_thread_loop_unlock(pw->thread_loop);
+        error_setg_errno(errp, errno, "Failed to connect to PipeWire instance");
         goto fail;
     }
 
     if (pw_core_add_listener(pw->core, &pw->core_listener,
                              &core_events, pw) < 0) {
         pw_thread_loop_unlock(pw->thread_loop);
+        error_setg(errp, "Failed to add PipeWire listener");
         goto fail;
     }
     if (wait_resync(pw) < 0) {
@@ -786,7 +788,6 @@ qpw_audio_init(Audiodev *dev)
     return g_steal_pointer(&pw);
 
 fail:
-    AUD_log(AUDIO_CAP, "Failed to initialize PW context");
     if (pw->thread_loop) {
         pw_thread_loop_stop(pw->thread_loop);
     }
@@ -841,7 +842,6 @@ static struct audio_driver pw_audio_driver = {
     .init = qpw_audio_init,
     .fini = qpw_audio_fini,
     .pcm_ops = &qpw_pcm_ops,
-    .can_be_default = 1,
     .max_voices_out = INT_MAX,
     .max_voices_in = INT_MAX,
     .voice_size_out = sizeof(PWVoiceOut),

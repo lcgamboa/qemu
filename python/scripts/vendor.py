@@ -41,15 +41,15 @@ def main() -> int:
     parser.parse_args()
 
     packages = {
-        "meson==0.63.3":
-        "d677b809c4895dcbaac9bf6c43703fcb3609a4b24c6057c78f828590049cf43a",
+        "meson==1.5.0":
+        "52b34f4903b882df52ad0d533146d4b992c018ea77399f825579737672ae7b20",
     }
 
     vendor_dir = Path(__file__, "..", "..", "wheels").resolve()
 
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8") as file:
         for dep_spec, checksum in packages.items():
-            file.write(f"{dep_spec} --hash=sha256:{checksum}")
+            print(f"{dep_spec} --hash=sha256:{checksum}", file=file)
         file.flush()
 
         cli_args = [

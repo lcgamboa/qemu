@@ -179,9 +179,9 @@ static void stm32_rtc_tick(void *opaque)
 }
 
 
-static void stm32_rtc_reset(DeviceState *dev)
+static void stm32_rtc_reset_enter(Object *obj, ResetType type)
 {
-   Stm32Rtc *s = STM32_RTC(dev);
+   Stm32Rtc *s = STM32_RTC(obj);
    s->RTC_CR[0]=0x0020;
    s->RTC_CR[1]=0x0000;
    s->RTC_PRL[0]=0x8000;
@@ -359,7 +359,7 @@ static void stm32_rtc_realize(DeviceState *dev, Error **errp)
           qemu_allocate_irqs(stm32_rtc_clk_irq_handler, (void *)s, 1);
     stm32_rcc_set_periph_clk_irq(s->stm32_rcc, s->periph, clk_irq[0]);
     
-    stm32_rtc_reset((DeviceState *)s);
+    stm32_rtc_reset_enter((Object *)s, 0);
 }
 
 void stm32_rtc_set_rcc(Stm32Rtc *rtc, Stm32Rcc* rcc)
@@ -376,13 +376,15 @@ static Property stm32_rtc_properties[] = {
 static void stm32_rtc_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
+    ResettablePhases rp;
     //SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
     //k->init = stm32_rtc_init;
-    dc->reset = stm32_rtc_reset;
     dc->realize = stm32_rtc_realize;
     //dc->props = stm32_rtc_properties;
     device_class_set_props(dc, stm32_rtc_properties);
+    ResettableClass *rc = RESETTABLE_CLASS(klass);
+    resettable_class_set_parent_phases(rc, stm32_rtc_reset_enter, NULL, NULL, &rp);
 }
 
 static TypeInfo stm32_rtc_info = {

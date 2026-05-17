@@ -13,8 +13,8 @@
 
 from contextlib import contextmanager
 import os
-import sys
 import re
+import sys
 from typing import (
     Dict,
     Iterator,
@@ -81,7 +81,7 @@ class QAPIGen:
         if odir:
             os.makedirs(odir, exist_ok=True)
 
-        # use os.open for O_CREAT to create and read a non-existant file
+        # use os.open for O_CREAT to create and read a non-existent file
         fd = os.open(pathname, os.O_RDWR | os.O_CREAT, 0o666)
         with os.fdopen(fd, 'r+', encoding='utf-8') as fp:
             text = self.get_content()
@@ -118,7 +118,7 @@ def build_params(arg_type: Optional[QAPISchemaObjectType],
         ret += '%s arg' % arg_type.c_param_type()
         sep = ', '
     elif arg_type:
-        assert not arg_type.variants
+        assert not arg_type.branches
         for memb in arg_type.members:
             assert not memb.ifcond.is_present()
             ret += sep

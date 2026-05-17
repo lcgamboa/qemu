@@ -122,10 +122,77 @@ functioning.  These are performed using a few more helper functions:
    indicated by $TMPC.
 
 
-Python virtual environments and the QEMU build system
------------------------------------------------------
+Python virtual environments and the build process
+-------------------------------------------------
 
-TBD
+An important step in ``configure`` is to create a Python virtual
+environment (venv) during the configuration phase.  The Python interpreter
+comes from the ``--python`` command line option, the ``$PYTHON`` variable
+from the environment, or the system PATH, in this order.  The venv resides
+in the ``pyvenv`` directory in the build tree, and provides consistency
+in how the build process runs Python code.
+
+At this stage, ``configure`` also queries the chosen Python interpreter
+about QEMU's build dependencies.  Note that the build process does  *not*
+look for ``meson``, ``sphinx-build`` or ``avocado`` binaries in the PATH;
+likewise, there are no options such as ``--meson`` or ``--sphinx-build``.
+This avoids a potential mismatch, where Meson and Sphinx binaries on the
+PATH might operate in a different Python environment than the one chosen
+by the user during the build process.  On the other hand, it introduces
+a potential source of confusion where the user installs a dependency but
+``configure`` is not able to find it.  When this happens, the dependency
+was installed in the ``site-packages`` directory of another interpreter,
+or with the wrong ``pip`` program.
+
+If a package is available for the chosen interpreter, ``configure``
+prepares a small script that invokes it from the venv itself\ [#distlib]_.
+If not, ``configure`` can also optionally install dependencies in the
+virtual environment with ``pip``, either from wheels in ``python/wheels``
+or by downloading the package with PyPI.  Downloading can be disabled with
+``--disable-download``; and anyway, it only happens when a ``configure``
+option (currently, only ``--enable-docs``) is explicitly enabled but
+the dependencies are not present\ [#pip]_.
+
+.. [#distlib] The scripts are created based on the package's metadata,
+              specifically the ``console_script`` entry points.  This is the
+              same mechanism that ``pip`` uses when installing a package.
+              Currently, in all cases it would be possible to use ``python -m``
+              instead of an entry point script, which makes this approach a
+              bit overkill.  On the other hand, creating the scripts is
+              future proof and it makes the contents of the ``pyvenv/bin``
+              directory more informative.  Portability is also not an issue,
+              because the Python Packaging Authority provides a package
+              ``distlib.scripts`` to perform this task.
+
+.. [#pip] ``pip`` might also be used when running ``make check-avocado``
+           if downloading is enabled, to ensure that Avocado is
+           available.
+
+The required versions of the packages are stored in a configuration file
+``pythondeps.toml``.  The format is custom to QEMU, but it is documented
+at the top of the file itself and it should be easy to understand.  The
+requirements should make it possible to use the version that is packaged
+that is provided by supported distros.
+
+When dependencies are downloaded, instead, ``configure`` uses a "known
+good" version that is also listed in ``pythondeps.toml``.  In this
+scenario, ``pythondeps.toml`` behaves like the "lock file" used by
+``cargo``, ``poetry`` or other dependency management systems.
+
+
+Bundled Python packages
+-----------------------
+
+Python packages that are **mandatory** dependencies to build QEMU,
+but are not available in all supported distros, are bundled with the
+QEMU sources.  The only one is currently Meson (outdated in Ubuntu
+22.04 and openSUSE Leap).
+
+In order to include a new or updated wheel, modify and rerun the
+``python/scripts/vendor.py`` script.  The script embeds the
+sha256 hash of package sources and checks it.  The pypi.org web site
+provides an easy way to retrieve the sha256 hash of the sources.
+
 
 Stage 2: Meson
 ==============
@@ -168,14 +235,10 @@ Subsystem sourcesets:
   are then turned into static libraries as follows::
 
     libchardev = static_library('chardev', chardev_ss.sources(),
-                                name_suffix: 'fa',
                                 build_by_default: false)
 
-    chardev = declare_dependency(link_whole: libchardev)
-
-  As of Meson 0.55.1, the special ``.fa`` suffix should be used for everything
-  that is used with ``link_whole``, to ensure that the link flags are placed
-  correctly in the command line.
+    chardev = declare_dependency(objects: libchardev.extract_all_objects(recursive: false),
+                                 dependencies: chardev_ss.dependencies())
 
 Target-independent emulator sourcesets:
   Various general purpose helper code is compiled only once and
@@ -187,21 +250,6 @@ Target-independent emulator sourcesets:
   ``user_ss`` sourcesets.  ``common_ss`` is linked into all emulators,
   ``system_ss`` only in system emulators, ``user_ss`` only in user-mode
   emulators.
-
-  Target-independent sourcesets must exercise particular care when using
-  ``if_false`` rules.  The ``if_false`` rule will be used correctly when linking
-  emulator binaries; however, when *compiling* target-independent files
-  into .o files, Meson may need to pick *both* the ``if_true`` and
-  ``if_false`` sides to cater for targets that want either side.  To
-  achieve that, you can add a special rule using the ``CONFIG_ALL``
-  symbol::
-
-    # Some targets have CONFIG_ACPI, some don't, so this is not enough
-    system_ss.add(when: 'CONFIG_ACPI', if_true: files('acpi.c'),
-                                        if_false: files('acpi-stub.c'))
-
-    # This is required as well:
-    system_ss.add(when: 'CONFIG_ALL', if_true: files('acpi-stub.c'))
 
 Target-dependent emulator sourcesets:
   In the target-dependent set lives CPU emulation, some device emulation and
@@ -225,14 +273,14 @@ Target-dependent emulator sourcesets:
   The sourceset is only used for system emulators.
 
   Each subdirectory in ``target/`` instead should add one sourceset to each
-  of the ``target_arch`` and ``target_softmmu_arch``, which are used respectively
+  of the ``target_arch`` and ``target_system_arch``, which are used respectively
   for all emulators and for system emulators only.  For example::
 
     arm_ss = ss.source_set()
     arm_system_ss = ss.source_set()
     ...
     target_arch += {'arm': arm_ss}
-    target_softmmu_arch += {'arm': arm_system_ss}
+    target_system_arch += {'arm': arm_system_ss}
 
 Module sourcesets:
   There are two dictionaries for modules: ``modules`` is used for
@@ -285,7 +333,7 @@ into each emulator:
 
 ``default-configs/targets/*.mak``
   These files mostly define symbols that appear in the ``*-config-target.h``
-  file for each emulator [#cfgtarget]_.  However, the ``TARGET_ARCH``
+  file for each emulator\ [#cfgtarget]_.  However, the ``TARGET_ARCH``
   and ``TARGET_BASE_ARCH`` will also be used to select the ``hw/`` and
   ``target/`` subdirectories that are compiled into each target.
 
@@ -376,6 +424,15 @@ This is needed to obey the --python= option passed to the configure
 script, which may point to something other than the first python3
 binary on the path.
 
+By the time Meson runs, Python dependencies are available in the virtual
+environment and should be invoked through the scripts that ``configure``
+places under ``pyvenv``.  One way to do so is as follows, using Meson's
+``find_program`` function::
+
+  sphinx_build = find_program(
+       fs.parent(python.full_path()) / 'sphinx-build',
+       required: get_option('docs'))
+
 
 Stage 3: Make
 =============
@@ -434,6 +491,11 @@ number of dynamically created files listed later.
   executables.  Build rules for various subdirectories are included in
   other meson.build files spread throughout the QEMU source tree.
 
+``python/scripts/mkvenv.py``
+  A wrapper for the Python ``venv`` and ``distlib.scripts`` packages.
+  It handles creating the virtual environment, creating scripts in
+  ``pyvenv/bin``, and calling ``pip`` to install dependencies.
+
 ``tests/Makefile.include``
   Rules for external test harnesses. These include the TCG tests
   and the Avocado-based integration tests.
@@ -460,16 +522,12 @@ Built by configure:
 
 ``config-host.mak``
   When configure has determined the characteristics of the build host it
-  will write them to this file for use in ``Makefile`` and to a smaller
-  extent ``meson.build``. These include the paths to various tools and a
-  variety of ``CONFIG_*`` variables related to optionally enabled features.
+  will write the paths to various tools to this file, for use in ``Makefile``
+  and to a smaller extent ``meson.build``.
 
   ``config-host.mak`` is also used as a dependency checking mechanism. If make
   sees that the modification timestamp on configure is newer than that on
   ``config-host.mak``, then configure will be re-run.
-
-  The variables defined here apply to all QEMU
-  build outputs.
 
 ``config-meson.cross``
 

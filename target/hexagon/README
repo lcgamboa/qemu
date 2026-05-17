@@ -43,11 +43,9 @@ target/hexagon/gen_semantics.c.  This step produces
 That file is consumed by the following python scripts to produce the indicated
 header files in <BUILD_DIR>/target/hexagon
         gen_opcodes_def.py              -> opcodes_def_generated.h.inc
-        gen_op_regs.py                  -> op_regs_generated.h.inc
         gen_printinsn.py                -> printinsn_generated.h.inc
         gen_op_attribs.py               -> op_attribs_generated.h.inc
         gen_helper_protos.py            -> helper_protos_generated.h.inc
-        gen_shortcode.py                -> shortcode_generated.h.inc
         gen_tcg_funcs.py                -> tcg_funcs_generated.c.inc
         gen_tcg_func_table.py           -> tcg_func_table_generated.c.inc
         gen_helper_funcs.py             -> helper_funcs_generated.c.inc
@@ -86,7 +84,7 @@ tcg_funcs_generated.c.inc
         const int RdN = insn->regno[0];
         TCGv RsV = hex_gpr[insn->regno[1]];
         TCGv RtV = hex_gpr[insn->regno[2]];
-        gen_helper_A2_add(RdV, cpu_env, RsV, RtV);
+        gen_helper_A2_add(RdV, tcg_env, RsV, RtV);
         gen_log_reg_write(ctx, RdN, RdV);
     }
 
@@ -143,7 +141,7 @@ istruction.
         const intptr_t VdV_off =
             ctx_future_vreg_off(ctx, VdN, 1, true);
         TCGv_ptr VdV = tcg_temp_new_ptr();
-        tcg_gen_addi_ptr(VdV, cpu_env, VdV_off);
+        tcg_gen_addi_ptr(VdV, tcg_env, VdV_off);
         const int VuN = insn->regno[1];
         const intptr_t VuV_off =
             vreg_src_off(ctx, VuN);
@@ -152,9 +150,9 @@ istruction.
         const intptr_t VvV_off =
             vreg_src_off(ctx, VvN);
         TCGv_ptr VvV = tcg_temp_new_ptr();
-        tcg_gen_addi_ptr(VuV, cpu_env, VuV_off);
-        tcg_gen_addi_ptr(VvV, cpu_env, VvV_off);
-        gen_helper_V6_vaddw(cpu_env, VdV, VuV, VvV);
+        tcg_gen_addi_ptr(VuV, tcg_env, VuV_off);
+        tcg_gen_addi_ptr(VvV, tcg_env, VvV_off);
+        gen_helper_V6_vaddw(tcg_env, VdV, VuV, VvV);
     }
 
 Notice that we also generate a variable named <operand>_off for each operand of
@@ -183,17 +181,24 @@ when the override is present.
     }
 
 We also generate an analyze_<tag> function for each instruction.  Currently,
-these functions record the writes to registers by calling ctx_log_*.  During
-gen_start_packet, we invoke the analyze_<tag> function for each instruction in
-the packet, and we mark the implicit writes.  After the analysis is performed,
-we initialize the result register for each of the predicated assignments.
+these functions record the reads and writes to registers by calling ctx_log_*.
+During gen_start_packet, we invoke the analyze_<tag> function for each instruction in
+the packet, and we mark the implicit writes.  The analysis determines if the packet
+semantics can be short-circuited.  If not, we initialize the result register for each
+of the predicated assignments.
 
 In addition to instruction semantics, we use a generator to create the decode
-tree.  This generation is also a two step process.  The first step is to run
-target/hexagon/gen_dectree_import.c to produce
+tree.  This generation is a four step process.
+Step 1 is to run target/hexagon/gen_dectree_import.c to produce
     <BUILD_DIR>/target/hexagon/iset.py
-This file is imported by target/hexagon/dectree.py to produce
-    <BUILD_DIR>/target/hexagon/dectree_generated.h.inc
+Step 2 is to import iset.py into target/hexagon/gen_decodetree.py to produce
+    <BUILD_DIR>/target/hexagon/normal_decode_generated
+    <BUILD_DIR>/target/hexagon/hvx_decode_generated
+    <BUILD_DIR>/target/hexagon/subinsn_*_decode_generated
+Step 3 is to process the above files with QEMU's decodetree.py to produce
+    <BUILD_DIR>/target/hexagon/decode_*_generated.c.inc
+Step 4 is to import iset.py into target/hexagon/gen_trans_funcs.py to produce
+    <BUILD_DIR>/target/hexagon/decodetree_trans_funcs_generated.c.inc
 
 *** Key Files ***
 
@@ -239,7 +244,7 @@ helper_funcs_generated.c.inc.  There are also several helpers used for debugging
 
 VLIW packet semantics differ from serial semantics in that all input operands
 are read, then the operations are performed, then all the results are written.
-For exmaple, this packet performs a swap of registers r0 and r1
+For example, this packet performs a swap of registers r0 and r1
     { r0 = r1; r1 = r0 }
 Note that the result is different if the instructions are executed serially.
 

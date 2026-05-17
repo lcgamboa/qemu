@@ -154,9 +154,9 @@ static void stm32_flash_realize(DeviceState *dev, Error **errp)
 }
 
 static void
-stm32_flash_reset(DeviceState *ds)
+stm32_flash_reset_enter(Object *obj, ResetType type)
 {
-	Stm32Flash *s = STM32_FLASH(ds);
+	Stm32Flash *s = STM32_FLASH(obj);
 
 	printf("reset is called!\n\n");
    
@@ -181,13 +181,15 @@ static Property stm32_flash_properties[] = {
 static void stm32_flash_class_init(ObjectClass *klass, void *data)
 {
 	DeviceClass *dc = DEVICE_CLASS(klass);
+    ResettablePhases rp;
 	//SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
 	//k->init = stm32_flash_init;
 	//dc->props = stm32_flash_properties;
-    dc->reset = stm32_flash_reset;
     dc->realize = stm32_flash_realize;
     device_class_set_props(dc, stm32_flash_properties);
+    ResettableClass *rc = RESETTABLE_CLASS(klass);
+    resettable_class_set_parent_phases(rc, stm32_flash_reset_enter, NULL, NULL, &rp);	
 }
 
 static TypeInfo stm32_flash_info = {
@@ -447,9 +449,9 @@ stm32_flash_regs_init(Object *obj)
 }
 
 static void
-stm32_flash_regs_reset(DeviceState *ds)
+stm32_flash_regs_reset_enter(Object *obj, ResetType type)
 {
-	Stm32FlashRegs *s = STM32_FLASH_REGS(ds);
+	Stm32FlashRegs *s = STM32_FLASH_REGS(obj);
 
 	s->ACR = 0;
 	s->KEYR = 0;
@@ -468,10 +470,12 @@ stm32_flash_regs_reset(DeviceState *ds)
 static void
 stm32_flash_regs_class_init(ObjectClass *klass, void *data)
 {
-	DeviceClass *dc = DEVICE_CLASS(klass);
+	//DeviceClass *dc = DEVICE_CLASS(klass);
+    ResettablePhases rp;
 	//SysBusDeviceClass *sc = SYS_BUS_DEVICE_CLASS(klass);
 	//sc->init = stm32_flash_regs_init;
-	dc->reset = stm32_flash_regs_reset;
+	ResettableClass *rc = RESETTABLE_CLASS(klass);
+    resettable_class_set_parent_phases(rc, stm32_flash_regs_reset_enter, NULL, NULL, &rp);	
 }
 
 static const TypeInfo

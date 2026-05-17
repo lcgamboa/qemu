@@ -13,11 +13,13 @@
 #include "qemu/units.h"
 #include "migration/qemu-file.h"
 #include "migration/register.h"
+#include "hw/qdev-properties.h"
 #include "hw/s390x/storage-attributes.h"
 #include "qemu/error-report.h"
 #include "exec/ram_addr.h"
 #include "qapi/error.h"
 #include "qapi/qmp/qdict.h"
+#include "cpu.h"
 
 /* 512KiB cover 2GB of guest memory */
 #define CMMA_BLOCK_SIZE  (512 * KiB)
@@ -59,11 +61,13 @@ void hmp_migrationmode(Monitor *mon, const QDict *qdict)
     S390StAttribState *sas = s390_get_stattrib_device();
     S390StAttribClass *sac = S390_STATTRIB_GET_CLASS(sas);
     uint64_t what = qdict_get_int(qdict, "mode");
+    Error *local_err = NULL;
     int r;
 
-    r = sac->set_migrationmode(sas, what);
+    r = sac->set_migrationmode(sas, what, &local_err);
     if (r < 0) {
-        monitor_printf(mon, "Error: %s", strerror(-r));
+        monitor_printf(mon, "Error: %s", error_get_pretty(local_err));
+        error_free(local_err);
     }
 }
 
@@ -165,7 +169,7 @@ static int cmma_load(QEMUFile *f, void *opaque, int version_id)
     return ret;
 }
 
-static int cmma_save_setup(QEMUFile *f, void *opaque)
+static int cmma_save_setup(QEMUFile *f, void *opaque, Error **errp)
 {
     S390StAttribState *sas = S390_STATTRIB(opaque);
     S390StAttribClass *sac = S390_STATTRIB_GET_CLASS(sas);
@@ -174,7 +178,7 @@ static int cmma_save_setup(QEMUFile *f, void *opaque)
      * Signal that we want to start a migration, thus needing PGSTE dirty
      * tracking.
      */
-    res = sac->set_migrationmode(sas, 1);
+    res = sac->set_migrationmode(sas, true, errp);
     if (res) {
         return res;
     }
@@ -259,7 +263,7 @@ static void cmma_save_cleanup(void *opaque)
 {
     S390StAttribState *sas = S390_STATTRIB(opaque);
     S390StAttribClass *sac = S390_STATTRIB_GET_CLASS(sas);
-    sac->set_migrationmode(sas, 0);
+    sac->set_migrationmode(sas, false, NULL);
 }
 
 static bool cmma_active(void *opaque)
@@ -292,7 +296,8 @@ static long long qemu_s390_get_dirtycount_stub(S390StAttribState *sa)
 {
     return 0;
 }
-static int qemu_s390_set_migrationmode_stub(S390StAttribState *sa, bool value)
+static int qemu_s390_set_migrationmode_stub(S390StAttribState *sa, bool value,
+                                            Error **errp)
 {
     return 0;
 }
@@ -330,41 +335,6 @@ static const TypeInfo qemu_s390_stattrib_info = {
 
 /* Generic abstract object: */
 
-static void s390_stattrib_realize(DeviceState *dev, Error **errp)
-{
-    bool ambiguous = false;
-
-    object_resolve_path_type("", TYPE_S390_STATTRIB, &ambiguous);
-    if (ambiguous) {
-        error_setg(errp, "storage_attributes device already exists");
-    }
-}
-
-static void s390_stattrib_class_init(ObjectClass *oc, void *data)
-{
-    DeviceClass *dc = DEVICE_CLASS(oc);
-
-    dc->hotpluggable = false;
-    set_bit(DEVICE_CATEGORY_MISC, dc->categories);
-    dc->realize = s390_stattrib_realize;
-}
-
-static inline bool s390_stattrib_get_migration_enabled(Object *obj,
-                                                       Error **errp)
-{
-    S390StAttribState *s = S390_STATTRIB(obj);
-
-    return s->migration_enabled;
-}
-
-static inline void s390_stattrib_set_migration_enabled(Object *obj, bool value,
-                                            Error **errp)
-{
-    S390StAttribState *s = S390_STATTRIB(obj);
-
-    s->migration_enabled = value;
-}
-
 static SaveVMHandlers savevm_s390_stattrib_handlers = {
     .save_setup = cmma_save_setup,
     .save_live_iterate = cmma_save_iterate,
@@ -376,17 +346,39 @@ static SaveVMHandlers savevm_s390_stattrib_handlers = {
     .is_active = cmma_active,
 };
 
+static void s390_stattrib_realize(DeviceState *dev, Error **errp)
+{
+    bool ambiguous = false;
+
+    object_resolve_path_type("", TYPE_S390_STATTRIB, &ambiguous);
+    if (ambiguous) {
+        error_setg(errp, "storage_attributes device already exists");
+        return;
+    }
+
+    register_savevm_live(TYPE_S390_STATTRIB, 0, 0,
+                         &savevm_s390_stattrib_handlers, dev);
+}
+
+static Property s390_stattrib_props[] = {
+    DEFINE_PROP_BOOL("migration-enabled", S390StAttribState, migration_enabled, true),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
+static void s390_stattrib_class_init(ObjectClass *oc, void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(oc);
+
+    dc->hotpluggable = false;
+    set_bit(DEVICE_CATEGORY_MISC, dc->categories);
+    dc->realize = s390_stattrib_realize;
+    device_class_set_props(dc, s390_stattrib_props);
+}
+
 static void s390_stattrib_instance_init(Object *obj)
 {
     S390StAttribState *sas = S390_STATTRIB(obj);
 
-    register_savevm_live(TYPE_S390_STATTRIB, 0, 0,
-                         &savevm_s390_stattrib_handlers, sas);
-
-    object_property_add_bool(obj, "migration-enabled",
-                             s390_stattrib_get_migration_enabled,
-                             s390_stattrib_set_migration_enabled);
-    object_property_set_bool(obj, "migration-enabled", true, NULL);
     sas->migration_cur_gfn = 0;
 }
 

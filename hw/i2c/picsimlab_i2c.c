@@ -33,8 +33,8 @@ typedef struct PICSIMLAB_I2CState {
 #define PICSIMLAB_I2C(obj)                                                     \
   OBJECT_CHECK(PICSIMLAB_I2CState, (obj), TYPE_PICSIMLAB_I2C)
 
-static void picsimlab_i2c_reset(DeviceState *dev) {
-  // PICSIMLAB_I2CState *s = PICSIMLAB_I2C(dev);
+static void picsimlab_i2c_reset_enter(Object *obj, ResetType type) {
+  // PICSIMLAB_I2CState *s = PICSIMLAB_I2C(obj);
 }
 
 static uint8_t picsimlab_i2c_rx(I2CSlave *i2c) {
@@ -86,13 +86,16 @@ static const VMStateDescription vmstate_picsimlab_i2c = {
 static void picsimlab_i2c_class_init(ObjectClass *klass, void *data) {
   DeviceClass *dc = DEVICE_CLASS(klass);
   I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
+  ResettablePhases rp;
+    
     k->event = picsimlab_i2c_ev;
     k->recv = picsimlab_i2c_rx;
     k->send = picsimlab_i2c_tx;
     k->match_and_add = picsimlab_i2c_match;
-    dc->reset = picsimlab_i2c_reset;
     dc->vmsd = &vmstate_picsimlab_i2c;
     dc->realize = picsimlab_i2c_realize;
+    ResettableClass *rc = RESETTABLE_CLASS(klass);
+    resettable_class_set_parent_phases(rc, picsimlab_i2c_reset_enter, NULL, NULL, &rp);
   }
 
   static const TypeInfo picsimlab_i2c_info = {

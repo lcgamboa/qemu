@@ -288,10 +288,10 @@ static const MemoryRegionOps stm32_gpio_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN
 };
 
-static void stm32_gpio_reset(DeviceState *dev)
+static void stm32_gpio_reset_enter(Object *obj, ResetType type)
 {
     int pin;
-    Stm32Gpio *s = STM32_GPIO(dev);
+    Stm32Gpio *s = STM32_GPIO(obj);
 
     s->GPIOx_CRy[0] = 0x44444444;
     s->GPIOx_CRy[1] = 0x44444444;
@@ -371,13 +371,15 @@ static Property stm32_gpio_properties[] = {
 static void stm32_gpio_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
+    ResettablePhases rp;
     //SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
     //k->init = stm32_gpio_init;
-    dc->reset = stm32_gpio_reset;
     dc->realize = stm32_gpio_realize;
     //dc->props = stm32_gpio_properties;
     device_class_set_props(dc, stm32_gpio_properties);
+    ResettableClass *rc = RESETTABLE_CLASS(klass);
+    resettable_class_set_parent_phases(rc, stm32_gpio_reset_enter, NULL, NULL, &rp);
 }
 
 static TypeInfo stm32_gpio_info = {

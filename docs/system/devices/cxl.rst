@@ -157,7 +157,7 @@ responsible for allocating appropriate ranges from within the CFMWs
 and exposing those via normal memory configurations as would be done
 for system RAM.
 
-Example system Topology. x marks the match in each decoder level::
+Example system topology. x marks the match in each decoder level::
 
   |<------------------SYSTEM PHYSICAL ADDRESS MAP (1)----------------->|
   |    __________   __________________________________   __________    |
@@ -187,8 +187,8 @@ Example system Topology. x marks the match in each decoder level::
        ___________|___   __________|__   __|_________   ___|_________
    (3)|  Root Port 0  | | Root Port 1 | | Root Port 2| | Root Port 3 |
       |  Appears in   | | Appears in  | | Appears in | | Appear in   |
-      |  PCI topology | | PCI Topology| | PCI Topo   | | PCI Topo    |
-      |  As 0c:00.0   | | as 0c:01.0  | | as de:00.0 | | as de:01.0  |
+      |  PCI topology | | PCI topology| | PCI topo   | | PCI topo    |
+      |  as 0c:00.0   | | as 0c:01.0  | | as de:00.0 | | as de:01.0  |
       |_______________| |_____________| |____________| |_____________|
             |                  |               |              |
             |                  |               |              |
@@ -218,17 +218,17 @@ Notes:
     A complex configuration here, might be to use the following HDM
     decoders in HB0. HDM0 routes CFMW0 requests to RP0 and hence
     part of CXL Type3 0. HDM1 routes CFMW0 requests from a
-    different region of the CFMW0 PA range to RP2 and hence part
+    different region of the CFMW0 PA range to RP1 and hence part
     of CXL Type 3 1.  HDM2 routes yet another PA range from within
     CFMW0 to be interleaved across RP0 and RP1, providing 2 way
     interleave of part of the memory provided by CXL Type3 0 and
     CXL Type 3 1. HDM3 routes those interleaved accesses from
     CFMW1 that target HB0 to RP 0 and another part of the memory of
     CXL Type 3 0 (as part of a 2 way interleave at the system level
-    across for example CXL Type3 0 and CXL Type3 2.
+    across for example CXL Type3 0 and CXL Type3 2).
     HDM4 is used to enable system wide 4 way interleave across all
     the present CXL type3 devices, by interleaving those (interleaved)
-    requests that HB0 receives from from CFMW1 across RP 0 and
+    requests that HB0 receives from CFMW1 across RP 0 and
     RP 1 and hence to yet more regions of the memory of the
     attached Type3 devices.  Note this is a representative subset
     of the full range of possible HDM decoder configurations in this
@@ -272,7 +272,7 @@ Example topology involving a switch::
       |  Root Port 0  |
       |  Appears in   |
       |  PCI topology |
-      |  As 0c:00.0   |
+      |  as 0c:00.0   |
       |___________x___|
                   |
                   |
@@ -313,7 +313,7 @@ A very simple setup with just one directly attached CXL Type 3 Persistent Memory
 
 A very simple setup with just one directly attached CXL Type 3 Volatile Memory device::
 
-  qemu-system-aarch64 -M virt,gic-version=3,cxl=on -m 4g,maxmem=8G,slots=8 -cpu max \
+  qemu-system-x86_64 -M q35,cxl=on -m 4G,maxmem=8G,slots=8 -smp 4 \
   ...
   -object memory-backend-ram,id=vmem0,share=on,size=256M \
   -device pxb-cxl,bus_nr=12,bus=pcie.0,id=cxl.1 \
@@ -323,7 +323,7 @@ A very simple setup with just one directly attached CXL Type 3 Volatile Memory d
 
 The same volatile setup may optionally include an LSA region::
 
-  qemu-system-aarch64 -M virt,gic-version=3,cxl=on -m 4g,maxmem=8G,slots=8 -cpu max \
+  qemu-system-x86_64 -M q35,cxl=on -m 4G,maxmem=8G,slots=8 -smp 4 \
   ...
   -object memory-backend-ram,id=vmem0,share=on,size=256M \
   -object memory-backend-file,id=cxl-lsa0,share=on,mem-path=/tmp/lsa.raw,size=256M \
@@ -411,5 +411,4 @@ References
 
  - Consortium website for specifications etc:
    http://www.computeexpresslink.org
- - Compute Express link Revision 2 specification, October 2020
- - CEDT CFMWS & QTG _DSM ECN May 2021
+ - Compute Express Link (CXL) Specification, Revision 3.1, August 2023
