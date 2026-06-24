@@ -91,8 +91,8 @@ psync_irq_handler(void *opaque, int n, int dir)
 
 #define FLASH_SIZE 0x00020000
 #define RAM_SIZE 0x00005000
-/* Main SYSCLK frequency in Hz (24MHz) */
-#define SYSCLK_FRQ 24000000ULL
+/* Main SYSCLK frequency in Hz (72MHz) */
+#define SYSCLK_FRQ 72000000ULL
 
 static void
 stm32_p103_picsimlab_init(MachineState *machine)

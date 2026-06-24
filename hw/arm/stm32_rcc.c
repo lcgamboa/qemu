@@ -42,8 +42,8 @@
 #define DPRINTF(fmt, ...)
 #endif
 
-#define HSI_FREQ 8000000
-#define LSI_FREQ 40000
+#define HSI_FREQ 8000000L
+#define LSI_FREQ 40000L
 
 #define RCC_CR_OFFSET 0x00
 #define RCC_CR_PLL3RDY_CL_BIT   29
@@ -761,7 +761,7 @@ static void stm32_rcc_hclk_upd_irq_handler(void *opaque, int n, int level)
          * system/external clock ticks.
          */
         //external_ref_clock_scale = NANOSECONDS_PER_SECOND / ext_ref_freq;
-        clock_set_hz(s->sysclk->source, hclk_freq*3); //FIXME simulation run slow after qemu updated. 
+        clock_set_hz(s->sysclk->source, hclk_freq);  
         clock_propagate(s->sysclk->source);  
     }
 
@@ -875,19 +875,19 @@ static void stm32_rcc_init_clk(Stm32Rcc *s)
     /* PLLCLK contains both the switch and the multiplier, which are shown as
      * two separate components in the clock tree diagram.
      */
-    s->PLLCLK = clktree_create_clk("PLLCLK", 0, 1, false, 72000000, CLKTREE_NO_INPUT,
+    s->PLLCLK = clktree_create_clk("PLLCLK", 0, 1, false, 72000000L, CLKTREE_NO_INPUT,
                         HSI_DIV2, s->PLLXTPRECLK, NULL);
 
-    s->SYSCLK = clktree_create_clk("SYSCLK", 1, 1, true, 72000000, CLKTREE_NO_INPUT,
+    s->SYSCLK = clktree_create_clk("SYSCLK", 1, 1, true, 72000000L, CLKTREE_NO_INPUT,
                         s->HSICLK, s->HSECLK, s->PLLCLK, NULL);
 
-    s->HCLK = clktree_create_clk("HCLK", 0, 1, true, 72000000, 0,
+    s->HCLK = clktree_create_clk("HCLK", 0, 1, true, 72000000L, 0,
                         s->SYSCLK, NULL);
     clktree_adduser(s->HCLK, hclk_upd_irq[0]);
 
-    s->PCLK1 = clktree_create_clk("PCLK1", 0, 1, true, 36000000, 0,
+    s->PCLK1 = clktree_create_clk("PCLK1", 0, 1, true, 36000000L, 0,
                         s->HCLK, NULL);
-    s->PCLK2 = clktree_create_clk("PCLK2", 0, 1, true, 72000000, 0,
+    s->PCLK2 = clktree_create_clk("PCLK2", 0, 1, true, 72000000L, 0,
                         s->HCLK, NULL);
 
     /* Peripheral clocks */

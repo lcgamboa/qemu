@@ -149,9 +149,9 @@ static MemTxResult systick_write(void *opaque, hwaddr addr,
         s->control &= 0xfffffff8;
         s->control |= value & 7;
 
-        if ((oldval ^ value) & SYSTICK_CLKSOURCE) {
+        //if ((oldval ^ value) & SYSTICK_CLKSOURCE) {
             systick_set_period_from_clock(s);
-        }
+        //}
 
         if ((oldval ^ value) & SYSTICK_ENABLE) {
             if (value & SYSTICK_ENABLE) {
