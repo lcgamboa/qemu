@@ -424,6 +424,7 @@ static void stm32f103_soc_realize(DeviceState *dev_soc, Error **errp) {
   /* Init ARMv7m */
   armv7m = DEVICE(&s->armv7m);
   qdev_prop_set_uint32(armv7m, "num-irq", 61);
+  qdev_prop_set_uint8(armv7m, "num-prio-bits", 4);
   qdev_prop_set_string(armv7m, "cpu-type", s->cpu_type);
   qdev_prop_set_bit(armv7m, "enable-bitband", true);
   qdev_connect_clock_in(armv7m, "cpuclk", s->sysclk);
