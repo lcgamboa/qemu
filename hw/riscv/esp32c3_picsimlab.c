@@ -70,15 +70,15 @@
 #endif
 #include "chardev/char-serial.h"
 
-#define ESP32C3_IO_WARNING          0
+#define ESP32C3_IO_WARNING 0
 
-#define ESP32C3_RESET_ADDRESS       0x40000000
-#define ESP32C3_RESET_GPIO_NAME     "esp32c3.machine.reset_gpio"
-#define MB (1024*1024)
-
+#define ESP32C3_RESET_ADDRESS 0x40000000
+#define ESP32C3_RESET_GPIO_NAME "esp32c3.machine.reset_gpio"
+#define MB (1024 * 1024)
 
 /* Define a new "class" which derivates from "MachineState" */
-struct Esp32C3MachineState {
+struct Esp32C3MachineState
+{
     MachineState parent;
 
     /* Attributes specific to our class */
@@ -119,15 +119,19 @@ struct Esp32C3MachineState {
     Esp32C3AnaState ana;
     Esp32FeState fe;
     Esp32c3PwrMngState pwrmng;
+
+    uint32_t wifi_clk_en_reg;
 };
 
 /* Fake register used by ESP-IDF application to determine whether the code is running on real hardware or on QEMU */
-#define A_SYSCON_ORIGIN_REG     0x3F8
+#define A_SYSCON_ORIGIN_REG 0x3F8
 /* Temporary macro for generating a random value from register SYSCON_RND_DATA_REG */
 #define A_SYSCON_RND_DATA_REG 0x0B0
+/* Fake register used by wifi clock config check */
+#define A_SYSCON_WIFI_CLK_EN_REG 0x014
 
 /* Temporary macro to mark the CPU as in non-debugging mode */
-#define A_ASSIST_DEBUG_CORE_0_DEBUG_MODE_REG    0x098
+#define A_ASSIST_DEBUG_CORE_0_DEBUG_MODE_REG 0x098
 
 /* Create a macro which defines the name of our new machine class */
 #define TYPE_ESP32C3_MACHINE MACHINE_TYPE_NAME("esp32c3-picsimlab")
@@ -137,7 +141,8 @@ struct Esp32C3MachineState {
 OBJECT_DECLARE_SIMPLE_TYPE(Esp32C3MachineState, ESP32C3_MACHINE)
 
 /* Memory entries for ESP32-C3 */
-enum MemoryRegions {
+enum MemoryRegions
+{
     ESP32C3_MEMREGION_IROM,
     ESP32C3_MEMREGION_DROM,
     ESP32C3_MEMREGION_DRAM,
@@ -148,50 +153,51 @@ enum MemoryRegions {
     ESP32C3_MEMREGION_FRAMEBUF,
 };
 
-#define ESP32C3_INTERNAL_SRAM0_SIZE (16*1024)
+#define ESP32C3_INTERNAL_SRAM0_SIZE (16 * 1024)
 
-static const struct MemmapEntry {
+static const struct MemmapEntry
+{
     hwaddr base;
     hwaddr size;
 } esp32c3_memmap[] = {
-    [ESP32C3_MEMREGION_IROM]    = { 0x40000000,  0x60000 },
-    [ESP32C3_MEMREGION_DROM]    = { 0x3ff00000,  0x20000 },
-    [ESP32C3_MEMREGION_DRAM]    = { 0x3fc80000,  0x60000 },
+    [ESP32C3_MEMREGION_IROM] = {0x40000000, 0x60000},
+    [ESP32C3_MEMREGION_DROM] = {0x3ff00000, 0x20000},
+    [ESP32C3_MEMREGION_DRAM] = {0x3fc80000, 0x60000},
     /* Merge SRAM0 and SRAM1 into a single entry */
-    [ESP32C3_MEMREGION_IRAM]    = { 0x4037c000,  0x60000 + ESP32C3_INTERNAL_SRAM0_SIZE },
-    [ESP32C3_MEMREGION_RTCFAST] = { 0x50000000,   0x2000 },
-    [ESP32C3_MEMREGION_DCACHE]  = { 0x3c000000, 0x800000 },
-    [ESP32C3_MEMREGION_ICACHE]  = { 0x42000000, 0x800000 },
+    [ESP32C3_MEMREGION_IRAM] = {0x4037c000, 0x60000 + ESP32C3_INTERNAL_SRAM0_SIZE},
+    [ESP32C3_MEMREGION_RTCFAST] = {0x50000000, 0x2000},
+    [ESP32C3_MEMREGION_DCACHE] = {0x3c000000, 0x800000},
+    [ESP32C3_MEMREGION_ICACHE] = {0x42000000, 0x800000},
     /* Virtual Framebuffer, used for the graphical interface */
-    [ESP32C3_MEMREGION_FRAMEBUF] = { 0x20000000, ESP_RGB_MAX_VRAM_SIZE }
-};
+    [ESP32C3_MEMREGION_FRAMEBUF] = {0x20000000, ESP_RGB_MAX_VRAM_SIZE}};
 
 static Esp32C3MachineState *global_s = NULL;
 
-static qemu_irq *pout_irq; //TODO alloc this in object state
-static qemu_irq *pdir_irq; //TODO alloc this in object state
+static qemu_irq *pout_irq; // TODO alloc this in object state
+static qemu_irq *pdir_irq; // TODO alloc this in object state
 static qemu_irq *psync_irq;
-//static qemu_irq *spi_cs_irq;
+// static qemu_irq *spi_cs_irq;
 
 static qemu_irq pin_irq[100];
 
-typedef struct {
+typedef struct
+{
     void (*picsimlab_write_pin)(int pin, int value);
     void (*picsimlab_dir_pin)(int pin, int value);
     int (*picsimlab_i2c_event)(const uint8_t id, const uint8_t addr, const uint16_t event);
     uint8_t (*picsimlab_spi_event)(const uint8_t id, const uint16_t event);
     void (*picsimlab_uart_tx_event)(const uint8_t id, const uint8_t value);
-    const short int * pinmap;    
+    const short int *pinmap;
     void (*picsimlab_rmt_event)(const uint8_t channel, const uint32_t config0, const uint32_t value);
 } callbacks_t;
 
-//prototypes
-void qemu_picsimlab_register_callbacks(void * arg);
-void qemu_picsimlab_set_apin(int chn,int value);
-void qemu_picsimlab_set_pin(int pin,int value);
-uint32_t * qemu_picsimlab_get_internals(int cfg);
-uint32_t  qemu_picsimlab_get_TIOCM(void);
-int qemu_picsimlab_flash_dump( int64_t offset, void *buf, int bytes);
+// prototypes
+void qemu_picsimlab_register_callbacks(void *arg);
+void qemu_picsimlab_set_apin(int chn, int value);
+void qemu_picsimlab_set_pin(int pin, int value);
+uint32_t *qemu_picsimlab_get_internals(int cfg);
+uint32_t qemu_picsimlab_get_TIOCM(void);
+int qemu_picsimlab_flash_dump(int64_t offset, void *buf, int bytes);
 void qemu_picsimlab_uart_receive(const int id, const uint8_t *buf, int size);
 
 #define QEMU_INTERNAL_STRAP 0
@@ -204,148 +210,158 @@ void qemu_picsimlab_uart_receive(const int id, const uint8_t *buf, int size);
 #define QEMU_INTERNAL_UART0_BAUD 7
 #define QEMU_INTERNAL_UART1_BAUD 8
 
-uint32_t *qemu_picsimlab_get_internals(int cfg) {
-  switch (cfg) {
-  case QEMU_INTERNAL_STRAP:
-    return &global_s->gpio.parent.strap_mode;
-    break;
-  case QEMU_INTERNAL_GPIO_IN_SEL:
-    return global_s->gpio.parent.gpio_in_sel;
-    break;
-  case QEMU_INTERNAL_GPIO_OUT_SEL:
-    return global_s->gpio.parent.gpio_out_sel;
-    break;
-  case QEMU_INTERNAL_IOMUX_GPIOS:
-    return global_s->iomux.parent.muxgpios;
-    break;
+uint32_t *qemu_picsimlab_get_internals(int cfg)
+{
+    switch (cfg)
+    {
+    case QEMU_INTERNAL_STRAP:
+        return &global_s->gpio.parent.strap_mode;
+        break;
+    case QEMU_INTERNAL_GPIO_IN_SEL:
+        return global_s->gpio.parent.gpio_in_sel;
+        break;
+    case QEMU_INTERNAL_GPIO_OUT_SEL:
+        return global_s->gpio.parent.gpio_out_sel;
+        break;
+    case QEMU_INTERNAL_IOMUX_GPIOS:
+        return global_s->iomux.parent.muxgpios;
+        break;
 
-  case QEMU_INTERNAL_LEDC_CHANNEL_CONF:
-    return global_s->ledc.channel_conf0_reg;
-    break;
-  case QEMU_INTERNAL_LEDC_TIMER_FREQ:
-    return global_s->ledc.freq;
-    break;
-  case QEMU_INTERNAL_LEDC_CHANNEL_DUTY:
-    return (uint32_t *) global_s->ledc.duty;
-    break;
-  
-  case QEMU_INTERNAL_UART0_BAUD:
-    return &global_s->uart[0].parent.baud_rate;
-    break;
-  case QEMU_INTERNAL_UART1_BAUD:
-    return &global_s->uart[1].parent.baud_rate;
-    break;
+    case QEMU_INTERNAL_LEDC_CHANNEL_CONF:
+        return global_s->ledc.channel_conf0_reg;
+        break;
+    case QEMU_INTERNAL_LEDC_TIMER_FREQ:
+        return global_s->ledc.freq;
+        break;
+    case QEMU_INTERNAL_LEDC_CHANNEL_DUTY:
+        return (uint32_t *)global_s->ledc.duty;
+        break;
 
-  default:
-    printf("Invalid internal request\n"); 
-    break;
-  }
-  return NULL;
+    case QEMU_INTERNAL_UART0_BAUD:
+        return &global_s->uart[0].parent.baud_rate;
+        break;
+    case QEMU_INTERNAL_UART1_BAUD:
+        return &global_s->uart[1].parent.baud_rate;
+        break;
+
+    default:
+        printf("Invalid internal request\n");
+        break;
+    }
+    return NULL;
 }
 
 void uart_receive(void *opaque, const uint8_t *buf, int size);
 int uart_can_receive(void *opaque);
 
-void qemu_picsimlab_uart_receive(const int id, const uint8_t *buf, int size){
-   uart_receive((void *) &global_s->uart[id], buf, size);
+void qemu_picsimlab_uart_receive(const int id, const uint8_t *buf, int size)
+{
+    uart_receive((void *)&global_s->uart[id], buf, size);
 }
 
 uint32_t qemu_picsimlab_get_TIOCM(void)
-{  
-   ESP32UARTState *s = ESP32_UART(&(global_s->uart[0].parent));
+{
+    ESP32UARTState *s = ESP32_UART(&(global_s->uart[0].parent));
 
-   uint32_t state = 0;
-   
+    uint32_t state = 0;
+
 #ifdef _WIN32
-   WinChardev *ws = WIN_CHARDEV(s->chr.chr);
+    WinChardev *ws = WIN_CHARDEV(s->chr.chr);
 
-   if (ws->file != INVALID_HANDLE_VALUE) {
-     long unsigned int wstate;
-     if(GetCommModemStatus(ws->file, &wstate)){
-       if(wstate & MS_DSR_ON) state |= CHR_TIOCM_DSR;
-       if(wstate & MS_CTS_ON) state |= CHR_TIOCM_CTS;
-     }
-     else{
-       printf("GetCommModemStatus Erro %li\n", GetLastError());
-     }
+    if (ws->file != INVALID_HANDLE_VALUE)
+    {
+        long unsigned int wstate;
+        if (GetCommModemStatus(ws->file, &wstate))
+        {
+            if (wstate & MS_DSR_ON)
+                state |= CHR_TIOCM_DSR;
+            if (wstate & MS_CTS_ON)
+                state |= CHR_TIOCM_CTS;
+        }
+        else
+        {
+            printf("GetCommModemStatus Erro %li\n", GetLastError());
+        }
     }
 #else
-   qemu_chr_fe_ioctl(&s->chr, CHR_IOCTL_SERIAL_GET_TIOCM, &state); 
+    qemu_chr_fe_ioctl(&s->chr, CHR_IOCTL_SERIAL_GET_TIOCM, &state);
 #endif
-  
-   return state;
+
+    return state;
 }
 
+static void place_holder(int pin, int value) {};
+static int place_holder2(const uint8_t id, const uint8_t addr, const uint16_t event) { return 0; };
+static uint8_t place_holder3(const uint8_t id, const uint16_t event) { return 0; };
+static void place_holder4(const uint8_t id, const uint8_t value) {};
+static void place_holder5(const uint8_t channel, const uint32_t config0, const uint32_t value) {};
 
-static void place_holder(int pin,int value){};
-static int place_holder2(const uint8_t id, const uint8_t addr, const uint16_t event){return 0;};
-static uint8_t place_holder3(const uint8_t id, const uint16_t event){return 0;};
-static void place_holder4(const uint8_t id, const uint8_t value){};
-static void place_holder5(const uint8_t channel, const uint32_t config0, const uint32_t value){};
-
-void (*picsimlab_write_pin)(int pin,int value) = place_holder;
-void (*picsimlab_dir_pin)(int pin,int value) = place_holder;
+void (*picsimlab_write_pin)(int pin, int value) = place_holder;
+void (*picsimlab_dir_pin)(int pin, int value) = place_holder;
 int (*picsimlab_i2c_event)(const uint8_t id, const uint8_t addr, const uint16_t event) = place_holder2;
 uint8_t (*picsimlab_spi_event)(const uint8_t id, const uint16_t event) = place_holder3;
 void (*picsimlab_uart_tx_event)(const uint8_t id, const uint8_t value) = place_holder4;
-static const short int * pinmap = NULL;
+static const short int *pinmap = NULL;
 void (*picsimlab_rmt_event)(const uint8_t channel, const uint32_t config0, const uint32_t value) = place_holder5;
 
-void qemu_picsimlab_register_callbacks(void * arg)
+void qemu_picsimlab_register_callbacks(void *arg)
 {
-  const callbacks_t * callbacks = (const callbacks_t *) arg;
+    const callbacks_t *callbacks = (const callbacks_t *)arg;
 
-  picsimlab_write_pin = callbacks->picsimlab_write_pin;
-  picsimlab_dir_pin = callbacks->picsimlab_dir_pin; 
-  picsimlab_i2c_event = callbacks->picsimlab_i2c_event;
-  picsimlab_spi_event = callbacks->picsimlab_spi_event;
-  picsimlab_uart_tx_event = callbacks->picsimlab_uart_tx_event;
-  pinmap = callbacks->pinmap;
-  picsimlab_rmt_event = callbacks->picsimlab_rmt_event;
+    picsimlab_write_pin = callbacks->picsimlab_write_pin;
+    picsimlab_dir_pin = callbacks->picsimlab_dir_pin;
+    picsimlab_i2c_event = callbacks->picsimlab_i2c_event;
+    picsimlab_spi_event = callbacks->picsimlab_spi_event;
+    picsimlab_uart_tx_event = callbacks->picsimlab_uart_tx_event;
+    pinmap = callbacks->pinmap;
+    picsimlab_rmt_event = callbacks->picsimlab_rmt_event;
 }
 
-void qemu_picsimlab_set_pin(int pin,int value)
+void qemu_picsimlab_set_pin(int pin, int value)
 {
-   //qemu_mutex_lock_iothread ();
-   if (value){
-      qemu_irq_raise (pin_irq[pin]);
-   }
-   else{
-      qemu_irq_lower (pin_irq[pin]);
-   }
-   //qemu_mutex_unlock_iothread ();
-}
-
-void qemu_picsimlab_set_apin(int chn,int value)
-{
-   Esp32c3SarAdcState *s = ESP32C3_SARADC(&(global_s->saradc));
-   s->ADC_values[chn] = value;
-}
-
-int qemu_picsimlab_flash_dump( int64_t offset, void *buf, int bytes)
-{
-    if (global_s->cache.flash_blk){
-       return blk_pread(global_s->cache.flash_blk,offset,bytes,buf,0);
+    // qemu_mutex_lock_iothread ();
+    if (value)
+    {
+        qemu_irq_raise(pin_irq[pin]);
     }
-   return 0;
+    else
+    {
+        qemu_irq_lower(pin_irq[pin]);
+    }
+    // qemu_mutex_unlock_iothread ();
+}
+
+void qemu_picsimlab_set_apin(int chn, int value)
+{
+    Esp32c3SarAdcState *s = ESP32C3_SARADC(&(global_s->saradc));
+    s->ADC_values[chn] = value;
+}
+
+int qemu_picsimlab_flash_dump(int64_t offset, void *buf, int bytes)
+{
+    if (global_s->cache.flash_blk)
+    {
+        return blk_pread(global_s->cache.flash_blk, offset, bytes, buf, 0);
+    }
+    return 0;
 }
 
 static void
 pout_irq_handler(void *opaque, int n, int level)
 {
-   picsimlab_write_pin(n,level);
+    picsimlab_write_pin(n, level);
 }
 
 static void
 pdir_irq_handler(void *opaque, int n, int dir)
 {
-   picsimlab_dir_pin(n, dir);
+    picsimlab_dir_pin(n, dir);
 }
 
 static void
 psync_irq_handler(void *opaque, int n, int dir)
 {
-   picsimlab_dir_pin(-1, dir);
+    picsimlab_dir_pin(-1, dir);
 }
 /*
 static void
@@ -362,49 +378,81 @@ static bool addr_in_range(hwaddr addr, hwaddr start, hwaddr end)
 
 static uint64_t esp32c3_io_read(void *opaque, hwaddr addr, unsigned int size)
 {
-    if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_RTC_I2C_BASE, DR_REG_RTC_I2C_BASE + 0x100)) {
-        return (uint32_t) 0xffffff;
-    } else if (addr + ESP32C3_IO_START_ADDR == DR_REG_SYSCON_BASE + A_SYSCON_ORIGIN_REG) {
+    if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_RTC_I2C_BASE, DR_REG_RTC_I2C_BASE + 0x100))
+    {
+        return (uint32_t)0xffffff;
+    }
+    else if (addr + ESP32C3_IO_START_ADDR == DR_REG_SYSCON_BASE + A_SYSCON_ORIGIN_REG)
+    {
         /* Return "QEMU" as a 32-bit value */
         return 0x51454d55;
-    } else if (addr + ESP32C3_IO_START_ADDR == DR_REG_SYSCON_BASE + A_SYSCON_RND_DATA_REG) {
+    }
+    else if (addr + ESP32C3_IO_START_ADDR == DR_REG_SYSCON_BASE + A_SYSCON_WIFI_CLK_EN_REG)
+    {
+        return  global_s->wifi_clk_en_reg;
+    }
+    else if (addr + ESP32C3_IO_START_ADDR == DR_REG_SYSCON_BASE + A_SYSCON_RND_DATA_REG)
+    {
         /* Return a random 32-bit value */
         static bool init = false;
-        if (!init) {
+        if (!init)
+        {
             srand(time(NULL));
             init = true;
         }
         return rand();
-    } else if (addr + ESP32C3_IO_START_ADDR == DR_REG_ASSIST_DEBUG_BASE + A_ASSIST_DEBUG_CORE_0_DEBUG_MODE_REG) {
+    }
+    else if (addr + ESP32C3_IO_START_ADDR == DR_REG_ASSIST_DEBUG_BASE + A_ASSIST_DEBUG_CORE_0_DEBUG_MODE_REG)
+    {
         return 0;
-    } else {
+    }
+    else
+    {
 #if ESP32C3_IO_WARNING
-        if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_SYSCON_BASE,DR_REG_SYSCON_BASE + 0x1000)){
-            warn_report("[ESP32-C3] SYSCON          Unsupported read to $%08lx\n", ESP32C3_IO_START_ADDR + addr);  
+        if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_SYSCON_BASE, DR_REG_SYSCON_BASE + 0x1000))
+        {
+            warn_report("[ESP32-C3] SYSCON          Unsupported read to $%08lx\n", ESP32C3_IO_START_ADDR + addr);
+            return 0x1001;
         }
-        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_FE_BASE,DR_REG_FE_BASE + 0x1000)){
-            warn_report("[ESP32-C3] FE              Unsupported read to $%08lx\n", ESP32C3_IO_START_ADDR + addr);  
+        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_FE_BASE, DR_REG_FE_BASE + 0x1000))
+        {
+            warn_report("[ESP32-C3] FE              Unsupported read to $%08lx\n", ESP32C3_IO_START_ADDR + addr);
+            return 0x1002;
         }
-        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_BB_BASE,DR_REG_BB_BASE + 0x1000)){
-            warn_report("[ESP32-C3] BB              Unsupported read to $%08lx\n", ESP32C3_IO_START_ADDR + addr);  
+        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_BB_BASE, DR_REG_BB_BASE + 0x1000))
+        {
+            warn_report("[ESP32-C3] BB              Unsupported read to $%08lx\n", ESP32C3_IO_START_ADDR + addr);
+            return 0x1003;
         }
-        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_NRX_BASE,DR_REG_NRX_BASE + 0x1000)){
-            warn_report("[ESP32-C3] NRX             Unsupported read to $%08lx\n", ESP32C3_IO_START_ADDR + addr);  
+        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_NRX_BASE, DR_REG_NRX_BASE + 0x1000))
+        {
+            warn_report("[ESP32-C3] NRX             Unsupported read to $%08lx\n", ESP32C3_IO_START_ADDR + addr);
+            return 0x1004;
         }
-        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_SPI0_BASE,DR_REG_SPI0_BASE + 0x1000)){
-            warn_report("[ESP32-C3] SPI0            Unsupported read to $%08lx\n", ESP32C3_IO_START_ADDR + addr);  
+        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_SPI0_BASE, DR_REG_SPI0_BASE + 0x1000))
+        {
+            warn_report("[ESP32-C3] SPI0            Unsupported read to $%08lx\n", ESP32C3_IO_START_ADDR + addr);
+            return 0x1005;
         }
-        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_SENSITIVE_BASE,DR_REG_SENSITIVE_BASE + 0x1000)){
-            warn_report("[ESP32-C3] SENSITIVE       Unsupported read to $%08lx\n", ESP32C3_IO_START_ADDR + addr);  
+        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_SENSITIVE_BASE, DR_REG_SENSITIVE_BASE + 0x1000))
+        {
+            warn_report("[ESP32-C3] SENSITIVE       Unsupported read to $%08lx\n", ESP32C3_IO_START_ADDR + addr);
+            return 0x1006;
         }
-        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_ASSIST_DEBUG_BASE,DR_REG_ASSIST_DEBUG_BASE + 0x1000)){
-            warn_report("[ESP32-C3] ASSIST DEBUG    Unsupported read to $%08lx\n", ESP32C3_IO_START_ADDR + addr);  
-        }        
-        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_FE2_BASE,DR_REG_FE2_BASE + 0x1000)){
-            warn_report("[ESP32-C3] FE2             Unsupported read to $%08lx\n", ESP32C3_IO_START_ADDR + addr);  
+        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_ASSIST_DEBUG_BASE, DR_REG_ASSIST_DEBUG_BASE + 0x1000))
+        {
+            warn_report("[ESP32-C3] ASSIST DEBUG    Unsupported read to $%08lx\n", ESP32C3_IO_START_ADDR + addr);
+            return 0x1007;
         }
-        else{
+        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_FE2_BASE, DR_REG_FE2_BASE + 0x1000))
+        {
+            warn_report("[ESP32-C3] FE2             Unsupported read to $%08lx\n", ESP32C3_IO_START_ADDR + addr);
+            return 0x1008;
+        }
+        else
+        {
             warn_report("[ESP32-C3] <UNKNOWN>       Unsupported read to $%08lx\n", ESP32C3_IO_START_ADDR + addr);
+            return 0x1009;
         }
 #endif
     }
@@ -413,81 +461,93 @@ static uint64_t esp32c3_io_read(void *opaque, hwaddr addr, unsigned int size)
 
 static void esp32c3_io_write(void *opaque, hwaddr addr, uint64_t value, unsigned int size)
 {
+    if (addr + ESP32C3_IO_START_ADDR == DR_REG_SYSCON_BASE + A_SYSCON_WIFI_CLK_EN_REG)
+    {
+        global_s->wifi_clk_en_reg = value;
+    }
 #if ESP32C3_IO_WARNING
-        if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_SYSCON_BASE,DR_REG_SYSCON_BASE + 0x1000)){
-            warn_report("[ESP32-C3] SYSCON          Unsupported write to $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);  
-        }
-        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_FE_BASE,DR_REG_FE_BASE + 0x1000)){
-            warn_report("[ESP32-C3] FE              Unsupported write to $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);  
-        }
-        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_BB_BASE,DR_REG_BB_BASE + 0x1000)){
-            warn_report("[ESP32-C3] BB              Unsupported write to $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);  
-        }
-        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_NRX_BASE,DR_REG_NRX_BASE + 0x1000)){
-            warn_report("[ESP32-C3] NRX             Unsupported write to $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);  
-        }
-        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_SPI0_BASE,DR_REG_SPI0_BASE + 0x1000)){
-            warn_report("[ESP32-C3] SPI0            Unsupported write to $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);  
-        }
-        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_SENSITIVE_BASE,DR_REG_SENSITIVE_BASE + 0x1000)){
-            warn_report("[ESP32-C3] SENSITIVE       Unsupported write to $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);  
-        }
-        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_ASSIST_DEBUG_BASE,DR_REG_ASSIST_DEBUG_BASE + 0x1000)){
-            warn_report("[ESP32-C3] ASSIST DEBUG    Unsupported write to $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);  
-        }        
-        else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_FE2_BASE,DR_REG_FE2_BASE + 0x1000)){
-            warn_report("[ESP32-C3] FE2             Unsupported write to $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);  
-        }
-        else{
-            warn_report("[ESP32-C3] <UNKNOWN>       Unsupported write to $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);
-        }
+    if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_SYSCON_BASE, DR_REG_SYSCON_BASE + 0x1000))
+    {
+        warn_report("[ESP32-C3] SYSCON          Unsupported write to $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);
+    }
+    else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_FE_BASE, DR_REG_FE_BASE + 0x1000))
+    {
+        warn_report("[ESP32-C3] FE              Unsupported write to $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);
+    }
+    else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_BB_BASE, DR_REG_BB_BASE + 0x1000))
+    {
+        warn_report("[ESP32-C3] BB              Unsupported write to $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);
+    }
+    else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_NRX_BASE, DR_REG_NRX_BASE + 0x1000))
+    {
+        warn_report("[ESP32-C3] NRX             Unsupported write to $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);
+    }
+    else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_SPI0_BASE, DR_REG_SPI0_BASE + 0x1000))
+    {
+        warn_report("[ESP32-C3] SPI0            Unsupported write to $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);
+    }
+    else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_SENSITIVE_BASE, DR_REG_SENSITIVE_BASE + 0x1000))
+    {
+        warn_report("[ESP32-C3] SENSITIVE       Unsupported write to $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);
+    }
+    else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_ASSIST_DEBUG_BASE, DR_REG_ASSIST_DEBUG_BASE + 0x1000))
+    {
+        warn_report("[ESP32-C3] ASSIST DEBUG    Unsupported write to $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);
+    }
+    else if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_FE2_BASE, DR_REG_FE2_BASE + 0x1000))
+    {
+        warn_report("[ESP32-C3] FE2             Unsupported write to $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);
+    }
+    else
+    {
+        warn_report("[ESP32-C3] <UNKNOWN>       Unsupported write to $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);
+    }
 #endif
-} 
-
+}
 
 /* Define operations for I/OS */
 static const MemoryRegionOps esp32c3_io_ops = {
-    .read =  esp32c3_io_read,
+    .read = esp32c3_io_read,
     .write = esp32c3_io_write,
     .endianness = DEVICE_LITTLE_ENDIAN,
 };
 
-
 /**
  * @brief Callback invoked when SoC's ESP32C3_RESET_GPIO_NAME pin is toggled
  */
-static void esp32c3_reset_request(void* opaque, int n, int level)
+static void esp32c3_reset_request(void *opaque, int n, int level)
 {
-    if (level) {
+    if (level)
+    {
         ShutdownCause cause = SHUTDOWN_CAUSE_GUEST_RESET;
         qemu_system_reset_request(cause);
     }
 }
 
-
-static void esp32c3_init_spi_flash(Esp32C3MachineState *ms, BlockBackend* blk)
+static void esp32c3_init_spi_flash(Esp32C3MachineState *ms, BlockBackend *blk)
 {
     DeviceState *spi_master = DEVICE(&ms->spi1);
-    BusState* spi_bus = qdev_get_child_bus(spi_master, "spi");
-    const char* flash_model = NULL;
+    BusState *spi_bus = qdev_get_child_bus(spi_master, "spi");
+    const char *flash_model = NULL;
     int64_t image_size = blk_getlength(blk);
 
-    switch (image_size) {
-        case 2 * MB:
-            flash_model = "w25x16";
-            break;
-        case 4 * MB:
-            flash_model = "gd25q32";
-            break;
-        case 8 * MB:
-            flash_model = "gd25q64";
-            break;
-        case 16 * MB:
-            flash_model = "is25lp128";
-            break;
-        default:
-            error_report("Drive size error: only 2, 4, 8, and 16MB images are supported");
-            return;
+    switch (image_size)
+    {
+    case 2 * MB:
+        flash_model = "w25x16";
+        break;
+    case 4 * MB:
+        flash_model = "gd25q32";
+        break;
+    case 8 * MB:
+        flash_model = "gd25q64";
+        break;
+    case 16 * MB:
+        flash_model = "is25lp128";
+        break;
+    default:
+        error_report("Drive size error: only 2, 4, 8, and 16MB images are supported");
+        return;
     }
 
     /* Create the SPI flash model */
@@ -501,7 +561,7 @@ static void esp32c3_init_spi_flash(Esp32C3MachineState *ms, BlockBackend* blk)
                                 qdev_get_gpio_in_named(flash_dev, SSI_GPIO_CS, 0));
 }
 
-static void esp32c3_add_unimp_device(MemoryRegion *dest, const char* name, hwaddr dport_base_addr, size_t size, uint32_t default_value)
+static void esp32c3_add_unimp_device(MemoryRegion *dest, const char *name, hwaddr dport_base_addr, size_t size, uint32_t default_value)
 {
     create_unimplemented_device_default_value(name, dport_base_addr, size, default_value);
 }
@@ -514,7 +574,7 @@ static void esp32c3_init_openeth(Esp32C3MachineState *ms)
 
     MemoryRegion* sys_mem = get_system_memory();
 
-    // Create a new OpenCores Ethernet component 
+    // Create a new OpenCores Ethernet component
     DeviceState* open_eth_dev = qemu_create_nic_device("open_eth", true, NULL);
     if (!open_eth_dev) {
         return;
@@ -526,7 +586,7 @@ static void esp32c3_init_openeth(Esp32C3MachineState *ms)
     sysbus_realize(sbd, &error_fatal);
 
     // OpenCores Ethernet has two memory regions: one for registers and one for descriptors,
-    //     we need to provide one I/O range for each of them 
+    //     we need to provide one I/O range for each of them
     mr = sysbus_mmio_get_region(sbd, 0);
     memory_region_add_subregion_overlap(sys_mem, DR_REG_EMAC_BASE, mr, 0);
     mr = sysbus_mmio_get_region(sbd, 1);
@@ -538,19 +598,19 @@ static void esp32c3_init_openeth(Esp32C3MachineState *ms)
 }
 */
 
-
 static void esp32c3_init_openeth(Esp32C3MachineState *ms)
 {
     SysBusDevice *sbd;
-    MemoryRegion* sys_mem = get_system_memory();
-    
-	const char* type_openeth = "open_eth";
-	NICInfo *nd = qemu_find_nic_info(type_openeth, false, NULL);
-	if(nd!=NULL) {
+    MemoryRegion *sys_mem = get_system_memory();
+
+    const char *type_openeth = "open_eth";
+    NICInfo *nd = qemu_find_nic_info(type_openeth, false, NULL);
+    if (nd != NULL)
+    {
         hwaddr reg_base = DR_REG_EMAC_BASE;
         hwaddr desc_base = reg_base + 0x400;
         qemu_irq irq = qdev_get_gpio_in(DEVICE(&ms->intmatrix), ETS_ETH_MAC_INTR_SOURCE);
-		DeviceState* open_eth_dev = qdev_new(type_openeth);
+        DeviceState *open_eth_dev = qdev_new(type_openeth);
         ms->eth = open_eth_dev;
         qdev_set_nic_properties(open_eth_dev, nd);
         sbd = SYS_BUS_DEVICE(open_eth_dev);
@@ -558,28 +618,29 @@ static void esp32c3_init_openeth(Esp32C3MachineState *ms)
         sysbus_connect_irq(sbd, 0, irq);
         memory_region_add_subregion(sys_mem, reg_base, sysbus_mmio_get_region(sbd, 0));
         memory_region_add_subregion(sys_mem, desc_base, sysbus_mmio_get_region(sbd, 1));
-	}
-	nd = qemu_find_nic_info(TYPE_ESP32C3_WIFI, false, NULL);
-	if(nd!=NULL) {
-            //get macaddres from efuse file
-            device_cold_reset(DEVICE(&ms->efuse));
-            char * mptr = (char *)&ms->efuse.parent.efuses.blocks.rd_mac_spi_sys_0;
-            for(int i=0; i < 6 ; i++){
-                ms->wifi.macaddr[i]=mptr[5-i];
-            }
-            
-            qdev_set_nic_properties(DEVICE(&ms->wifi), nd);
-            sbd = SYS_BUS_DEVICE(DEVICE(&ms->wifi));
-            sysbus_realize_and_unref(sbd, &error_fatal);
-            
-            MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->wifi), 0);
-            memory_region_add_subregion_overlap(sys_mem, DR_REG_WIFI_BASE, mr, 0);
-            
-            sysbus_connect_irq(SYS_BUS_DEVICE(&ms->wifi), 0,
+    }
+    nd = qemu_find_nic_info(TYPE_ESP32C3_WIFI, false, NULL);
+    if (nd != NULL)
+    {
+        // get macaddres from efuse file
+        device_cold_reset(DEVICE(&ms->efuse));
+        char *mptr = (char *)&ms->efuse.parent.efuses.blocks.rd_mac_spi_sys_0;
+        for (int i = 0; i < 6; i++)
+        {
+            ms->wifi.macaddr[i] = mptr[5 - i];
+        }
+
+        qdev_set_nic_properties(DEVICE(&ms->wifi), nd);
+        sbd = SYS_BUS_DEVICE(DEVICE(&ms->wifi));
+        sysbus_realize_and_unref(sbd, &error_fatal);
+
+        MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->wifi), 0);
+        memory_region_add_subregion_overlap(sys_mem, DR_REG_WIFI_BASE, mr, 0);
+
+        sysbus_connect_irq(SYS_BUS_DEVICE(&ms->wifi), 0,
                            qdev_get_gpio_in(DEVICE(&ms->intmatrix), ETS_WIFI_MAC_INTR_SOURCE));
     }
 }
-
 
 static void esp32c3_init_i2c(Esp32C3MachineState *ms)
 {
@@ -591,9 +652,8 @@ static void esp32c3_init_i2c(Esp32C3MachineState *ms)
      * we can move them to the sysbus and thus enable creation of i2c devices.
      */
     DeviceState *i2c_master = DEVICE(&ms->i2c);
-    I2CBus* i2c_bus = I2C_BUS(qdev_get_child_bus(i2c_master, "i2c"));
+    I2CBus *i2c_bus = I2C_BUS(qdev_get_child_bus(i2c_master, "i2c"));
     i2c_slave_create_simple(i2c_bus, "picsimlab_i2c", 0x00);
-
 }
 
 static void esp32c3_load_firmware(MachineState *machine)
@@ -601,18 +661,22 @@ static void esp32c3_load_firmware(MachineState *machine)
     Esp32C3MachineState *ms = ESP32C3_MACHINE(machine);
     const char *bios_filename = NULL;
 
-    if (machine->firmware) {
+    if (machine->firmware)
+    {
         bios_filename = machine->firmware;
     }
 
-    if (machine->kernel_filename) {
-        if (bios_filename) {
+    if (machine->kernel_filename)
+    {
+        if (bios_filename)
+        {
             qemu_log("Warning: both -bios and -kernel arguments specified. Only loading the the -kernel file.\n");
         }
         bios_filename = machine->kernel_filename;
     }
 
-    if (bios_filename) {
+    if (bios_filename)
+    {
         /* Since EspRISCVCPU doens't have a RISCVHartArrayState field, let's bake one on the stack. It will only be
          * used to get the type of the RISC-V CPU (32 or 64 bits) in `riscv_load_kernel` */
         RISCVHartArrayState hart = {
@@ -626,26 +690,31 @@ static void esp32c3_load_firmware(MachineState *machine)
 
         /* The entry point address should be populated regardless of the return value */
         load_elf_ram_sym(bios_filename, NULL, NULL, NULL,
-                        &elf_entry, NULL, NULL, NULL, 0,
-                        EM_RISCV, 1, 0, NULL, false, NULL);
+                         &elf_entry, NULL, NULL, NULL, 0,
+                         EM_RISCV, 1, 0, NULL, false, NULL);
 
         /* On failure, riscv_load_kernel exits the program */
         qemu_log("Loading kernel at address 0x%08" PRIx64 "\n", elf_entry);
         riscv_load_kernel(machine, &hart, elf_entry, false, NULL);
-        if (elf_entry != ESP32C3_RESET_ADDRESS) {
+        if (elf_entry != ESP32C3_RESET_ADDRESS)
+        {
             qdev_prop_set_uint64(DEVICE(&ms->soc), "resetvec", elf_entry);
         }
-    } else {
+    }
+    else
+    {
         /* Open and load the "bios", which is the ROM binary, also named "first stage bootloader" */
         char *rom_binary = qemu_find_file(QEMU_FILE_TYPE_BIOS, "esp32c3-rom.bin");
-        if (rom_binary == NULL) {
+        if (rom_binary == NULL)
+        {
             error_report("Error: -bios argument not set, and ROM code binary not found (1)");
             exit(1);
         }
 
         /* Load ROM file at the reset address */
         int size = load_image_targphys_as(rom_binary, ESP32C3_RESET_ADDRESS, 0x60000, CPU(&ms->soc)->as);
-        if (size < 0) {
+        if (size < 0)
+        {
             error_report("Error: could not load ROM binary '%s'", rom_binary);
             exit(1);
         }
@@ -654,19 +723,21 @@ static void esp32c3_load_firmware(MachineState *machine)
     }
 }
 
-
 static void esp32c3_machine_init(MachineState *machine)
 {
     /* First thing to do is to check if a drive format and a file ahve been passed through the command line.
      * In fact, we will emulate the SPI flash if `if=mtd` was given. To know this, we will need to use the
      * Global API's function `driver_get`. */
-    BlockBackend* blk = NULL;
+    BlockBackend *blk = NULL;
     DriveInfo *dinfo = drive_get(IF_MTD, 0, 0);
-    if (dinfo) {
+    if (dinfo)
+    {
         /* MTD was given! We need to initialize and emulate SPI flash */
         qemu_log("Adding SPI flash device\n");
         blk = blk_by_legacy_dinfo(dinfo);
-    } else {
+    }
+    else
+    {
         qemu_log("Not initializing SPI Flash\n");
     }
 
@@ -718,7 +789,6 @@ static void esp32c3_machine_init(MachineState *machine)
                           NULL, "esp32c3.iomem", 0xd1000);
     memory_region_add_subregion(sys_mem, ESP32C3_IO_START_ADDR, &ms->iomem);
 
-
     /* Initialize the peripheral bus */
     qbus_init(&ms->periph_bus, sizeof(ms->periph_bus),
               TYPE_SYSTEM_BUS, DEVICE(&ms->soc), "esp32c3-periph-bus");
@@ -727,7 +797,8 @@ static void esp32c3_machine_init(MachineState *machine)
     qdev_init_gpio_in_named(DEVICE(&ms->soc), esp32c3_reset_request, ESP32C3_RESET_GPIO_NAME, 1);
 
     /* Initialize the I/O peripherals */
-    for (int i = 0; i < ESP32C3_UART_COUNT; ++i) {
+    for (int i = 0; i < ESP32C3_UART_COUNT; ++i)
+    {
         char name[16];
         snprintf(name, sizeof(name), "uart%d", i);
         object_initialize_child(OBJECT(machine), name, &ms->uart[i], TYPE_ESP32C3_UART);
@@ -767,14 +838,13 @@ static void esp32c3_machine_init(MachineState *machine)
     object_initialize_child(OBJECT(machine), "i2c", &ms->i2c, TYPE_ESP32_I2C);
     ms->i2c.model = I2C_MODEL_ESP32C3;
 
-    if(qemu_find_nic_info(TYPE_ESP32C3_WIFI, false, NULL)!=NULL)
-	    object_initialize_child(OBJECT(machine), "wifi", &ms->wifi, TYPE_ESP32_WIFI); 
-    
+    if (qemu_find_nic_info(TYPE_ESP32C3_WIFI, false, NULL) != NULL)
+        object_initialize_child(OBJECT(machine), "wifi", &ms->wifi, TYPE_ESP32_WIFI);
 
     /* Realize all the I/O peripherals we depend on */
 
     /* Interrupt matrix realization */
-    DeviceState* intmatrix_dev = DEVICE(&ms->intmatrix);
+    DeviceState *intmatrix_dev = DEVICE(&ms->intmatrix);
     {
         /* Store the current Machine CPU in the interrupt matrix */
         object_property_set_link(OBJECT(&ms->intmatrix), "cpu", OBJECT(&ms->soc), &error_abort);
@@ -785,7 +855,8 @@ static void esp32c3_machine_init(MachineState *machine)
         /* Connect all the interrupt matrix 31 output lines to the CPU 31 input IRQ lines.
          * The lines are indexed starting at 1.
          */
-        for (int i = 0; i <= ESP32C3_CPU_INT_COUNT; i++) {
+        for (int i = 0; i <= ESP32C3_CPU_INT_COUNT; i++)
+        {
             qemu_irq cpu_input = qdev_get_gpio_in_named(DEVICE(&ms->soc), ESP_CPU_IRQ_LINES_NAME, i);
             qdev_connect_gpio_out_named(intmatrix_dev, ESP32C3_INT_MATRIX_OUTPUT_NAME, i, cpu_input);
         }
@@ -824,13 +895,15 @@ static void esp32c3_machine_init(MachineState *machine)
         sysbus_realize(SYS_BUS_DEVICE(&ms->spi1), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->spi1), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_SPI1_BASE, mr, 0);
-        if (blk) {
+        if (blk)
+        {
             esp32c3_init_spi_flash(ms, blk);
         }
     }
 
-    for (int i = 0; i < ESP32C3_UART_COUNT; ++i) {
-        const hwaddr uart_base[] = { DR_REG_UART_BASE, DR_REG_UART1_BASE };
+    for (int i = 0; i < ESP32C3_UART_COUNT; ++i)
+    {
+        const hwaddr uart_base[] = {DR_REG_UART_BASE, DR_REG_UART1_BASE};
         sysbus_realize(SYS_BUS_DEVICE(&ms->uart[i]), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->uart[i]), 0);
         memory_region_add_subregion_overlap(sys_mem, uart_base[i], mr, 0);
@@ -849,7 +922,8 @@ static void esp32c3_machine_init(MachineState *machine)
 
     /* (Extmem) Cache realization */
     {
-        if (blk) {
+        if (blk)
+        {
             ms->cache.flash_blk = blk;
         }
         ms->cache.xts_aes = &ms->xts_aes;
@@ -867,7 +941,7 @@ static void esp32c3_machine_init(MachineState *machine)
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->efuse), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_EFUSE_BASE, mr, 0);
         sysbus_connect_irq(SYS_BUS_DEVICE(&ms->efuse), 0,
-                       qdev_get_gpio_in(intmatrix_dev, ETS_EFUSE_INTR_SOURCE));
+                           qdev_get_gpio_in(intmatrix_dev, ETS_EFUSE_INTR_SOURCE));
     }
 
     /* System clock realization */
@@ -876,9 +950,10 @@ static void esp32c3_machine_init(MachineState *machine)
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->clock), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_SYSTEM_BASE, mr, 0);
         /* Connect the IRQ lines to the interrupt matrix */
-        for (int i = 0; i < ESP32C3_SYSTEM_CPU_INTR_COUNT; i++) {
+        for (int i = 0; i < ESP32C3_SYSTEM_CPU_INTR_COUNT; i++)
+        {
             sysbus_connect_irq(SYS_BUS_DEVICE(&ms->clock), i,
-                           qdev_get_gpio_in(intmatrix_dev, ETS_FROM_CPU_INTR0_SOURCE + i));
+                               qdev_get_gpio_in(intmatrix_dev, ETS_FROM_CPU_INTR0_SOURCE + i));
         }
     }
 
@@ -896,7 +971,6 @@ static void esp32c3_machine_init(MachineState *machine)
         /* Connect the Watchdog reset request to the CNTL's WDT0 line */
         qdev_connect_gpio_out_named(DEVICE(&ms->timg[0]), ESP32C3_WDT_IRQ_RESET, 0,
                                     qdev_get_gpio_in(DEVICE(&ms->rtccntl), ESP32C3_TG0WDT_SYS_RESET));
-
     }
     {
         sysbus_realize(SYS_BUS_DEVICE(&ms->timg[1]), &error_fatal);
@@ -916,9 +990,10 @@ static void esp32c3_machine_init(MachineState *machine)
         sysbus_realize(SYS_BUS_DEVICE(&ms->systimer), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->systimer), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_SYSTIMER_BASE, mr, 0);
-        for (int i = 0; i < ESP_SYSTIMER_IRQ_COUNT; i++) {
+        for (int i = 0; i < ESP_SYSTIMER_IRQ_COUNT; i++)
+        {
             sysbus_connect_irq(SYS_BUS_DEVICE(&ms->systimer), i,
-                           qdev_get_gpio_in(intmatrix_dev, ETS_SYSTIMER_TARGET0_EDGE_INTR_SOURCE + i));
+                               qdev_get_gpio_in(intmatrix_dev, ETS_SYSTIMER_TARGET0_EDGE_INTR_SOURCE + i));
         }
     }
 
@@ -929,13 +1004,13 @@ static void esp32c3_machine_init(MachineState *machine)
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->gdma), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_GDMA_BASE, mr, 0);
         /* On the ESP32-C3, both IN and OUT channels are connected to the same Connect the IRQs to the Interrupt Matrix */
-        for (int i = 0; i < ESP32C3_GDMA_CHANNEL_COUNT; i++) {
+        for (int i = 0; i < ESP32C3_GDMA_CHANNEL_COUNT; i++)
+        {
             qdev_connect_gpio_out_named(DEVICE(&ms->gdma), ESP_GDMA_IRQ_IN_NAME, i,
                                         qdev_get_gpio_in(intmatrix_dev, ETS_DMA_CH0_INTR_SOURCE + i));
             qdev_connect_gpio_out_named(DEVICE(&ms->gdma), ESP_GDMA_IRQ_OUT_NAME, i,
                                         qdev_get_gpio_in(intmatrix_dev, ETS_DMA_CH0_INTR_SOURCE + i));
         }
-
     }
 
     /* SHA realization */
@@ -1042,14 +1117,14 @@ static void esp32c3_machine_init(MachineState *machine)
         qdev_realize(DEVICE(&ms->phya), &ms->periph_bus, &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->phya), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_PHYA_BASE, mr, 0);
-    }  
+    }
 
     /* FE realization */
     {
         qdev_realize(DEVICE(&ms->fe), &ms->periph_bus, &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->fe), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_FE_BASE, mr, 0);
-    }   
+    }
 
     /* PWR MANAGER realization */
     {
@@ -1067,64 +1142,65 @@ static void esp32c3_machine_init(MachineState *machine)
                            qdev_get_gpio_in(intmatrix_dev, ETS_I2C_EXT0_INTR_SOURCE));
     }
 
-    /* Initialize I2C support */ 
+    /* Initialize I2C support */
     esp32c3_init_i2c(ms);
 
-    esp32c3_add_unimp_device(sys_mem, "esp32c3.sensitive", DR_REG_SENSITIVE_BASE, 0x1000,0);
-    esp32c3_add_unimp_device(sys_mem, "esp32c3.mmu", DR_REG_MMU_TABLE, 0x1000,0);
-    esp32c3_add_unimp_device(sys_mem, "esp32c3.dedicategpio", DR_REG_DEDICATED_GPIO_BASE, 0x1000,0);
-    esp32c3_add_unimp_device(sys_mem, "esp32c3.worldcntl", DR_REG_WORLD_CNTL_BASE, 0x1000,0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.sensitive", DR_REG_SENSITIVE_BASE, 0x1000, 0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.mmu", DR_REG_MMU_TABLE, 0x1000, 0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.dedicategpio", DR_REG_DEDICATED_GPIO_BASE, 0x1000, 0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.worldcntl", DR_REG_WORLD_CNTL_BASE, 0x1000, 0);
 
-    esp32c3_add_unimp_device(sys_mem, "esp32c3.spi0", DR_REG_SPI0_BASE, 0x1000,0);
-    esp32c3_add_unimp_device(sys_mem, "esp32c3.fe2", DR_REG_FE2_BASE, 0x1000,0);
-    esp32c3_add_unimp_device(sys_mem, "esp32c3.uhci0", DR_REG_UHCI0_BASE, 0x1000,0);
-    esp32c3_add_unimp_device(sys_mem, "esp32c3.rmt", DR_REG_RMT_BASE, 0x1000,0);
-    esp32c3_add_unimp_device(sys_mem, "esp32c3.ledc", DR_REG_LEDC_BASE, 0x1000,0);
-    esp32c3_add_unimp_device(sys_mem, "esp32c3.spi2", DR_REG_SPI2_BASE, 0x1000,0);
-    esp32c3_add_unimp_device(sys_mem, "esp32c3.twai", DR_REG_TWAI_BASE, 0x1000,0);
-    esp32c3_add_unimp_device(sys_mem, "esp32c3.i2s0", DR_REG_I2S0_BASE, 0x1000,0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.spi0", DR_REG_SPI0_BASE, 0x1000, 0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.fe2", DR_REG_FE2_BASE, 0x1000, 0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.uhci0", DR_REG_UHCI0_BASE, 0x1000, 0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.rmt", DR_REG_RMT_BASE, 0x1000, 0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.ledc", DR_REG_LEDC_BASE, 0x1000, 0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.spi2", DR_REG_SPI2_BASE, 0x1000, 0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.twai", DR_REG_TWAI_BASE, 0x1000, 0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.i2s0", DR_REG_I2S0_BASE, 0x1000, 0);
 
-    esp32c3_add_unimp_device(sys_mem, "esp32c3.nrx", DR_REG_NRX_BASE  - 0x0C00, 0x1000,-1);
-    esp32c3_add_unimp_device(sys_mem, "esp32c3.bb", DR_REG_BB_BASE , 0x1000,-1);
-    esp32c3_add_unimp_device(sys_mem, "esp32c3.aes_xts", DR_REG_AES_XTS_BASE, 0x1000,0);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.nrx", DR_REG_NRX_BASE - 0x0C00, 0x1000, -1);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.bb", DR_REG_BB_BASE, 0x1000, -1);
+    esp32c3_add_unimp_device(sys_mem, "esp32c3.aes_xts", DR_REG_AES_XTS_BASE, 0x1000, 0);
 
     /* Register reset function so that it is called when `system_reset` is invoked in QEMU monitor */
-    //qemu_register_reset(esp32c3_reset_request, ms);
+    // qemu_register_reset(esp32c3_reset_request, ms);
 
+    // PICSimLab gpio map
 
-    //PICSimLab gpio map
+    // ESP32-DevKitC V4
+    psync_irq = qemu_allocate_irqs(psync_irq_handler, NULL, 1);
+    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_SYNC, 0, psync_irq[0]);
+    qdev_connect_gpio_out_named(DEVICE(&ms->iomux), ESP32_IOMUX_SYNC, 0, psync_irq[0]);
+    qdev_connect_gpio_out_named(DEVICE(&ms->ledc), ESP32C3_LEDC_SYNC, 0, psync_irq[0]);
 
-//ESP32-DevKitC V4
-    psync_irq = qemu_allocate_irqs (psync_irq_handler, NULL, 1);
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_SYNC, 0 , psync_irq[0]);
-    qdev_connect_gpio_out_named(DEVICE(&ms->iomux), ESP32_IOMUX_SYNC, 0 , psync_irq[0]);
-    qdev_connect_gpio_out_named(DEVICE(&ms->ledc), ESP32C3_LEDC_SYNC, 0 , psync_irq[0]);
+    /*
+        spi_cs_irq = qemu_allocate_irqs (spi_cs_irq_handler, NULL, 8);
 
-/*
-    spi_cs_irq = qemu_allocate_irqs (spi_cs_irq_handler, NULL, 8);
+        qdev_connect_gpio_out_named(DEVICE(&ms->spi[2]), SSI_GPIO_CS, 0 , spi_cs_irq[0]);
+        qdev_connect_gpio_out_named(DEVICE(&ms->spi[2]), SSI_GPIO_CS, 1 , spi_cs_irq[1]);
+        qdev_connect_gpio_out_named(DEVICE(&ms->spi[2]), SSI_GPIO_CS, 2 , spi_cs_irq[2]);
 
-    qdev_connect_gpio_out_named(DEVICE(&ms->spi[2]), SSI_GPIO_CS, 0 , spi_cs_irq[0]);
-    qdev_connect_gpio_out_named(DEVICE(&ms->spi[2]), SSI_GPIO_CS, 1 , spi_cs_irq[1]);
-    qdev_connect_gpio_out_named(DEVICE(&ms->spi[2]), SSI_GPIO_CS, 2 , spi_cs_irq[2]);
+        qdev_connect_gpio_out_named(DEVICE(&ms->spi[3]), SSI_GPIO_CS, 0 , spi_cs_irq[4]);
+        qdev_connect_gpio_out_named(DEVICE(&ms->spi[3]), SSI_GPIO_CS, 1 , spi_cs_irq[5]);
+        qdev_connect_gpio_out_named(DEVICE(&ms->spi[3]), SSI_GPIO_CS, 2 , spi_cs_irq[6]);
+    */
 
-    qdev_connect_gpio_out_named(DEVICE(&ms->spi[3]), SSI_GPIO_CS, 0 , spi_cs_irq[4]);
-    qdev_connect_gpio_out_named(DEVICE(&ms->spi[3]), SSI_GPIO_CS, 1 , spi_cs_irq[5]);
-    qdev_connect_gpio_out_named(DEVICE(&ms->spi[3]), SSI_GPIO_CS, 2 , spi_cs_irq[6]);
-*/
-
-    if(pinmap){
-      pdir_irq = qemu_allocate_irqs (pdir_irq_handler, NULL, pinmap[0]+1 );
-      pout_irq = qemu_allocate_irqs (pout_irq_handler, NULL, pinmap[0]+1);
-      for(int pin = 1; pin < (pinmap[0]+1); pin++){
-        if(pinmap[pin] >= 0){
-            qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS, pinmap[pin], pout_irq[pin]);
-            qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, pinmap[pin] , pdir_irq[pin]);
-            pin_irq[pin]=qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, pinmap[pin]);
+    if (pinmap)
+    {
+        pdir_irq = qemu_allocate_irqs(pdir_irq_handler, NULL, pinmap[0] + 1);
+        pout_irq = qemu_allocate_irqs(pout_irq_handler, NULL, pinmap[0] + 1);
+        for (int pin = 1; pin < (pinmap[0] + 1); pin++)
+        {
+            if (pinmap[pin] >= 0)
+            {
+                qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS, pinmap[pin], pout_irq[pin]);
+                qdev_connect_gpio_out_named(DEVICE(&ms->gpio), ESP32_GPIOS_DIR, pinmap[pin], pdir_irq[pin]);
+                pin_irq[pin] = qdev_get_gpio_in_named(DEVICE(&ms->gpio), ESP32_GPIOS_IN, pinmap[pin]);
+            }
         }
-      } 
     }
 }
-
 
 /* Initialize machine type */
 static void esp32c3_machine_class_init(ObjectClass *oc, void *data)
