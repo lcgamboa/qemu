@@ -13,7 +13,8 @@
 typedef struct dma_list_item {
     unsigned size:12;
     unsigned length:12;
-    unsigned :6;
+    unsigned offset:5;
+    unsigned sosf:1;
     unsigned eof:1;
     unsigned owner:1;
     uint32_t address;
@@ -27,7 +28,7 @@ typedef struct Esp32WifiState {
     qemu_irq irq;
     uint32_t mem[1024];
     unsigned int dma_inlink_address;
-    unsigned int dma_inlink_offset;
+    unsigned int dma_inlink_ptr;
     uint32_t ap_state;
     int inject_queue_size;
     struct mac80211_frame *inject_queue;

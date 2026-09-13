@@ -14,6 +14,56 @@
 
 #define DEBUG 0
 
+#if DEBUG
+
+static const char * get_reg_name(hwaddr addr){
+    switch (addr)
+    {
+        case A_C3_WIFI_DMA_IN_STATUS:
+           return "C3_WIFI_DMA_IN_STATUS";
+           break;
+        case A_C3_WIFI_DMA_INLINK:
+           return "C3_WIFI_DMA_INLINK";
+           break;
+        case A_C3_WIFI_NEXT_RX_DSCR:
+           return "C3_WIFI_NEXT_RX_DSCR";
+           break;
+        case A_C3_WIFI_LAST_RX_DSCR:
+           return "C3_WIFI_LAST_RX_DSCR";
+           break;
+        case A_C3_WIFI_DMA_INT_STATUS:
+           return "C3_WIFI_DMA_INT_STATUS";
+           break;
+        case A_C3_WIFI_DMA_INT_CLR:
+           return "C3_WIFI_DMA_INT_CLR";
+           break;
+        case A_C3_WIFI_STATUS:
+           return "C3_WIFI_STATUS";
+           break;
+        case A_C3_WIFI_DMA_OUTLINK:
+           return "C3_WIFI_DMA_OUTLINK";
+           break; 
+        case A_C3_WIFI_DMA_OUT_STATUS:
+           return "C3_WIFI_DMA_OUT_STATUS";
+           break; 
+        case A_C3_WIFI_TX_CONFIG:
+           return "C3_WIFI_TX_CONFIG";
+           break;         
+        case A_C3_WIFI_TX_CLR:
+           return "C3_WIFI_TX_CLR";
+           break;         
+        case A_C3_WIFI_TX_DURATION:
+           return "C3_WIFI_TX_DURATION";
+           break; 
+        case A_C3_WIFI_OFFSET_REG:
+           return "C3_WIFI_OFFSET_REG";
+           break;   
+    }
+    return "**************";
+}
+
+#endif          
+
 static uint64_t esp32C3_wifi_read(void *opaque, hwaddr addr, unsigned int size)
 {
     
@@ -21,8 +71,11 @@ static uint64_t esp32C3_wifi_read(void *opaque, hwaddr addr, unsigned int size)
     uint32_t r = s->mem[addr/4];
     
     switch(addr) {
+        case A_C3_WIFI_DMA_INLINK:
+            r=s->dma_inlink_address;
+            break;
         case A_C3_WIFI_DMA_IN_STATUS:
-            r=0;
+            r= r & ~0x1;
             break;
         case A_C3_WIFI_DMA_INT_STATUS:
         case A_C3_WIFI_DMA_INT_CLR:
@@ -34,7 +87,9 @@ static uint64_t esp32C3_wifi_read(void *opaque, hwaddr addr, unsigned int size)
             break;           
     }
 
-    if(DEBUG) printf("esp32C3_wifi_read  0x%04lx= 0x%08x\n",(unsigned long) addr,r);
+#if DEBUG
+    printf("esp32C3_wifi_read  %25s(0x%04lx)= 0x%08x\n",get_reg_name(addr),(unsigned long) addr,r);
+#endif    
 
     return r;
 }
@@ -51,11 +106,15 @@ void Esp32_WLAN_frame_delivered(Esp32WifiState *s){
 static void esp32C3_wifi_write(void *opaque, hwaddr addr, uint64_t value,
                                  unsigned int size) {
     Esp32WifiState *s = ESP32_WIFI(opaque);
-    if(DEBUG) printf("esp32C3_wifi_write 0x%04lx= 0x%08lx\n",(unsigned long) addr, (unsigned long) value);
-
+#if DEBUG    
+    printf("esp32C3_wifi_write %25s(0x%04lx)= 0x%08lx\n",get_reg_name(addr),(unsigned long) addr, (unsigned long) value);
+#endif
     switch (addr) {
         case A_C3_WIFI_DMA_INLINK:
             s->dma_inlink_address = value;
+            s->dma_inlink_ptr = value;
+            s->mem[R_C3_WIFI_NEXT_RX_DSCR] = value; 
+            s->mem[R_C3_WIFI_LAST_RX_DSCR] = value;
             break;
         case A_C3_WIFI_DMA_INT_CLR:
             s->raw_interrupt &= ~value;
@@ -105,13 +164,13 @@ void Esp32_sendFrame(Esp32WifiState *s, mac80211_frame *frame,int length, int si
     };
     // These 4 bits are set if the mac addresses previously stored at 0x40 and 0x48
     // match the destination or bssid addresses in the frame
-    if(match_mac_address(frame->destination_address,(uint8_t *)s->mem+0x40)) 
+    if(match_mac_address(frame->destination_address,(uint8_t *)s->mem+A_WIFI_MAC_ADDR_FST_0)) 
         pkt->damatch0=1;
-    if(match_mac_address(frame->destination_address,(uint8_t *)s->mem+0x48)) 
+    if(match_mac_address(frame->destination_address,(uint8_t *)s->mem+A_WIFI_MAC_ADDR_FST_1)) 
         pkt->damatch1=1;
-    if(match_mac_address(frame->bssid_address,(uint8_t *)s->mem+0x40)) 
+    if(match_mac_address(frame->bssid_address,(uint8_t *)s->mem+A_WIFI_MAC_ADDR_FST_0)) 
         pkt->bssidmatch0=1;
-    if(match_mac_address(frame->bssid_address,(uint8_t *)s->mem+0x48)) 
+    if(match_mac_address(frame->bssid_address,(uint8_t *)s->mem+A_WIFI_MAC_ADDR_FST_1)) 
         pkt->bssidmatch1=1;
     //printf("...%x %x\n",header[3],frame->destination_address[0]);
 
@@ -119,13 +178,14 @@ void Esp32_sendFrame(Esp32WifiState *s, mac80211_frame *frame,int length, int si
     length+=sizeof(wifi_pkt_rx_ctrl_c3_t);
     // do a DMA transfer from the hardware to esp32 memory
     dma_list_item item;
-    address_space_read(&address_space_memory, s->dma_inlink_address, MEMTXATTRS_UNSPECIFIED, &item, 12);
+    address_space_read(&address_space_memory, s->dma_inlink_ptr, MEMTXATTRS_UNSPECIFIED, &item, 12);
     address_space_write(&address_space_memory, item.address, MEMTXATTRS_UNSPECIFIED, header, length);
     item.length=length;
     item.eof=1;
-    address_space_write(&address_space_memory, s->dma_inlink_address, MEMTXATTRS_UNSPECIFIED,&item,4);
-    s->dma_inlink_address=item.next;
-    set_interrupt(s, 0x1004024);
+    address_space_write(&address_space_memory, s->dma_inlink_ptr, MEMTXATTRS_UNSPECIFIED,&item,4);
+    s->dma_inlink_ptr=item.next;
+    if(s->dma_inlink_ptr == 0) s->dma_inlink_ptr = s->dma_inlink_address;
+    set_interrupt(s, 0x1004000);
     free(header);
 }
 
@@ -140,6 +200,7 @@ static void esp32c3_wifi_reset_enter(Object *obj, ResetType type)
     Esp32WifiState *s = ESP32_WIFI(obj);
 
     s->dma_inlink_address=0;
+    s->dma_inlink_ptr=0;
     memset(s->mem,0,sizeof(s->mem));
     Esp32_WLAN_reset_ap(s);
 }
@@ -149,6 +210,7 @@ static void esp32C3_wifi_realize(DeviceState *dev, Error **errp)
     Esp32WifiState *s = ESP32_WIFI(dev);
     SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
     s->dma_inlink_address=0;
+    s->dma_inlink_ptr=0;
 
     memory_region_init_io(&s->iomem, OBJECT(dev), &esp32C3_wifi_ops, s,
                           TYPE_ESP32_WIFI, 0x1000);

@@ -247,7 +247,7 @@ static uint64_t esp32_wifi_read(void *opaque, hwaddr addr, unsigned int size)
             r=s->dma_inlink_address;
             break;
         case A_WIFI_DMA_IN_STATUS:
-            r=0;
+            r= r & ~0x1;
             break;
         case A_WIFI_DMA_INT_STATUS:
         case A_WIFI_DMA_INT_CLR:
@@ -283,7 +283,9 @@ static void esp32_wifi_write(void *opaque, hwaddr addr, uint64_t value,
     switch (addr) {
         case A_WIFI_DMA_INLINK:
             s->dma_inlink_address = value;
-            s->dma_inlink_offset = value;
+            s->dma_inlink_ptr = value;
+            s->mem[R_WIFI_NEXT_RX_DSCR] = value; 
+            s->mem[R_WIFI_LAST_RX_DSCR] = value;
             break;
         case A_WIFI_DMA_INT_CLR:
             s->raw_interrupt &= ~value;
@@ -355,13 +357,13 @@ void Esp32_sendFrame(Esp32WifiState *s, mac80211_frame *frame,int length, int si
     length+=sizeof(wifi_pkt_rx_ctrl_t);
     // do a DMA transfer from the hardware to esp32 memory
     dma_list_item item;
-    address_space_read(&address_space_memory, s->dma_inlink_offset, MEMTXATTRS_UNSPECIFIED, &item, 12);
+    address_space_read(&address_space_memory, s->dma_inlink_ptr, MEMTXATTRS_UNSPECIFIED, &item, 12);
     address_space_write(&address_space_memory, item.address, MEMTXATTRS_UNSPECIFIED, header, length);
     item.length=length;
     item.eof=1;
-    address_space_write(&address_space_memory, s->dma_inlink_offset, MEMTXATTRS_UNSPECIFIED,&item,4);
-    s->dma_inlink_offset=item.next;
-    if(s->dma_inlink_offset == 0) s->dma_inlink_offset = s->dma_inlink_address;
+    address_space_write(&address_space_memory, s->dma_inlink_ptr, MEMTXATTRS_UNSPECIFIED,&item,4);
+    s->dma_inlink_ptr=item.next;
+    if(s->dma_inlink_ptr == 0) s->dma_inlink_ptr = s->dma_inlink_address;
     set_interrupt(s,0x1000024);
     free(header);
 }
@@ -377,7 +379,7 @@ static void esp32_wifi_realize(DeviceState *dev, Error **errp)
     Esp32WifiState *s = ESP32_WIFI(dev);
     SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
     s->dma_inlink_address=0;
-    s->dma_inlink_offset=0;
+    s->dma_inlink_ptr=0;
 
     memory_region_init_io(&s->iomem, OBJECT(dev), &esp32_wifi_ops, s,
                           TYPE_ESP32_WIFI, 0x1000);
