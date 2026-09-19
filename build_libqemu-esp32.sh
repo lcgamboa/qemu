@@ -26,36 +26,69 @@ make clean >/dev/null
 # Build everything as usual
 make "-j$ncpu" 
 
-# Build a shared library, without system/main.o and otherwise *exactly* the same
-# flags.
+# Build a shared library, without system/main.o on Linux and qemu-system-xtensa-unsigned.p/system_main.c.o on macOS
+# and otherwise *exactly* the same flags
 cd build
-rm -f qemu-system-xtensa qemu-system-xtensa.rsp
+rm -f qemu-system-xtensa qemu-system-xtensa-unsigned qemu-system-xtensa.rsp
 ninja -v -d keeprsp > qemu-system-xtensa_.rsp
-sed -i -n '$p' qemu-system-xtensa_.rsp
-CMD=$(sed  's/-o .*//' qemu-system-xtensa_.rsp | sed 's/\[.\/.\] //g' | sed 's/@qemu-system-xtensa.rsp//g')
-if [ ! -f qemu-system-xtensa.rsp ]; then
- cp qemu-system-xtensa_.rsp qemu-system-xtensa.rsp
+if [ "$(uname)" = "Darwin" ]; then
+  # For macOS we extract not the last line, but the second line from the end
+  # because the last line calls the script which signs the binary
+  CMD=$(tail -n 2 qemu-system-xtensa_.rsp | head -n 1)
+
+  # Strip the ninja progress prefix
+  CMD="${CMD#*] }"
+
+  # Remove the qemu-system-xtensa-unsigned.p/system_main.c.o
+  CMD="${CMD//qemu-system-xtensa-unsigned.p\/system_main.c.o/}"
+
+  # Build a dynamic lib instead of an executable
+  CMD="${CMD/-o qemu-system-xtensa-unsigned/-dynamiclib -o libqemu-xtensa.dylib}"
+
+  eval "$CMD"
+else
+  sed -i -n '$p' qemu-system-xtensa_.rsp
+  CMD=$(sed  's/-o .*//' qemu-system-xtensa_.rsp | sed 's/\[.\/.\] //g' | sed 's/@qemu-system-xtensa.rsp//g')
+  if [ ! -f qemu-system-xtensa.rsp ]; then
+    cp qemu-system-xtensa_.rsp qemu-system-xtensa.rsp
+  fi
+  sed -i 's/.*-o /-o /' qemu-system-xtensa.rsp
+
+  #dynamic
+  sed -i 's/qemu-system-xtensa.p\/system_main.c.o//g' qemu-system-xtensa.rsp
+  sed -i 's/-o\ qemu-system-xtensa/-shared\ -o\ libqemu-xtensa.so/g' qemu-system-xtensa.rsp
+  eval "$CMD -ggdb @qemu-system-xtensa.rsp"
 fi
-sed -i 's/.*-o /-o /' qemu-system-xtensa.rsp
 
-#dynamic
-sed -i 's/qemu-system-xtensa.p\/system_main.c.o//g' qemu-system-xtensa.rsp
-sed -i 's/-o\ qemu-system-xtensa/-shared\ -o\ libqemu-xtensa.so/g' qemu-system-xtensa.rsp
-eval "$CMD -ggdb @qemu-system-xtensa.rsp"
-
-
-rm -f qemu-system-riscv32 qemu-system-riscv32.rsp
+# Build a shared library, without system/main.o on Linux and qemu-system-riscv32-unsigned.p/system_main.c.o on macOS
+# and otherwise *exactly* the same flags
+rm -f qemu-system-riscv32 qemu-system-riscv32-unsigned qemu-system-riscv32.rsp
 ninja -v -d keeprsp > qemu-system-riscv32_.rsp
-sed -i -n '$p' qemu-system-riscv32_.rsp
-CMD=$(sed  's/-o .*//' qemu-system-riscv32_.rsp | sed 's/\[.\/.\] //g' | sed 's/@qemu-system-riscv32.rsp//g')
-if [ ! -f qemu-system-riscv32.rsp ]; then
- cp qemu-system-riscv32_.rsp qemu-system-riscv32.rsp
+if [ "$(uname)" = "Darwin" ]; then
+  # For macOS we extract not the last line, but the second line from the end
+  # because the last line calls the script which signs the binary
+  CMD=$(tail -n 2 qemu-system-riscv32_.rsp | head -n 1)
+
+  # Strip the ninja progress prefix
+  CMD="${CMD#*] }"
+
+  # Remove the qemu-system-riscv32-unsigned.p/system_main.c.o
+  CMD="${CMD//qemu-system-riscv32-unsigned.p\/system_main.c.o/}"
+
+  # Build a dynamic lib instead of an executable
+  CMD="${CMD/-o qemu-system-riscv32-unsigned/-dynamiclib -o libqemu-riscv32.dylib}"
+
+  eval "$CMD"
+else
+  sed -i -n '$p' qemu-system-riscv32_.rsp
+  CMD=$(sed  's/-o .*//' qemu-system-riscv32_.rsp | sed 's/\[.\/.\] //g' | sed 's/@qemu-system-riscv32.rsp//g')
+  if [ ! -f qemu-system-riscv32.rsp ]; then
+   cp qemu-system-riscv32_.rsp qemu-system-riscv32.rsp
+  fi
+  sed -i 's/.*-o /-o /' qemu-system-riscv32.rsp
+
+  #dynamic
+  sed -i 's/qemu-system-riscv32.p\/system_main.c.o//g' qemu-system-riscv32.rsp
+  sed -i 's/-o\ qemu-system-riscv32/-shared\ -o\ libqemu-riscv32.so/g' qemu-system-riscv32.rsp
+  eval "$CMD -ggdb @qemu-system-riscv32.rsp"
 fi
-sed -i 's/.*-o /-o /' qemu-system-riscv32.rsp
-
-
-#dynamic
-sed -i 's/qemu-system-riscv32.p\/system_main.c.o//g' qemu-system-riscv32.rsp
-sed -i 's/-o\ qemu-system-riscv32/-shared\ -o\ libqemu-riscv32.so/g' qemu-system-riscv32.rsp
-eval "$CMD -ggdb @qemu-system-riscv32.rsp"
-
