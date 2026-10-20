@@ -179,6 +179,21 @@ void Esp32_sendFrame(Esp32WifiState *s, mac80211_frame *frame,int length, int si
     // do a DMA transfer from the hardware to esp32 memory
     dma_list_item item;
     address_space_read(&address_space_memory, s->dma_inlink_ptr, MEMTXATTRS_UNSPECIFIED, &item, 12);
+    /* Write only where real hardware would - a descriptor the
+     * driver has handed over (owner set), with room for the frame. Writing
+     * anywhere else corrupts the guest's heap, which then fails in free(). A
+     * frame with nowhere to go is dropped, as the hardware drops it. */
+    if (!item.owner || item.address == 0 || item.size < length) {
+        static int shown;
+        if (shown < 20) {
+            shown++;
+            printf("esp32c3_wifi: frame dropped - descriptor %08x owner=%u size=%u, frame %d bytes\n",
+                   s->dma_inlink_ptr, item.owner, item.size, length);
+            fflush(stdout);
+        }
+        free(header);
+        return;
+    }
     address_space_write(&address_space_memory, item.address, MEMTXATTRS_UNSPECIFIED, header, length);
     item.length=length;
     item.eof=1;
