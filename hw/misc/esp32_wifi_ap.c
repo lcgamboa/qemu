@@ -495,6 +495,10 @@ static ssize_t Esp32_WLAN_receive(NetClientState *ncs,
           return size; 
         }
         Esp32_WLAN_init_ap_frame(s, frame);
+        if (s->mode == Esp32_Mode_Station && s->ap_state == Esp32_WLAN__STATE_ASSOCIATED) {
+            /* From-DS: addr3 is the real sender, as on a bridged network. */
+            memcpy(frame->bssid_address, &buf[6], 6);
+        }
         Esp32_WLAN_insert_frame(s, frame);
     }
     return size;
@@ -747,14 +751,20 @@ void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame)
             ethernet_frame[12] = frame->data_and_fcs[6];
             ethernet_frame[13] = frame->data_and_fcs[7];
 
-            // the new originator of the packet is
-            // the access point
-            if(s->ap_state == Esp32_WLAN__STATE_ASSOCIATED)
-                memcpy(&ethernet_frame[6], s->ap_macaddr, 6);
-            else
+            if(s->ap_state == Esp32_WLAN__STATE_ASSOCIATED) {
+                /* Bridge, do not NAT: a to-DS frame carries addr1 = BSSID,
+                 * addr2 = sender, addr3 = destination. Putting the real ones
+                 * on the wire lets a tap or bridge network see the guest's own
+                 * MAC (DHCP reservations, ARP); slirp works either way. */
+                memcpy(&ethernet_frame[0], frame->bssid_address, 6);
+                memcpy(&ethernet_frame[6], frame->source_address, 6);
+            } else {
                 memcpy(&ethernet_frame[6], s->macaddr, 6);
+            }
 
-            if (ethernet_frame[12] == 0x08 && ethernet_frame[13] == 0x06) {
+            if (s->ap_state == Esp32_WLAN__STATE_ASSOCIATED) {
+                /* addresses set above */
+            } else if (ethernet_frame[12] == 0x08 && ethernet_frame[13] == 0x06) {
                 // for arp request, we use a broadcast
                 memset(&ethernet_frame[0], 0xff, 6);
             } else {
