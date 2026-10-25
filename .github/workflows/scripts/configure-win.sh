@@ -8,6 +8,11 @@ VERSION=${VERSION:-dev}
 echo DBG
 ./configure --help
 
+# No -Werror/werror here: MSYS2 ships a much newer GCC (16.x) than this QEMU
+# branch, and QEMU enables werror by default for git builds. New compiler
+# warnings (e.g. -Wunused-but-set-variable, -Wdiscarded-qualifiers) would then
+# break the build for reasons unrelated to the code being built.
+# Same rationale as macOS.
 ./configure \
     --bindir=bin \
     --datadir=share/qemu \
@@ -16,13 +21,13 @@ echo DBG
     --enable-pixman \
     --enable-slirp \
     --enable-stack-protector \
-    --extra-cflags=-Werror \
     --prefix=${PWD}/install/qemu \
     --static \
     --target-list=${TARGET} \
     --with-pkgversion="${VERSION}" \
     --with-suffix="" \
     --without-default-features \
+    -Dwerror=false \
 || { cat meson-logs/meson-log.txt && false; }
 
 
