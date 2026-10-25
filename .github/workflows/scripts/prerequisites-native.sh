@@ -4,7 +4,7 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND="noninteractive"
 
-apt-get update -y -q
+apt-get update -y -q -o Acquire::Retries=5
 apt-get install -y -q --no-install-recommends \
     build-essential \
     git \

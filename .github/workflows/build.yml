@@ -43,7 +43,7 @@ jobs:
     env:
       # A simple way to spread several environments for Windows. But to be more precise, we need to somehow add different envs to matrix.include
 
-      MSYSTEM: MINGW64  # Ref: https://www.msys2.org/docs/environments/
+      MSYSTEM: UCRT64  # Ref: https://www.msys2.org/docs/environments/
       CHERE_INVOKING: 'yes'
       MSYS: 'winsymlinks:native'
     strategy:
@@ -60,6 +60,7 @@ jobs:
           - platform: x86_64-linux-gnu
             runs_on: ubuntu-22.04
             # Debian 11 provides the lowest possible Glibc version (2.31), given QEMU's glib2 => 2.66 requirement.
+            # It is EOL, so apt sources are redirected to archive.debian.org (see the step below).
             container: debian:11.11
             shell: bash -e {0}
             run_prerequisites: "./.github/workflows/scripts/prerequisites-native.sh"
@@ -86,6 +87,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Use Debian archive repositories (${{ matrix.target }} @ ${{ matrix.platform }})
+        if : ${{ matrix.platform == 'x86_64-linux-gnu' }}
+        run: |
+          # Debian 11 (bullseye) reached EOL and its packages were moved from
+          # deb.debian.org to archive.debian.org. The archived Release files are
+          # expired, so apt must be told to ignore Valid-Until.
+          sed -i 's|deb.debian.org|archive.debian.org|g' /etc/apt/sources.list
+          echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99archive
+
       - name: Install prerequisites (${{ matrix.target }} @ ${{ matrix.platform }})
         if : ${{ matrix.platform != 'x86_64-w64-mingw32' }}
         run: |
@@ -96,20 +106,20 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           cache: true
-          msystem: MINGW64
+          msystem: UCRT64
           install: >-
             diffutils
             git
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-glib2
-            mingw-w64-x86_64-libgcrypt
-            mingw-w64-x86_64-libiconv
-            mingw-w64-x86_64-libslirp
-            mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-pixman
-            mingw-w64-x86_64-pkg-config
-            mingw-w64-x86_64-python
-            mingw-w64-x86_64-SDL2
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-glib2
+            mingw-w64-ucrt-x86_64-libgcrypt
+            mingw-w64-ucrt-x86_64-libiconv
+            mingw-w64-ucrt-x86_64-libslirp
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pixman
+            mingw-w64-ucrt-x86_64-pkg-config
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-SDL2
 
       - name: Configure (${{ matrix.target }} @ ${{ matrix.platform }})
         env:

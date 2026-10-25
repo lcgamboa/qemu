@@ -10,7 +10,7 @@
 set -euo pipefail
 
 INSTALL_BIN_DIR="${1:-install/qemu/bin}"
-MINGW_BIN_DIR="/mingw64/bin"
+MINGW_BIN_DIR="${MINGW_PREFIX:-/ucrt64}/bin"
 
 echo "Checking for missing DLLs in ${INSTALL_BIN_DIR}..."
 
@@ -21,7 +21,7 @@ for exe in "${INSTALL_BIN_DIR}"/*.exe; do
     if [[ -f "${exe}" ]]; then
         echo "Analyzing: $(basename "${exe}")"
         # Use ldd to find dependencies marked as "not found"
-        # Also filter for DLLs that exist in mingw64/bin (our responsibility)
+        # Also filter for DLLs that exist in the MinGW bin dir (our responsibility)
         while IFS= read -r line; do
             # Extract the DLL name from lines like "libfoo.dll => not found"
             if [[ "${line}" =~ ^[[:space:]]*([^[:space:]]+\.dll)[[:space:]]*'=>'[[:space:]]*'not found' ]]; then
