@@ -291,6 +291,13 @@ static Property esp32_gpio_properties[] = {
     /* The strap_mode needs to be explicitly set in the instance init, thus, set
      * the default value to 0. */
     DEFINE_PROP_UINT32("strap_mode", Esp32GpioState, strap_mode, 0),
+    /* Input levels the pins start with, one bit per pin (GPIO0-31, then
+     * GPIO32-39), for running without PICSimLab driving them: e.g.
+     * -global driver=esp32c3.gpio,property=gpio_in,value=0x3fffff lets every
+     * input idle high, as with pull-ups, so an active-low button does not
+     * read as held. Set in the instance init when not given. */
+    DEFINE_PROP_UINT32("gpio_in", Esp32GpioState, gpio_in, 0),
+    DEFINE_PROP_UINT32("gpio_in1", Esp32GpioState, gpio_in1, 0),
     DEFINE_PROP_END_OF_LIST(),
 };
 
