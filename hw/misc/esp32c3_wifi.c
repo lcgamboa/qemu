@@ -153,7 +153,7 @@ void Esp32_sendFrame(Esp32WifiState *s, mac80211_frame *frame,int length, int si
     memset(header,0,sizeof(wifi_pkt_rx_ctrl_c3_t)+length);
     wifi_pkt_rx_ctrl_c3_t *pkt=(wifi_pkt_rx_ctrl_c3_t *)header;
     *pkt=(wifi_pkt_rx_ctrl_c3_t){
-        .rssi=(signal_strength+(rand()%10)+96),
+        .rssi=(signal_strength+(rand()%10)),
         .rate=11,
         .sig_len=length,
         .sig_len_copy=length,
