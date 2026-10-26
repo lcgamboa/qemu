@@ -70,10 +70,202 @@ access_point_info access_points[]={
 
 int nb_aps=sizeof(access_points)/sizeof(access_point_info);
 
+/* The host side of the network as a station of the guest's SoftAP,
+ * alongside the guest's own station link with the fork's access points - the
+ * guest may run both at once, as Tasmota and ESPHome do while trying Wi-Fi
+ * details their setup page was given (AP+STA). Kept apart from ap_state and
+ * mode, which stay the guest station's; frames are told apart by address: to
+ * or from the station's MAC (and the SoftAP's broadcasts) are this link's. */
+enum { SOFTAP_NONE, SOFTAP_AUTHENTICATING, SOFTAP_ASSOCIATING, SOFTAP_ASSOCIATED };
+static struct {
+    int state;
+    uint8_t bssid[6];       /* the guest's SoftAP */
+    char ssid[33];
+    int64_t last_beacon;    /* ns, QEMU_CLOCK_VIRTUAL */
+    int64_t last_try;
+    uint16_t seq;
+    uint8_t peer[6];        /* a host using its own MAC, e.g. slirp */
+    bool peer_set;
+    bool native;            /* a host has used the station's MAC */
+} softap;
+static const uint8_t softap_station[6] = {0x02, 0x53, 0x36, 0x30, 0x00, 0x02};
+#define SOFTAP_RETRY_NS 1000000000LL
+#define SOFTAP_GONE_NS  2000000000LL
+
+static void esp32_softap_send(Esp32WifiState *s, struct mac80211_frame *frame)
+{
+    memcpy(frame->destination_address, softap.bssid, 6);
+    memcpy(frame->source_address, softap_station, 6);
+    memcpy(frame->bssid_address, softap.bssid, 6);
+    frame->sequence_control.sequence_number = softap.seq++;
+    frame->signal_strength = -30;
+    Esp32_WLAN_insert_frame(s, frame);
+}
+
+/* Authentication, then association, each asked for again once a second until
+ * answered: the guest's SoftAP answers none until it is ready, and no probe. */
+static void esp32_softap_try(Esp32WifiState *s)
+{
+    int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    if (now - softap.last_try < SOFTAP_RETRY_NS) {
+        return;
+    }
+    softap.last_try = now;
+    if (softap.state == SOFTAP_AUTHENTICATING) {
+        esp32_softap_send(s, Esp32_WLAN_create_authentication_request());
+    } else if (softap.state == SOFTAP_ASSOCIATING) {
+        access_point_info ap = { .ssid = softap.ssid, .channel = esp32_wifi_channel, .sigstrength = -30 };
+        memcpy(ap.mac_address, softap.bssid, 6);
+        esp32_softap_send(s, Esp32_WLAN_create_association_request(&ap));
+    }
+}
+
+static void esp32_softap_drop(const char *why)
+{
+    if (softap.state != SOFTAP_NONE) {
+        printf("esp32_wifi: guest SoftAP %s gone (%s)\n", softap.ssid, why);
+        fflush(stdout);
+    }
+    softap.state = SOFTAP_NONE;
+    softap.ssid[0] = 0;
+}
+
+/* Every half second: give up a SoftAP that stopped beaconing, ask again. */
+static void esp32_softap_tick(Esp32WifiState *s)
+{
+    if (softap.state == SOFTAP_NONE) {
+        return;
+    }
+    if (qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) - softap.last_beacon > SOFTAP_GONE_NS) {
+        esp32_softap_drop("no beacons");
+    } else {
+        esp32_softap_try(s);
+    }
+}
+
+/* A frame the guest sent: true when it is this link's, and dealt with here. */
+static bool esp32_softap_frame(Esp32WifiState *s, struct mac80211_frame *frame)
+{
+    int type = frame->frame_control.type, sub = frame->frame_control.sub_type;
+    if (type == IEEE80211_TYPE_MGT && sub == IEEE80211_TYPE_MGT_SUBTYPE_BEACON) {
+        char ssid[33] = {0};
+        memcpy(ssid, frame->data_and_fcs + 14, MIN(frame->data_and_fcs[13], 32));
+        if (softap.state == SOFTAP_NONE || memcmp(softap.bssid, frame->bssid_address, 6) ||
+            strcmp(ssid, softap.ssid)) {
+            memcpy(softap.bssid, frame->bssid_address, 6);
+            strcpy(softap.ssid, ssid);
+            softap.state = SOFTAP_AUTHENTICATING;
+            softap.last_try = 0;
+            printf("esp32_wifi: guest SoftAP %s up\n", ssid);
+            fflush(stdout);
+        }
+        softap.last_beacon = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+        esp32_softap_try(s);
+        return true;
+    }
+    bool to_station = !memcmp(frame->destination_address, softap_station, 6);
+    /* From the SoftAP to all its stations (from-DS, a group address). */
+    bool broadcast = type == IEEE80211_TYPE_DATA && (frame->frame_control.flags & 0x03) == 0x02 &&
+                     (frame->destination_address[0] & 1) && softap.state == SOFTAP_ASSOCIATED &&
+                     !memcmp(frame->source_address, softap.bssid, 6);
+    if (!to_station && !broadcast) {
+        return false;
+    }
+    if (type == IEEE80211_TYPE_MGT) {
+        switch (sub) {
+        case IEEE80211_TYPE_MGT_SUBTYPE_AUTHENTICATION:
+            if (frame->data_and_fcs[2] == 2 && softap.state == SOFTAP_AUTHENTICATING) {
+                softap.state = SOFTAP_ASSOCIATING;
+                softap.last_try = 0;
+                esp32_softap_try(s);
+            }
+            break;
+        case IEEE80211_TYPE_MGT_SUBTYPE_ASSOCIATION_RESP:
+            if (softap.state == SOFTAP_ASSOCIATING) {
+                softap.state = SOFTAP_ASSOCIATED;
+            }
+            break;
+        case IEEE80211_TYPE_MGT_SUBTYPE_DEAUTHENTICATION:
+        case IEEE80211_TYPE_MGT_SUBTYPE_DISASSOCIATION:
+            softap.state = SOFTAP_AUTHENTICATING;
+            softap.last_try = 0;
+            break;
+        }
+        return true;
+    }
+    if (type == IEEE80211_TYPE_DATA && sub == IEEE80211_TYPE_DATA_SUBTYPE_DATA &&
+        softap.state == SOFTAP_ASSOCIATED) {
+        /* from-DS: addr1 the destination, addr2 the BSSID, addr3 the source. */
+        unsigned char ethernet_frame[1518];
+        unsigned long size = frame->frame_length - IEEE80211_HEADER_SIZE - 4 - 8 + 22;
+        if (size > sizeof(ethernet_frame) - 14) {
+            size = sizeof(ethernet_frame) - 14;
+        }
+        memcpy(&ethernet_frame[0], frame->destination_address, 6);
+        memcpy(&ethernet_frame[6], frame->bssid_address, 6);
+        ethernet_frame[12] = frame->data_and_fcs[6];
+        ethernet_frame[13] = frame->data_and_fcs[7];
+        memcpy(&ethernet_frame[14], &frame->data_and_fcs[8], size);
+        if (to_station && softap.peer_set && !softap.native) {
+            memcpy(&ethernet_frame[0], softap.peer, 6);
+            /* An ARP's target hardware address too. */
+            if (ethernet_frame[12] == 0x08 && ethernet_frame[13] == 0x06 && size >= 28 &&
+                !memcmp(&ethernet_frame[32], softap_station, 6)) {
+                memcpy(&ethernet_frame[32], softap.peer, 6);
+            }
+        }
+        qemu_send_packet(qemu_get_queue(s->nic), ethernet_frame, size + 14);
+    }
+    return true;
+}
+
+/* A frame from the tap: true when it is the host's station's (its source MAC),
+ * sent into the guest's SoftAP (to-DS) - or dropped, while not joined. */
+static bool esp32_softap_receive(Esp32WifiState *s, const uint8_t *buf, size_t size)
+{
+    if (size < 14) {
+        return false;
+    }
+    bool native = !memcmp(buf + 6, softap_station, 6);
+    softap.native |= native;
+    /* A host with a MAC of its own (slirp, say) uses the station too, as one
+     * did before, while the guest is not a station itself and no host has
+     * used the station's MAC: its frames go in as the station's, and the
+     * station's come back to it. */
+    if (!native && (softap.native || softap.state != SOFTAP_ASSOCIATED ||
+                    s->ap_state == Esp32_WLAN__STATE_ASSOCIATED)) {
+        return false;
+    }
+    if (softap.state != SOFTAP_ASSOCIATED) {
+        return true;
+    }
+    struct mac80211_frame *frame = Esp32_WLAN_create_data_packet(s, buf, size);
+    if (!frame) {
+        return true;
+    }
+    if (!native) {
+        memcpy(softap.peer, buf + 6, 6);
+        softap.peer_set = true;
+        /* An ARP's sender hardware address too. */
+        if (buf[12] == 0x08 && buf[13] == 0x06 && size >= 42) {
+            memcpy(frame->data_and_fcs + 16, softap_station, 6);
+        }
+    }
+    frame->frame_control.flags = 0x01;                   /* to-DS */
+    memcpy(frame->destination_address, softap.bssid, 6); /* addr1: the BSSID */
+    memcpy(frame->source_address, softap_station, 6);    /* addr2: the source */
+    memcpy(frame->bssid_address, buf, 6);                /* addr3: the destination */
+    frame->sequence_control.sequence_number = softap.seq++;
+    frame->signal_strength = -30;
+    Esp32_WLAN_insert_frame(s, frame);
+    return true;
+}
+
 static void Esp32_WLAN_beacon_timer(void *opaque)
 { 
     struct mac80211_frame *frame;
     Esp32WifiState *s = (Esp32WifiState *)opaque;
+    esp32_softap_tick(s);
     // only send a beacon if we are an access point
     if((ENABLE_BEACON)&&(s->mode == Esp32_Mode_Station)){
       if(s->ap_state!=Esp32_WLAN__STATE_STA_ASSOCIATED) {
@@ -363,6 +555,9 @@ static ssize_t Esp32_WLAN_receive(NetClientState *ncs,
     if (!s) {
         return -1;
     }
+    if (esp32_softap_receive(s, buf, size)) {
+        return size;
+    }
     /*
      * A 802.3 packet comes from the qemu network. The
      * access points turns it into a 802.11 frame and
@@ -514,6 +709,7 @@ static NetClientInfo net_info = {
 };
 
 void Esp32_WLAN_reset_ap(Esp32WifiState *s) {
+    esp32_softap_drop("reset");
     esp32_wifi_channel = 0;
     s->ap_state = Esp32_WLAN__STATE_NOT_AUTHENTICATED;
     s->beacon_ap=0;
@@ -590,9 +786,25 @@ void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame)
                 ap_info=&access_points[i];
                 break;
         }
+        /* One sent to an access point by its MAC (authenticating, associating)
+         * is answered whatever channel the radio is on: with its own SoftAP up
+         * and a station on it (AP+STA), the guest stays on the SoftAP's channel,
+         * where a real one moves its SoftAP to the router's. */
+        if (frame->frame_control.type == IEEE80211_TYPE_MGT && !(frame->destination_address[0] & 1)) {
+            for (int i = 0; i < nb_aps; i++) {
+                if (!memcmp(access_points[i].mac_address, frame->destination_address, 6)) {
+                    ap_info = &access_points[i];
+                    break;
+                }
+            }
+        }
     }
 
     Esp32_WLAN_Set_Packet_Status(ESP32_PHYA_ACK);
+    if (esp32_softap_frame(s, frame)) {
+        Esp32_WLAN_frame_delivered(s);
+        return;
+    }
     if(frame->frame_control.type == IEEE80211_TYPE_MGT) {        
         switch(frame->frame_control.sub_type) {
             case IEEE80211_TYPE_MGT_SUBTYPE_BEACON:
