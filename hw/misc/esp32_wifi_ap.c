@@ -84,6 +84,9 @@ static struct {
     int64_t last_beacon;    /* ns, QEMU_CLOCK_VIRTUAL */
     int64_t last_try;
     uint16_t seq;
+    uint8_t peer[6];        /* a host using its own MAC, e.g. slirp */
+    bool peer_set;
+    bool native;            /* a host has used the station's MAC */
 } softap;
 static const uint8_t softap_station[6] = {0x02, 0x53, 0x36, 0x30, 0x00, 0x02};
 #define SOFTAP_RETRY_NS 1000000000LL
@@ -203,6 +206,14 @@ static bool esp32_softap_frame(Esp32WifiState *s, struct mac80211_frame *frame)
         ethernet_frame[12] = frame->data_and_fcs[6];
         ethernet_frame[13] = frame->data_and_fcs[7];
         memcpy(&ethernet_frame[14], &frame->data_and_fcs[8], size);
+        if (to_station && softap.peer_set && !softap.native) {
+            memcpy(&ethernet_frame[0], softap.peer, 6);
+            /* An ARP's target hardware address too. */
+            if (ethernet_frame[12] == 0x08 && ethernet_frame[13] == 0x06 && size >= 28 &&
+                !memcmp(&ethernet_frame[32], softap_station, 6)) {
+                memcpy(&ethernet_frame[32], softap.peer, 6);
+            }
+        }
         qemu_send_packet(qemu_get_queue(s->nic), ethernet_frame, size + 14);
     }
     return true;
@@ -212,7 +223,17 @@ static bool esp32_softap_frame(Esp32WifiState *s, struct mac80211_frame *frame)
  * sent into the guest's SoftAP (to-DS) - or dropped, while not joined. */
 static bool esp32_softap_receive(Esp32WifiState *s, const uint8_t *buf, size_t size)
 {
-    if (size < 14 || memcmp(buf + 6, softap_station, 6)) {
+    if (size < 14) {
+        return false;
+    }
+    bool native = !memcmp(buf + 6, softap_station, 6);
+    softap.native |= native;
+    /* A host with a MAC of its own (slirp, say) uses the station too, as one
+     * did before, while the guest is not a station itself and no host has
+     * used the station's MAC: its frames go in as the station's, and the
+     * station's come back to it. */
+    if (!native && (softap.native || softap.state != SOFTAP_ASSOCIATED ||
+                    s->ap_state == Esp32_WLAN__STATE_ASSOCIATED)) {
         return false;
     }
     if (softap.state != SOFTAP_ASSOCIATED) {
@@ -221,6 +242,14 @@ static bool esp32_softap_receive(Esp32WifiState *s, const uint8_t *buf, size_t s
     struct mac80211_frame *frame = Esp32_WLAN_create_data_packet(s, buf, size);
     if (!frame) {
         return true;
+    }
+    if (!native) {
+        memcpy(softap.peer, buf + 6, 6);
+        softap.peer_set = true;
+        /* An ARP's sender hardware address too. */
+        if (buf[12] == 0x08 && buf[13] == 0x06 && size >= 42) {
+            memcpy(frame->data_and_fcs + 16, softap_station, 6);
+        }
     }
     frame->frame_control.flags = 0x01;                   /* to-DS */
     memcpy(frame->destination_address, softap.bssid, 6); /* addr1: the BSSID */
