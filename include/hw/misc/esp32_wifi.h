@@ -55,6 +55,7 @@ typedef struct Esp32WifiState {
     uint8_t softap_macaddr[6];       
 
     uint8_t mode;  
+    bool access_points_off;
 
 } Esp32WifiState;
 
@@ -65,6 +66,7 @@ typedef struct Esp32WifiState {
 void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame);
 void Esp32_WLAN_setup_ap(DeviceState *dev,Esp32WifiState *s);
 void Esp32_WLAN_reset_ap(Esp32WifiState *s);
+void Esp32_WLAN_class_init(ObjectClass *klass);
 void Esp32_sendFrame(Esp32WifiState *s, struct mac80211_frame *frame,int length, int signal_strength);
 void Esp32_WLAN_frame_delivered(Esp32WifiState *s);
 
