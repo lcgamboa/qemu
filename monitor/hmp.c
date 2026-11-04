@@ -38,6 +38,8 @@
 #include "sysemu/block-backend.h"
 #include "trace.h"
 
+extern GMainContext *g_main_context_default_l;
+
 static void monitor_command_cb(void *opaque, const char *cmdline,
                                void *readline_opaque)
 {
@@ -1491,6 +1493,6 @@ void monitor_init_hmp(Chardev *chr, bool use_readline, Error **errp)
     }
 
     qemu_chr_fe_set_handlers(&mon->common.chr, monitor_can_read, monitor_read,
-                             monitor_event, NULL, &mon->common, NULL, true);
+                             monitor_event, NULL, &mon->common, g_main_context_default_l, true);
     monitor_list_append(&mon->common);
 }
