@@ -33,6 +33,8 @@
 #include "qapi/qmp/qlist.h"
 #include "trace.h"
 
+extern GMainContext *g_main_context_default_l;
+
 /*
  * qmp_dispatcher_co_busy is used for synchronisation between the
  * monitor thread and the main thread to ensure that the dispatcher
@@ -547,7 +549,7 @@ void monitor_init_qmp(Chardev *chr, bool pretty, Error **errp)
     } else {
         qemu_chr_fe_set_handlers(&mon->common.chr, monitor_can_read,
                                  monitor_qmp_read, monitor_qmp_event,
-                                 NULL, &mon->common, NULL, true);
+                                 NULL, &mon->common, g_main_context_default_l, true);
         monitor_list_append(&mon->common);
     }
 }
