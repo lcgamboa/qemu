@@ -249,6 +249,7 @@ static void esp32C3_wifi_class_init(ObjectClass *klass, void *data)
     set_bit(DEVICE_CATEGORY_NETWORK, dc->categories);
     dc->desc = "Esp32C3 WiFi";
     device_class_set_props(dc, esp32C3_wifi_properties);
+    Esp32_WLAN_class_init(klass);
     ResettableClass *rc = RESETTABLE_CLASS(klass);
     resettable_class_set_parent_phases(rc, esp32c3_wifi_reset_enter, NULL, NULL, &rp);
 }

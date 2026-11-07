@@ -30,6 +30,7 @@
 
 
 #include "qemu/osdep.h"
+#include "qom/object.h"
 #include "net/net.h"
 #include "qemu/timer.h"
 
@@ -69,6 +70,45 @@ access_point_info access_points[]={
 };
 
 int nb_aps=sizeof(access_points)/sizeof(access_point_info);
+
+/* The access points can be switched off, as a router is when it restarts: while
+ * the property access-points-off is set, they send no beacons and answer
+ * nothing, and a guest station joined to one is deauthenticated - a few times,
+ * as real access points do, in case one is missed - so its Wi-Fi goes down as
+ * it would. The guest's own SoftAP and the host's station on it go on. */
+static bool esp32_wifi_get_access_points_off(Object *obj, Error **errp)
+{
+    return ESP32_WIFI(obj)->access_points_off;
+}
+
+static void esp32_wifi_set_access_points_off(Object *obj, bool value, Error **errp)
+{
+    ESP32_WIFI(obj)->access_points_off = value;
+}
+
+void Esp32_WLAN_class_init(ObjectClass *klass)
+{
+    object_class_property_add_bool(klass, "access-points-off",
+                                   esp32_wifi_get_access_points_off,
+                                   esp32_wifi_set_access_points_off);
+}
+
+static void esp32_wifi_send_deauth(Esp32WifiState *s)
+{
+    struct mac80211_frame *frame = Esp32_WLAN_create_deauthentication();
+    int8_t strength = -25;
+    for (int i = 0; i < nb_aps; i++) {
+        if (!memcmp(access_points[i].mac_address, s->associated_ap_macaddr, 6)) {
+            strength = access_points[i].sigstrength;
+        }
+    }
+    /* new_frame() leaves both unset: the guest would drop the frame. */
+    frame->signal_strength = strength;
+    memcpy(frame->destination_address, BROADCAST, 6);
+    memcpy(s->ap_macaddr, s->associated_ap_macaddr, 6);
+    Esp32_WLAN_init_ap_frame(s, frame);
+    Esp32_WLAN_insert_frame(s, frame);
+}
 
 /* The host side of the network as a station of the guest's SoftAP,
  * alongside the guest's own station link with the fork's access points - the
@@ -266,6 +306,32 @@ static void Esp32_WLAN_beacon_timer(void *opaque)
     struct mac80211_frame *frame;
     Esp32WifiState *s = (Esp32WifiState *)opaque;
     esp32_softap_tick(s);
+    static int deauths_left;
+    static bool was_off;
+    if (s->access_points_off && s->mode == Esp32_Mode_Station) {
+        if (!was_off) {
+            was_off = true;
+            printf("esp32_wifi: access points off\n");
+            fflush(stdout);
+        }
+        if (s->ap_state == Esp32_WLAN__STATE_ASSOCIATED ||
+            s->ap_state == Esp32_WLAN__STATE_AUTHENTICATED) {
+            deauths_left = 5;
+            s->ap_state = Esp32_WLAN__STATE_NOT_AUTHENTICATED;
+        }
+        if (deauths_left > 0) {
+            deauths_left--;
+            esp32_wifi_send_deauth(s);
+        }
+        timer_mod(s->beacon_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + BEACON_TIME);
+        return;
+    }
+    if (was_off) {
+        was_off = false;
+        printf("esp32_wifi: access points on\n");
+        fflush(stdout);
+    }
+    deauths_left = 0;
     // only send a beacon if we are an access point
     if((ENABLE_BEACON)&&(s->mode == Esp32_Mode_Station)){
       if(s->ap_state!=Esp32_WLAN__STATE_STA_ASSOCIATED) {
@@ -899,7 +965,7 @@ void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame)
                 }
                 break;
         }
-        if(ap_info) {
+        if(ap_info && !s->access_points_off) {
             memcpy(s->ap_macaddr,ap_info->mac_address,6);
             switch(frame->frame_control.sub_type) {
                 case IEEE80211_TYPE_MGT_SUBTYPE_PROBE_REQ:
@@ -931,6 +997,14 @@ void Esp32_WLAN_handle_frame(Esp32WifiState *s, struct mac80211_frame *frame)
                 Esp32_WLAN_insert_frame(s, reply);
             }
         }
+    }
+    if (s->access_points_off && s->mode == Esp32_Mode_Station &&
+        frame->frame_control.type == IEEE80211_TYPE_DATA) {
+        /* As a real access point does to a station that sends it data while
+         * not joined to it: it may have missed the first deauthentication. */
+        esp32_wifi_send_deauth(s);
+        Esp32_WLAN_frame_delivered(s);
+        return;
     }
     if ((frame->frame_control.type == IEEE80211_TYPE_DATA) &&
         (frame->frame_control.sub_type == IEEE80211_TYPE_DATA_SUBTYPE_DATA)) {
