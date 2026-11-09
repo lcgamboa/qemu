@@ -12,6 +12,7 @@
 #include "hw/misc/esp32c3_saradc.h"
 #include "hw/misc/esp32c3_reg.h"
 #include "hw/irq.h"
+#include "hw/qdev-properties.h"
 
 
 #define DEBUG 0
@@ -122,10 +123,24 @@ static void esp32c3_saradc_reset_enter(Object *obj, ResetType type)
     memset(s->mem, 0, sizeof(s->mem));
 }
 
+static Property esp32c3_saradc_properties[] = {
+    /* The raw 12-bit sample each ADC1 channel (GPIO0-4) reads, for running
+     * without PICSimLab driving them: firmware that checks a board's
+     * thermistor otherwise reads 0, which can mean far too hot. E.g.
+     * -global driver=misc.esp32c3.saradc,property=adc1_ch3,value=2700 */
+    DEFINE_PROP_UINT16("adc1_ch0", Esp32c3SarAdcState, ADC_values[0], 0),
+    DEFINE_PROP_UINT16("adc1_ch1", Esp32c3SarAdcState, ADC_values[1], 0),
+    DEFINE_PROP_UINT16("adc1_ch2", Esp32c3SarAdcState, ADC_values[2], 0),
+    DEFINE_PROP_UINT16("adc1_ch3", Esp32c3SarAdcState, ADC_values[3], 0),
+    DEFINE_PROP_UINT16("adc1_ch4", Esp32c3SarAdcState, ADC_values[4], 0),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
 static void esp32c3_saradc_class_init(ObjectClass * klass, void * data)
 {
     ResettablePhases rp;
-    //DeviceClass * dc = DEVICE_CLASS(klass);
+    DeviceClass * dc = DEVICE_CLASS(klass);
+    device_class_set_props(dc, esp32c3_saradc_properties);
     ResettableClass *rc = RESETTABLE_CLASS(klass);
     resettable_class_set_parent_phases(rc, esp32c3_saradc_reset_enter, NULL, NULL, &rp);
 }
