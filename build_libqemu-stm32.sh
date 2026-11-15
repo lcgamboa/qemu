@@ -54,10 +54,18 @@ if [ "$(uname)" = "Darwin" ]; then
   eval "$CMD"
 else
   sed -i -n '$p' qemu-system-arm_cmd.rsp
-  CMD=$(sed  's/\@.*//' qemu-system-arm_cmd.rsp | sed 's/\[.\/.\] //g')
+
+  if [ -f qemu-system-arm.rsp ]; then
+    CMD=$(sed 's/\@.*//' qemu-system-arm_cmd.rsp | sed 's/\[[0-9\/]*\] //g')
+  else
+    # Fallback when Meson passes all arguments directly on the command line (e.g., Ubuntu 24.04)
+    LINE=$(sed 's/\[[0-9\/]*\] //g' qemu-system-arm_cmd.rsp)
+    CMD=$(printf '%s\n' "$LINE" | awk '{print $1}')
+    printf '%s\n' "$LINE" | sed 's/^[^ ]* //' > qemu-system-arm.rsp
+  fi
 
   #dynamic
-  sed -i 's/qemu-system-arm.p\/softmmu_main.c.o//g' qemu-system-arm.rsp
+  sed -i 's/qemu-system-arm.p\/system_main.c.o//g' qemu-system-arm.rsp
   sed -i 's/-o\ qemu-system-arm/-shared\ -o\ libqemu-stm32.so/g' qemu-system-arm.rsp
   eval "$CMD  -ggdb @qemu-system-arm.rsp"
 fi
