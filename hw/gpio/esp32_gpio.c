@@ -12,6 +12,7 @@
 #include "qemu/log.h"
 #include "qemu/error-report.h"
 #include "qapi/error.h"
+#include "qapi/visitor.h"
 #include "ui/console.h"
 #include "hw/hw.h"
 #include "ui/input.h"
@@ -134,6 +135,30 @@ static void set_gpio(void *opaque, int n, int val) {
     }
 }
 
+
+/* Each pin's input level as a property of its own, gpio0 to gpio39, which the
+ * monitor can set while the firmware runs, as a button or a switch on the
+ * board drives the pin: qom-set /machine/gpio gpio9 false. Set as PICSimLab
+ * sets a pin, so the pin's interrupt is raised as its type says. */
+static void esp32_gpio_get_pin(Object *obj, Visitor *v, const char *name,
+                               void *opaque, Error **errp)
+{
+    Esp32GpioState *s = ESP32_GPIO(obj);
+    int n = (intptr_t)opaque;
+    bool level = n < 32 ? (s->gpio_in >> n) & 1 : (s->gpio_in1 >> (n - 32)) & 1;
+
+    visit_type_bool(v, name, &level, errp);
+}
+
+static void esp32_gpio_set_pin(Object *obj, Visitor *v, const char *name,
+                               void *opaque, Error **errp)
+{
+    bool level;
+
+    if (visit_type_bool(v, name, &level, errp)) {
+        set_gpio(obj, (intptr_t)opaque, level);
+    }
+}
 
 static void esp32_gpio_write(void *opaque, hwaddr addr, uint64_t value,
                              unsigned int size) {
@@ -285,6 +310,11 @@ static void esp32_gpio_init(Object *obj)
     qdev_init_gpio_in_named(DEVICE(s), set_gpio, ESP32_GPIOS_IN, 40);
     s->gpio_in = 0x1;
     s->gpio_in1 = 0x8;
+    for (intptr_t n = 0; n < 40; n++) {
+        g_autofree char *name = g_strdup_printf("gpio%d", (int)n);
+        object_property_add(obj, name, "bool", esp32_gpio_get_pin,
+                            esp32_gpio_set_pin, NULL, (void *)n);
+    }
 }
 
 static Property esp32_gpio_properties[] = {
