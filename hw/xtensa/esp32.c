@@ -334,6 +334,7 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
         qdev_realize(DEVICE(&s->cpu[i]), NULL, &error_fatal);
     }
 
+    object_property_set_link(OBJECT(&s->dport), "flash_enc", OBJECT(&s->flash_enc), &error_abort);
     qdev_realize(DEVICE(&s->dport), &s->periph_bus, &error_fatal);
     MemoryRegion* dport_mem = sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->dport), 0);
 
@@ -468,6 +469,7 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     object_property_set_bool(OBJECT(&s->spi[2]),"use_cs",true, &error_abort);
     object_property_set_bool(OBJECT(&s->spi[3]),"use_cs",true, &error_abort);
     for (int i = 0; i < ESP32_SPI_COUNT; ++i) {        
+        object_property_set_link(OBJECT(&s->spi[i]), "flash_enc", OBJECT(&s->flash_enc), &error_abort);
         qdev_realize(DEVICE(&s->spi[i]), &s->periph_bus, &error_fatal);
 
         esp32_soc_add_periph_device(sys_mem, &s->spi[i], spi_base[i]);

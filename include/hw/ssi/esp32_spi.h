@@ -3,6 +3,7 @@
 #include "hw/hw.h"
 #include "hw/registerfields.h"
 #include "hw/ssi/ssi.h"
+#include "hw/misc/esp32_flash_enc.h"
 
 #define TYPE_ESP32_SPI "ssi.esp32.spi"
 #define ESP32_SPI(obj) OBJECT_CHECK(Esp32SpiState, (obj), TYPE_ESP32_SPI)
@@ -22,6 +23,7 @@ typedef struct Esp32SpiState {
     QEMUTimer spi_timer;
     bool xfer_32_bits;
     bool use_cs;
+    Esp32FlashEncryptionState *flash_enc;
     uint32_t addr_reg;
     uint32_t ctrl_reg;
     uint32_t status_reg;

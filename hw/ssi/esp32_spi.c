@@ -247,7 +247,7 @@ static inline int bitlen_to_bytes(uint32_t val)
 
 static void maybe_encrypt_data(Esp32SpiState *s)
 {
-    Esp32FlashEncryptionState* flash_enc = esp32_flash_encryption_find();
+    Esp32FlashEncryptionState* flash_enc = s->flash_enc;
     if (esp32_flash_encryption_enabled(flash_enc)) {
         esp32_flash_encryption_get_result(flash_enc, &s->data_reg[0], 8);
     }
@@ -511,6 +511,8 @@ static void esp32_spi_init(Object *obj)
 static Property esp32_spi_properties[] = {
     DEFINE_PROP_BOOL("xfer_32_bits",Esp32SpiState,xfer_32_bits,false),
     DEFINE_PROP_BOOL("use_cs",Esp32SpiState,use_cs,false),
+    DEFINE_PROP_LINK("flash_enc", Esp32SpiState, flash_enc, TYPE_ESP32_FLASH_ENCRYPTION,
+                     Esp32FlashEncryptionState *),
     DEFINE_PROP_END_OF_LIST(),
 };
 
